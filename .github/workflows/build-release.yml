@@ -11,6 +11,7 @@ on:
           - CloudWash
           - gnarly2
           - nf_gnarly
+          - SIDTrance
           - all
       platforms:
         description: 'Which platforms to build?'
