@@ -16,10 +16,46 @@ void SIDTranceAudioProcessorEditor::onInit()
 {
     mainView = std::make_unique<SIDMainView>();
     addFrameToCanvas(mainView.get());
-    mainView->setBounds(0, 0, kWindowW, kWindowH);
 
+    // Add all children BEFORE setBounds so resized() positions them as real children
+    // Note: addFrameToCanvas calls mainView->init() which sets initialized_=true (via Frame::init())
+    // so addChild() calls below WILL trigger panel->init() which adds knobs/faders as children
     addAllFrames();
     bindAllParameters();
+
+    mainView->setBounds(0, 0, kWindowW, kWindowH);
+
+    // ── Preset system ──────────────────────────────────────────────────────
+    initPresets();
+    updatePresetBar();
+
+    auto& bar = mainView->presetBar;
+    bar.onPrev = [this]() { prevPreset(); };
+    bar.onNext = [this]() { nextPreset(); };
+
+    // Action buttons: toggle state resets immediately after the action fires
+    bar.saveBtn.onToggled = [this](bool on) {
+        if (!on) return;
+        savePreset();
+        mainView->presetBar.saveBtn.setState(false);
+    };
+    bar.saveAsBtn.onToggled = [this](bool on) {
+        if (!on) return;
+        savePresetAs();
+        mainView->presetBar.saveAsBtn.setState(false);
+    };
+    bar.initBtn.onToggled = [this](bool on) {
+        if (!on) return;
+        resetToInit();
+        mainView->presetBar.initBtn.setState(false);
+    };
+
+    // Register as the hit-test root so dispatchMouse() can find child frames
+    setEventRoot(mainView.get());
+
+    // Start the drawing cascade: mainView.drawing_=true cascades to all panels and their controls
+    // Without this, redraw() silently skips frames (drawing_ is false by default)
+    mainView->setDrawing(true);
 }
 
 void SIDTranceAudioProcessorEditor::addAllFrames()
@@ -34,7 +70,7 @@ void SIDTranceAudioProcessorEditor::addAllFrames()
     v.scope1.setLabel("OSC 1: SAW");
     v.scope2.setLabel("OSC 2: TRI");
     v.scope3.setLabel("OSC 3: NOISE");
-    v.filterScope.setLabel("FILTER: Low Pass 24dB");
+    v.filterScope.setFilterState("LP", "24dB", 440.0f, 0.3f);
 
     // ── Oscillator panels ───────────────────────────────────
     v.addChild(&v.osc1);
@@ -53,6 +89,10 @@ void SIDTranceAudioProcessorEditor::addAllFrames()
     v.addChild(&v.lfo1);
     v.addChild(&v.lfo2);
     v.addChild(&v.arpPanel);
+    v.addChild(&v.gatePanel);
+    v.addChild(&v.macroPanel);
+    v.addChild(&v.voiceModPanel);
+    v.addChild(&v.presetBar);
 
     // Arp — default state matching reference (steps 1-6, 8-11, 13-14, 16 active)
     const std::array<bool, 16> defaultSteps = {
@@ -118,6 +158,19 @@ void SIDTranceAudioProcessorEditor::bindAllParameters()
         }
     };
 
+    // ── Waveform selectors (radio buttons, int 0-5) ────────
+    auto bindWaveform = [&](SIDOscillatorPanel& osc, const juce::String& paramId) {
+        int cur = int(std::round(*apvts.getRawParameterValue(paramId)));
+        osc.setWaveform(cur);
+        osc.onWaveformChanged = [&apvts, paramId](int w) {
+            if (auto* p = apvts.getParameter(paramId))
+                p->setValueNotifyingHost((float)w / 6.0f); // range 0-6 (7 waves) → normalized 0-1
+        };
+    };
+    bindWaveform(v.osc1, "osc1_wave");
+    bindWaveform(v.osc2, "osc2_wave");
+    bindWaveform(v.osc3, "osc3_wave");
+
     // ── OSC 1 ───────────────────────────────────────────────
     bindKnob(v.osc1.semiKnob,      "osc1_semi");
     bindKnob(v.osc1.fineKnob,      "osc1_fine");
@@ -153,6 +206,24 @@ void SIDTranceAudioProcessorEditor::bindAllParameters()
     bindKnob(v.filterPanel.resonanceKnob, "filter_res");
     bindToggle(v.filterPanel.keyTrackBtn, "filter_keytrack");
     bindToggle(v.filterPanel.velocityBtn, "filter_velocity");
+    bindToggle(v.filterPanel.slopeBtn,    "filter_slope");
+
+    // Filter type cycle (0=LP, 1=HP, 2=BP, 3=Notch → normalized /3)
+    {
+        int cur = int(std::round(*apvts.getRawParameterValue("filter_type")));
+        v.filterPanel.typeBtn.setIndex(cur);
+        v.filterPanel.typeBtn.onChanged = [&apvts](int i) {
+            if (auto* p = apvts.getParameter("filter_type"))
+                p->setValueNotifyingHost((float)i / 3.0f);
+        };
+    }
+
+    // Filter ENV
+    bindKnob(v.filterPanel.envAmountKnob,  "filter_env_amount");
+    bindKnob(v.filterPanel.envAttackKnob,  "filter_env_attack");
+    bindKnob(v.filterPanel.envDecayKnob,   "filter_env_decay");
+    bindKnob(v.filterPanel.envSustainKnob, "filter_env_sustain");
+    bindKnob(v.filterPanel.envReleaseKnob, "filter_env_release");
 
     // ── Amplifier ────────────────────────────────────────────
     bindKnob(v.ampPanel.attackKnob,  "amp_attack");
@@ -162,16 +233,111 @@ void SIDTranceAudioProcessorEditor::bindAllParameters()
     bindKnob(v.ampPanel.volumeKnob,  "amp_volume");
 
     // ── Master ───────────────────────────────────────────────
-    bindFader(v.masterPanel.outputFader, "master_volume");
-    bindToggle(v.masterPanel.limiterBtn, "master_limiter");
+    bindFader(v.masterPanel.outputFader,     "master_volume");
+    bindToggle(v.masterPanel.limiterBtn,     "master_limiter");
+    bindToggle(v.masterPanel.polyModeBtn,    "master_poly");
 
     // ── LFOs ────────────────────────────────────────────────
-    bindKnob(v.lfo1.rateKnob,    "lfo1_rate");
+    // LFO 1
+    bindToggle(v.lfo1.onBtn,     "lfo1_on");
+    bindKnob  (v.lfo1.rateKnob,  "lfo1_rate");
     bindToggle(v.lfo1.syncBtn,   "lfo1_sync");
     bindToggle(v.lfo1.retrigBtn, "lfo1_retrig");
-    bindKnob(v.lfo2.rateKnob,    "lfo2_rate");
+    {
+        int cur = int(std::round(*apvts.getRawParameterValue("lfo1_shape")));
+        v.lfo1.shapeBtn.setIndex(cur);
+        v.lfo1.setStepEditorActive(cur == 6);
+        v.lfo1.shapeBtn.onChanged = [&apvts, &lfo = v.lfo1](int i) {
+            if (auto* p = apvts.getParameter("lfo1_shape"))
+                p->setValueNotifyingHost((float)i / 6.0f);  // range 0..6 → 7 options
+            lfo.setStepEditorActive(i == 6);
+        };
+    }
+    // LFO 1 step curve (16 bars, -1..+1, active only in STEP shape)
+    {
+        for (int i = 0; i < 16; ++i) {
+            char id[24]; snprintf(id, sizeof(id), "lfo1_step_%02d", i + 1);
+            v.lfo1.stepEditor.setValue(i, *apvts.getRawParameterValue(id));
+        }
+        v.lfo1.stepEditor.onStepChanged = [&apvts](int step, float val) {
+            char id[24]; snprintf(id, sizeof(id), "lfo1_step_%02d", step + 1);
+            if (auto* p = apvts.getParameter(id))
+                p->setValueNotifyingHost(p->convertTo0to1(val));
+        };
+    }
+    // LFO 1 sync division (int 0-7)
+    {
+        int cur = int(std::round(*apvts.getRawParameterValue("lfo1_div")));
+        v.lfo1.syncDivBtn.setIndex(std::clamp(cur, 0, 7));
+        v.lfo1.syncDivBtn.onChanged = [&apvts](int i) {
+            if (auto* p = apvts.getParameter("lfo1_div"))
+                p->setValueNotifyingHost((float)i / 7.0f);
+        };
+    }
+    // LFO 2
+    bindToggle(v.lfo2.onBtn,     "lfo2_on");
+    bindKnob  (v.lfo2.rateKnob,  "lfo2_rate");
     bindToggle(v.lfo2.syncBtn,   "lfo2_sync");
     bindToggle(v.lfo2.retrigBtn, "lfo2_retrig");
+    {
+        int cur = int(std::round(*apvts.getRawParameterValue("lfo2_shape")));
+        v.lfo2.shapeBtn.setIndex(cur);
+        v.lfo2.setStepEditorActive(cur == 6);
+        v.lfo2.shapeBtn.onChanged = [&apvts, &lfo = v.lfo2](int i) {
+            if (auto* p = apvts.getParameter("lfo2_shape"))
+                p->setValueNotifyingHost((float)i / 6.0f);  // range 0..6 → 7 options
+            lfo.setStepEditorActive(i == 6);
+        };
+    }
+    // LFO 2 step curve (16 bars, -1..+1, active only in STEP shape)
+    {
+        for (int i = 0; i < 16; ++i) {
+            char id[24]; snprintf(id, sizeof(id), "lfo2_step_%02d", i + 1);
+            v.lfo2.stepEditor.setValue(i, *apvts.getRawParameterValue(id));
+        }
+        v.lfo2.stepEditor.onStepChanged = [&apvts](int step, float val) {
+            char id[24]; snprintf(id, sizeof(id), "lfo2_step_%02d", step + 1);
+            if (auto* p = apvts.getParameter(id))
+                p->setValueNotifyingHost(p->convertTo0to1(val));
+        };
+    }
+    // LFO 2 sync division (int 0-7)
+    {
+        int cur = int(std::round(*apvts.getRawParameterValue("lfo2_div")));
+        v.lfo2.syncDivBtn.setIndex(std::clamp(cur, 0, 7));
+        v.lfo2.syncDivBtn.onChanged = [&apvts](int i) {
+            if (auto* p = apvts.getParameter("lfo2_div"))
+                p->setValueNotifyingHost((float)i / 7.0f);
+        };
+    }
+
+    // ── Mod Matrix (4 slots) ────────────────────────────────
+    for (int i = 0; i < 4; ++i) {
+        const juce::String pfx = "mod" + juce::String(i + 1) + "_";
+
+        // Source cycle button (0–5 → normalize / 5)
+        {
+            int cur = int(std::round(*apvts.getRawParameterValue(pfx + "src")));
+            v.modMatrix.srcBtn[i].setIndex(cur);
+            v.modMatrix.srcBtn[i].onChanged = [&apvts, pfx](int idx) {
+                if (auto* p = apvts.getParameter(pfx + "src"))
+                    p->setValueNotifyingHost(float(idx) / 5.0f);
+            };
+        }
+
+        // Amount knob — parameter range -1..+1, normalized by APVTS
+        bindKnob(v.modMatrix.amtKnob[i], pfx + "amt");
+
+        // Destination cycle button (0–7 → normalize / 7)
+        {
+            int cur = int(std::round(*apvts.getRawParameterValue(pfx + "dst")));
+            v.modMatrix.dstBtn[i].setIndex(cur);
+            v.modMatrix.dstBtn[i].onChanged = [&apvts, pfx](int idx) {
+                if (auto* p = apvts.getParameter(pfx + "dst"))
+                    p->setValueNotifyingHost(float(idx) / 7.0f);
+            };
+        }
+    }
 
     // ── Effects ─────────────────────────────────────────────
     bindToggle(v.effectsPanel.chorusBtn,    "fx_chorus_on");
@@ -179,6 +345,15 @@ void SIDTranceAudioProcessorEditor::bindAllParameters()
     bindKnob(v.effectsPanel.chorusDepth,    "fx_chorus_depth");
     bindKnob(v.effectsPanel.chorusMix,      "fx_chorus_mix");
     bindToggle(v.effectsPanel.delayBtn,     "fx_delay_on");
+    // Delay time division cycle (int 0-6, 7 options → normalize /6)
+    {
+        int cur = int(std::round(*apvts.getRawParameterValue("fx_delay_time")));
+        v.effectsPanel.delayTimeBtn.setIndex(std::clamp(cur, 0, 6));
+        v.effectsPanel.delayTimeBtn.onChanged = [&apvts](int i) {
+            if (auto* p = apvts.getParameter("fx_delay_time"))
+                p->setValueNotifyingHost((float)i / 6.0f);
+        };
+    }
     bindKnob(v.effectsPanel.delayFeedback,  "fx_delay_feedback");
     bindKnob(v.effectsPanel.delayMix,       "fx_delay_mix");
     bindToggle(v.effectsPanel.reverbBtn,    "fx_reverb_on");
@@ -191,13 +366,326 @@ void SIDTranceAudioProcessorEditor::bindAllParameters()
         const juce::String id = juce::String::formatted("seq_step_%02d", i + 1);
         bindStep(v.arpPanel.steps[i], id);
     }
-    bindToggle(v.arpPanel.syncBtn, "arp_sync");
+    bindToggle(v.arpPanel.arpOnBtn, "arp_on");
+    bindToggle(v.arpPanel.syncBtn,  "arp_sync");
+
+    // ── Arp cycle controls ───────────────────────────────────
+    // Helper: find closest index in a float array
+    auto closestIdx = [](const float* vals, int n, float v) {
+        int best = 0;
+        float bestD = std::abs(vals[0] - v);
+        for (int i = 1; i < n; ++i) {
+            float d = std::abs(vals[i] - v);
+            if (d < bestD) { bestD = d; best = i; }
+        }
+        return best;
+    };
+
+    // MODE  (int 0-4, 5 choices)
+    if (auto* p = apvts.getParameter("arp_mode")) {
+        int cur = int(std::round(*apvts.getRawParameterValue("arp_mode")));
+        v.arpPanel.modeBtn.setIndex(cur);
+        v.arpPanel.modeBtn.onChanged = [&apvts](int i) {
+            if (auto* p2 = apvts.getParameter("arp_mode"))
+                p2->setValueNotifyingHost((float)i / 4.0f);
+        };
+        (void)p;
+    }
+
+    // OCTAVE  (int 1-4, button index 0-3)
+    if (auto* p = apvts.getParameter("arp_octave")) {
+        int cur = int(std::round(*apvts.getRawParameterValue("arp_octave"))); // 1-4
+        v.arpPanel.octaveBtn.setIndex(cur - 1);
+        v.arpPanel.octaveBtn.onChanged = [&apvts](int i) {
+            if (auto* p2 = apvts.getParameter("arp_octave"))
+                p2->setValueNotifyingHost((float)i / 3.0f);
+        };
+        (void)p;
+    }
+
+    // GATE  (float 0-1, 6 presets)
+    {
+        static constexpr float gateVals[] = {0.1f, 0.25f, 0.5f, 0.75f, 0.9f, 1.0f};
+        float cur = *apvts.getRawParameterValue("arp_gate");
+        v.arpPanel.gateBtn.setIndex(closestIdx(gateVals, 6, cur));
+        v.arpPanel.gateBtn.onChanged = [&apvts](int i) {
+            static constexpr float vals[] = {0.1f, 0.25f, 0.5f, 0.75f, 0.9f, 1.0f};
+            if (auto* p = apvts.getParameter("arp_gate"))
+                p->setValueNotifyingHost(vals[i]); // range 0-1, normalized = raw
+        };
+    }
+
+    // SWING  (float 0-0.5, 4 presets)
+    {
+        static constexpr float swingVals[] = {0.0f, 0.1f, 0.165f, 0.25f};
+        float cur = *apvts.getRawParameterValue("arp_swing");
+        v.arpPanel.swingBtn.setIndex(closestIdx(swingVals, 4, cur));
+        v.arpPanel.swingBtn.onChanged = [&apvts](int i) {
+            static constexpr float vals[] = {0.0f, 0.1f, 0.165f, 0.25f};
+            if (auto* p = apvts.getParameter("arp_swing"))
+                p->setValueNotifyingHost(vals[i] / 0.5f); // normalize 0-0.5 → 0-1
+        };
+    }
+
+    // TEMPO  (float 60-200, 8 presets)
+    {
+        static constexpr float tempoVals[] = {60.f,80.f,100.f,120.f,140.f,160.f,180.f,200.f};
+        float cur = *apvts.getRawParameterValue("arp_tempo");
+        v.arpPanel.tempoBtn.setIndex(closestIdx(tempoVals, 8, cur));
+        v.arpPanel.tempoBtn.onChanged = [&apvts](int i) {
+            static constexpr float vals[] = {60.f,80.f,100.f,120.f,140.f,160.f,180.f,200.f};
+            if (auto* p = apvts.getParameter("arp_tempo"))
+                p->setValueNotifyingHost((vals[i] - 60.f) / 140.f); // normalize 60-200 → 0-1
+        };
+    }
+
+    // ── Voice Mod Panel ─────────────────────────────────────
+    // Unison voices (int 1–7, button index 0–6, normalize = index/6)
+    {
+        int cur = int(std::round(*apvts.getRawParameterValue("unison_voices")));
+        v.voiceModPanel.uniVoicesBtn.setIndex(std::clamp(cur - 1, 0, 15));
+        v.voiceModPanel.uniVoicesBtn.onChanged = [&apvts](int i) {
+            if (auto* p = apvts.getParameter("unison_voices"))
+                p->setValueNotifyingHost((float)i / 15.0f);
+        };
+    }
+    bindKnob(v.voiceModPanel.uniDetuneKnob, "unison_detune");
+    bindKnob(v.voiceModPanel.uniSpreadKnob, "unison_spread");
+
+    // Glide mode (int 0–2, button index 0–2, normalize = index/2)
+    {
+        int cur = int(std::round(*apvts.getRawParameterValue("glide_mode")));
+        v.voiceModPanel.glideModeBtn.setIndex(std::clamp(cur, 0, 2));
+        v.voiceModPanel.glideModeBtn.onChanged = [&apvts](int i) {
+            if (auto* p = apvts.getParameter("glide_mode"))
+                p->setValueNotifyingHost((float)i / 2.0f);
+        };
+    }
+    bindKnob(v.voiceModPanel.glideTimeKnob, "glide_time");
+
+    // OSC Sync (toggle) + FM amount (knob)
+    bindToggle(v.voiceModPanel.oscSyncBtn, "osc_sync");
+    bindKnob  (v.voiceModPanel.fmAmtKnob,  "osc_fm_amt");
+
+    // Drive type (int 0–3, button index 0–3, normalize = index/3)
+    {
+        int cur = int(std::round(*apvts.getRawParameterValue("drive_type")));
+        v.voiceModPanel.driveTypeBtn.setIndex(std::clamp(cur, 0, 3));
+        v.voiceModPanel.driveTypeBtn.onChanged = [&apvts](int i) {
+            if (auto* p = apvts.getParameter("drive_type"))
+                p->setValueNotifyingHost((float)i / 3.0f);
+        };
+    }
+    bindKnob(v.voiceModPanel.driveAmtKnob, "drive_amount");
+
+    // ── Macro Panel ─────────────────────────────────────────
+    bindKnob(v.macroPanel.macro1, "macro1");
+    bindKnob(v.macroPanel.macro2, "macro2");
+    bindKnob(v.macroPanel.macro3, "macro3");
+    bindKnob(v.macroPanel.macro4, "macro4");
+
+    // ── Trance Gate Panel ───────────────────────────────────
+    bindToggle(v.gatePanel.gateOnBtn, "gate_on");
+
+    // Gate swing (float 0–0.5, 4 presets: 0, 0.1, 0.165, 0.25)
+    {
+        static constexpr float gateSwingVals[] = {0.0f, 0.1f, 0.165f, 0.25f};
+        float cur = *apvts.getRawParameterValue("gate_swing");
+        v.gatePanel.gateSwingBtn.setIndex(closestIdx(gateSwingVals, 4, cur));
+        v.gatePanel.gateSwingBtn.onChanged = [&apvts](int i) {
+            static constexpr float vals[] = {0.0f, 0.1f, 0.165f, 0.25f};
+            if (auto* p = apvts.getParameter("gate_swing"))
+                p->setValueNotifyingHost(vals[i] / 0.5f); // normalize 0-0.5 → 0-1
+        };
+    }
+
+    // Gate sequencer steps (16 toggle buttons)
+    for (int i = 0; i < 16; ++i) {
+        const juce::String id = juce::String::formatted("gate_step_%02d", i + 1);
+        bindStep(v.gatePanel.steps[i], id);
+    }
 }
 
 void SIDTranceAudioProcessorEditor::onRender()
 {
-    // Push live waveform data to scopes (from audio thread FIFO — see PluginProcessor)
-    // TODO in /impl: populate scope buffers via AbstractFifo
+    if (!mainView) return;
+
+    // ── Preset-load refresh ──────────────────────────────────
+    // setStateInformation runs on the message thread and sets this flag.
+    // We read it here (render thread = message thread for Visage) and rebind
+    // all widgets, because Visage controls are not APVTS listeners.
+    if (audioProcessor.stateJustLoaded.exchange(false))
+        bindAllParameters();
+
+    // ── LFO sync-mode visual toggle ──────────────────────────
+    // When sync is on, the rate knob is irrelevant — show the division selector
+    // instead; when off, show the rate knob. setSyncActive() is idempotent.
+    {
+        auto& apvts = audioProcessor.getAPVTS();
+        const bool s1 = apvts.getRawParameterValue("lfo1_sync")->load() > 0.5f;
+        const bool s2 = apvts.getRawParameterValue("lfo2_sync")->load() > 0.5f;
+        mainView->lfo1.setSyncActive(s1);
+        mainView->lfo2.setSyncActive(s2);
+    }
+
+    // ── Live scope labels — update every render frame ─────────
+    {
+        static const std::array<std::string, 7> waveNames = {
+            "SAW", "TRI", "PLS", "NOI", "S+T", "RNG", "HSW"
+        };
+        static const std::array<std::string, 4> filterTypeNames = {
+            "LP", "HP", "BP", "Notch"
+        };
+
+        auto& apvts = audioProcessor.getAPVTS();
+
+        const int w1 = int(std::round(*apvts.getRawParameterValue("osc1_wave")));
+        const int w2 = int(std::round(*apvts.getRawParameterValue("osc2_wave")));
+        const int w3 = int(std::round(*apvts.getRawParameterValue("osc3_wave")));
+        mainView->scope1.setLabel("OSC 1: " + waveNames[std::clamp(w1, 0, 6)]);
+        mainView->scope2.setLabel("OSC 2: " + waveNames[std::clamp(w2, 0, 6)]);
+        mainView->scope3.setLabel("OSC 3: " + waveNames[std::clamp(w3, 0, 6)]);
+
+        const float cutoff = *apvts.getRawParameterValue("filter_cutoff");
+        const float res    = *apvts.getRawParameterValue("filter_res");
+        const int   ftype  = std::clamp(int(std::round(*apvts.getRawParameterValue("filter_type"))), 0, 3);
+        const bool  slope  = *apvts.getRawParameterValue("filter_slope") > 0.5f;
+
+        mainView->filterScope.setFilterState(
+            filterTypeNames[ftype],
+            slope ? "24dB" : "12dB",
+            cutoff,
+            res);
+    }
+
+    // ── ADSR envelope curve generation ───────────────────────
+    // Generates a shape buffer from APVTS values and pushes to each OSC envelope display.
+    // Called every render frame so the curve updates in real time as parameters change.
+    {
+        // Returns normalised value 0..1 for time position t (0..1)
+        auto generateAdsr = [](float a, float d, float s, float r, float* buf, int n) {
+            const float sustainHold = 0.3f;   // fraction of total to show sustain plateau
+            const float totalT = a + d + sustainHold + r + 1e-6f;
+            const float aEnd   = a / totalT;
+            const float dEnd   = (a + d) / totalT;
+            const float sEnd   = (a + d + sustainHold) / totalT;
+
+            for (int i = 0; i < n; ++i) {
+                const float t = float(i) / float(n - 1);
+                float v;
+                if      (t <= aEnd) v = (aEnd > 1e-6f) ? (t / aEnd) : 1.0f;
+                else if (t <= dEnd) v = 1.0f - ((t - aEnd) / (dEnd - aEnd + 1e-6f)) * (1.0f - s);
+                else if (t <= sEnd) v = s;
+                else                v = s * (1.0f - (t - sEnd) / (1.0f - sEnd + 1e-6f));
+                buf[i] = v * 2.0f - 1.0f;   // map 0..1 → -1..+1 for SIDOscilloscopeView
+            }
+        };
+
+        // adsrBuf_ is a member variable — not static, so each instance has its own buffer.
+        // (Static locals were shared across all instances, corrupting envelope displays
+        //  when two SIDyssey instances were open in the same DAW process.)
+        auto& apvts2 = audioProcessor.getAPVTS();
+
+        // OSC 1 envelope display
+        generateAdsr(
+            *apvts2.getRawParameterValue("osc1_attack"),
+            *apvts2.getRawParameterValue("osc1_decay"),
+            *apvts2.getRawParameterValue("osc1_sustain"),
+            *apvts2.getRawParameterValue("osc1_release"),
+            adsrBuf_, 512);
+        mainView->osc1.envelopeDisplay.updateSamples(adsrBuf_, 512);
+
+        // OSC 2 envelope display
+        generateAdsr(
+            *apvts2.getRawParameterValue("osc2_attack"),
+            *apvts2.getRawParameterValue("osc2_decay"),
+            *apvts2.getRawParameterValue("osc2_sustain"),
+            *apvts2.getRawParameterValue("osc2_release"),
+            adsrBuf_, 512);
+        mainView->osc2.envelopeDisplay.updateSamples(adsrBuf_, 512);
+
+        // OSC 3 envelope display
+        generateAdsr(
+            *apvts2.getRawParameterValue("osc3_attack"),
+            *apvts2.getRawParameterValue("osc3_decay"),
+            *apvts2.getRawParameterValue("osc3_sustain"),
+            *apvts2.getRawParameterValue("osc3_release"),
+            adsrBuf_, 512);
+        mainView->osc3.envelopeDisplay.updateSamples(adsrBuf_, 512);
+    }
+
+    // Drain scope FIFO (written by audio thread) → feed scope views (UI thread)
+    auto& proc = audioProcessor;
+    const int available = proc.scopeFifo.getNumReady();
+    if (available <= 0) return;
+
+    // If more data than scopes can display, discard the older tail first
+    static constexpr int kScopeMax = 512;   // matches SIDOscilloscopeView::kMaxSamples
+    const int toShow    = std::min(available, kScopeMax);
+    const int toDiscard = available - toShow;
+
+    if (toDiscard > 0) {
+        int s1, sz1, s2, sz2;
+        proc.scopeFifo.prepareToRead(toDiscard, s1, sz1, s2, sz2);
+        proc.scopeFifo.finishedRead(toDiscard);
+    }
+
+    int start1, size1, start2, size2;
+    proc.scopeFifo.prepareToRead(toShow, start1, size1, start2, size2);
+
+    // Copy L channel into per-instance member buffer (was static — shared across instances)
+    const float* srcL = proc.scopeBuf.getReadPointer(0);
+    int written = 0;
+    for (int i = 0; i < size1 && written < kScopeMax; ++i, ++written)
+        localBuf_[written] = srcL[start1 + i];
+    for (int i = 0; i < size2 && written < kScopeMax; ++i, ++written)
+        localBuf_[written] = srcL[start2 + i];
+
+    proc.scopeFifo.finishedRead(toShow);
+
+    // Feed scope1 with the live audio (mixed output)
+    mainView->scope1.updateSamples(localBuf_, written);
+
+    // Scopes 2 & 3 show a static waveform preview based on each OSC's current type,
+    // so the top panels show what each oscillator is set to.
+    {
+        auto genWave = [](int wave, float* buf, int n) {
+            for (int i = 0; i < n; ++i) {
+                const float t = float(i) / float(n);
+                float v = 0.0f;
+                switch (wave) {
+                case 0: v = 2.0f * t - 1.0f;                                        break; // SAW
+                case 1: v = t < 0.5f ? 4.0f*t-1.0f : 3.0f-4.0f*t;                  break; // TRI
+                case 2: v = t < 0.5f ? 0.85f : -0.85f;                              break; // PULSE
+                case 3: v = (std::sin(t*37.1f)*0.6f + std::sin(t*73.4f)*0.4f
+                           + std::sin(t*113.7f)*0.25f);                              break; // NOISE
+                case 4: v = std::sin(6.28318530f * t);                               break; // S+T
+                case 5: { // RNG — ring-modulated-looking waveform preview
+                    const float a = t * 6.2832f * 2.2f;
+                    v = std::sin(a) * (0.35f + 0.65f * std::abs(std::sin(t * 3.14159f)));
+                    break;
+                }
+                case 6: { // HSW — supersaw: sum of 3 slightly detuned saws
+                    v = (2.0f*t-1.0f) * 0.5f
+                      + (std::fmod(t * 1.005f, 1.0f) * 2.0f - 1.0f) * 0.25f
+                      + (std::fmod(t * 0.995f, 1.0f) * 2.0f - 1.0f) * 0.25f;
+                    break;
+                }
+                default: v = std::sin(6.28318530f * t);                              break;
+                }
+                buf[i] = v;
+            }
+        };
+
+        auto& apvts2 = audioProcessor.getAPVTS();
+        const int w2 = std::clamp(int(std::round(*apvts2.getRawParameterValue("osc2_wave"))), 0, 6);
+        const int w3 = std::clamp(int(std::round(*apvts2.getRawParameterValue("osc3_wave"))), 0, 6);
+        genWave(w2, wvBuf_, 512);
+        mainView->scope2.updateSamples(wvBuf_, 512);
+        genWave(w3, wvBuf_, 512);
+        mainView->scope3.updateSamples(wvBuf_, 512);
+    }
+    // filterScope is now SIDFilterInfoView — driven by setFilterState() in onRender(), not audio data
 }
 
 void SIDTranceAudioProcessorEditor::onDestroy()
@@ -206,6 +694,397 @@ void SIDTranceAudioProcessorEditor::onDestroy()
         removeFrameFromCanvas(mainView.get());
         mainView.reset();
     }
+}
+
+// ============================================================
+//  Factory Preset Data
+//  Each preset is a list of (paramId, denormalized value) pairs
+//  applied on top of the Init (all-defaults) state.
+// ============================================================
+namespace {
+    struct FP { const char* id; float v; };
+
+    static const FP kFP_ClassicLead[] = {
+        {"osc1_wave",0.f},{"osc1_volume",0.90f},
+        {"osc2_wave",0.f},{"osc2_fine",12.f},{"osc2_volume",0.70f},
+        {"osc3_volume",0.f},
+        {"filter_cutoff",700.f},{"filter_res",0.75f},
+        {"filter_env_amount",0.85f},{"filter_env_decay",0.22f},{"filter_env_sustain",0.10f},
+        {"amp_attack",0.003f},{"amp_sustain",0.90f},{"amp_release",0.55f},
+        {"analog_glow",0.35f},{"trance_drift",0.15f},
+        {"fx_delay_mix",0.28f},{"fx_reverb_mix",0.20f},
+    };
+    static const FP kFP_Supersaw[] = {
+        {"osc1_wave",6.f},{"osc1_pw",0.80f},{"osc1_volume",0.95f},
+        {"osc2_volume",0.f},{"osc3_volume",0.f},
+        {"filter_cutoff",3500.f},{"filter_res",0.40f},
+        {"filter_env_amount",0.50f},{"filter_env_decay",0.35f},
+        {"amp_attack",0.010f},{"amp_sustain",0.85f},{"amp_release",0.70f},
+        {"analog_glow",0.45f},{"trance_drift",0.25f},
+        {"unison_voices",5.f},{"unison_detune",25.f},{"unison_spread",0.80f},
+        {"fx_chorus_mix",0.50f},{"fx_reverb_mix",0.35f},
+    };
+    static const FP kFP_TranceBass[] = {
+        {"osc1_wave",0.f},{"osc1_volume",0.95f},
+        {"osc2_wave",0.f},{"osc2_semi",-12.f},{"osc2_fine",-8.f},{"osc2_volume",0.60f},
+        {"osc3_volume",0.f},
+        {"filter_cutoff",350.f},{"filter_res",0.60f},
+        {"filter_env_amount",0.70f},{"filter_env_attack",0.003f},
+        {"filter_env_decay",0.18f},{"filter_env_sustain",0.05f},
+        {"amp_attack",0.002f},{"amp_decay",0.25f},{"amp_sustain",0.75f},{"amp_release",0.35f},
+        {"analog_glow",0.40f},
+        {"fx_delay_mix",0.15f},{"fx_reverb_mix",0.15f},
+    };
+    static const FP kFP_AcidBass[] = {
+        {"osc1_wave",0.f},{"osc1_volume",0.95f},
+        {"osc2_volume",0.f},{"osc3_volume",0.f},
+        {"filter_cutoff",200.f},{"filter_res",0.93f},
+        {"filter_env_amount",0.95f},{"filter_env_attack",0.001f},
+        {"filter_env_decay",0.15f},{"filter_env_sustain",0.0f},
+        {"amp_attack",0.001f},{"amp_decay",0.35f},{"amp_sustain",0.60f},{"amp_release",0.30f},
+        {"analog_glow",0.55f},
+        {"arp_on",1.f},{"arp_gate",0.50f},
+        {"fx_delay_mix",0.20f},{"fx_reverb_mix",0.10f},
+    };
+    static const FP kFP_Hoover[] = {
+        {"osc1_wave",0.f},{"osc1_semi",12.f},{"osc1_volume",0.85f},
+        {"osc2_wave",0.f},{"osc2_fine",-5.f},{"osc2_volume",0.80f},
+        {"osc3_volume",0.f},
+        {"osc_fm_amt",0.30f},
+        {"filter_cutoff",2500.f},{"filter_res",0.55f},
+        {"filter_env_amount",-0.50f},{"filter_env_decay",0.40f},
+        {"amp_attack",0.020f},{"amp_sustain",0.85f},{"amp_release",0.60f},
+        {"analog_glow",0.30f},{"trance_drift",0.20f},
+        {"fx_chorus_depth",0.60f},{"fx_reverb_mix",0.25f},
+    };
+    static const FP kFP_ElectroPluck[] = {
+        {"osc1_wave",2.f},{"osc1_pw",0.30f},{"osc1_volume",0.90f},
+        {"osc2_wave",1.f},{"osc2_fine",-3.f},{"osc2_volume",0.50f},
+        {"osc3_volume",0.f},
+        {"filter_cutoff",4000.f},{"filter_res",0.65f},
+        {"filter_env_amount",0.75f},{"filter_env_attack",0.001f},
+        {"filter_env_decay",0.12f},{"filter_env_sustain",0.0f},
+        {"amp_attack",0.001f},{"amp_decay",0.20f},{"amp_sustain",0.0f},{"amp_release",0.20f},
+        {"analog_glow",0.25f},
+        {"fx_reverb_mix",0.30f},
+    };
+    static const FP kFP_EuphoricPad[] = {
+        {"osc1_wave",0.f},{"osc1_volume",0.75f},
+        {"osc2_wave",1.f},{"osc2_fine",7.f},{"osc2_volume",0.75f},
+        {"osc3_wave",4.f},{"osc3_fine",-5.f},{"osc3_volume",0.50f},
+        {"filter_cutoff",1800.f},{"filter_res",0.35f},
+        {"filter_env_amount",0.40f},{"filter_env_attack",1.50f},
+        {"amp_attack",0.90f},{"amp_sustain",0.90f},{"amp_release",1.50f},
+        {"lfo1_shape",0.f},{"lfo1_rate",0.30f},
+        {"trance_drift",0.30f},
+        {"unison_voices",3.f},{"unison_detune",15.f},{"unison_spread",0.65f},
+        {"fx_chorus_mix",0.50f},{"fx_reverb_size",0.75f},{"fx_reverb_mix",0.55f},
+    };
+    static const FP kFP_TranceStab[] = {
+        {"osc1_wave",0.f},{"osc1_volume",0.90f},
+        {"osc2_wave",0.f},{"osc2_fine",-7.f},{"osc2_volume",0.70f},
+        {"osc3_volume",0.f},
+        {"filter_cutoff",1500.f},{"filter_res",0.80f},
+        {"filter_env_amount",0.90f},{"filter_env_attack",0.001f},
+        {"filter_env_decay",0.08f},{"filter_env_sustain",0.0f},
+        {"amp_attack",0.001f},{"amp_decay",0.15f},{"amp_sustain",0.0f},{"amp_release",0.15f},
+        {"analog_glow",0.35f},
+        {"arp_on",1.f},{"arp_mode",0.f},{"arp_octave",2.f},
+        {"fx_delay_time",2.f},{"fx_delay_feedback",0.45f},{"fx_delay_mix",0.35f},
+    };
+    static const FP kFP_SIDClassic[] = {
+        {"osc1_wave",2.f},{"osc1_pw",0.45f},{"osc1_volume",0.85f},
+        {"osc2_wave",2.f},{"osc2_semi",7.f},{"osc2_pw",0.35f},{"osc2_volume",0.60f},
+        {"osc3_wave",3.f},{"osc3_volume",0.20f},
+        {"filter_cutoff",900.f},{"filter_res",0.65f},
+        {"filter_env_amount",0.70f},
+        {"amp_sustain",0.85f},
+        {"sid_mode",0.f},{"digital_age",0.30f},{"analog_glow",0.20f},
+    };
+    static const FP kFP_ArpPhrase[] = {
+        {"osc1_wave",0.f},{"osc1_volume",0.90f},
+        {"osc2_wave",1.f},{"osc2_fine",5.f},{"osc2_volume",0.50f},
+        {"osc3_wave",3.f},{"osc3_volume",0.25f},
+        {"filter_cutoff",1100.f},{"filter_res",0.65f},
+        {"filter_env_amount",0.65f},{"filter_env_decay",0.20f},{"filter_env_sustain",0.10f},
+        {"amp_attack",0.003f},{"amp_decay",0.25f},{"amp_sustain",0.75f},
+        {"arp_on",1.f},{"arp_mode",0.f},{"arp_octave",2.f},{"arp_gate",0.70f},
+        {"lfo1_shape",2.f},{"lfo1_rate",2.0f},
+        {"fx_delay_mix",0.30f},{"fx_reverb_mix",0.20f},
+    };
+    static const FP kFP_DigitalCrunch[] = {
+        {"osc1_wave",0.f},{"osc1_volume",0.90f},
+        {"osc2_wave",2.f},{"osc2_fine",-15.f},{"osc2_volume",0.60f},
+        {"filter_cutoff",2000.f},{"filter_res",0.50f},
+        {"amp_sustain",0.80f},{"amp_release",0.30f},
+        {"digital_age",0.45f},
+        {"drive_type",2.f},{"drive_amount",0.55f},
+        {"fx_delay_mix",0.20f},{"fx_reverb_mix",0.10f},
+    };
+    static const FP kFP_UnisonLead[] = {
+        {"osc1_wave",0.f},{"osc1_volume",0.95f},
+        {"osc2_volume",0.f},{"osc3_volume",0.f},
+        {"filter_cutoff",5000.f},{"filter_res",0.45f},
+        {"filter_env_amount",0.60f},{"filter_env_decay",0.30f},
+        {"amp_attack",0.005f},{"amp_sustain",0.90f},{"amp_release",0.80f},
+        {"analog_glow",0.40f},{"trance_drift",0.20f},
+        {"unison_voices",7.f},{"unison_detune",35.f},{"unison_spread",0.85f},
+        {"fx_chorus_mix",0.30f},{"fx_reverb_mix",0.25f},
+    };
+    static const FP kFP_DreamPad[] = {
+        {"osc1_wave",1.f},{"osc1_volume",0.70f},
+        {"osc2_wave",4.f},{"osc2_fine",12.f},{"osc2_volume",0.60f},
+        {"osc3_wave",0.f},{"osc3_fine",-7.f},{"osc3_volume",0.40f},
+        {"filter_cutoff",1400.f},{"filter_res",0.30f},
+        {"filter_env_amount",0.30f},{"filter_env_attack",2.0f},
+        {"amp_attack",2.0f},{"amp_sustain",0.95f},{"amp_release",3.0f},
+        {"lfo1_shape",0.f},{"lfo1_rate",0.20f},
+        {"trance_drift",0.35f},
+        {"unison_voices",3.f},{"unison_detune",20.f},{"unison_spread",0.70f},
+        {"fx_chorus_mix",0.60f},{"fx_reverb_size",0.85f},{"fx_reverb_mix",0.65f},
+        {"fx_delay_mix",0.10f},
+    };
+    static const FP kFP_TranceGate[] = {
+        {"osc1_wave",0.f},{"osc1_volume",0.90f},
+        {"osc2_wave",0.f},{"osc2_fine",7.f},{"osc2_volume",0.70f},
+        {"filter_cutoff",2500.f},{"filter_res",0.55f},
+        {"filter_env_amount",0.65f},{"filter_env_decay",0.25f},
+        {"amp_attack",0.003f},{"amp_sustain",0.85f},{"amp_release",0.40f},
+        {"gate_on",1.f},
+        {"analog_glow",0.30f},
+        {"fx_delay_time",1.f},{"fx_delay_feedback",0.40f},{"fx_delay_mix",0.40f},
+        {"fx_reverb_mix",0.25f},
+    };
+    static const FP kFP_RingMod[] = {
+        {"osc1_wave",5.f},{"osc1_volume",0.90f},
+        {"osc2_wave",1.f},{"osc2_semi",7.f},{"osc2_volume",0.70f},
+        {"osc3_volume",0.f},
+        {"filter_cutoff",3000.f},{"filter_res",0.50f},
+        {"filter_env_amount",0.50f},{"filter_env_decay",0.30f},
+        {"amp_sustain",0.85f},{"amp_release",0.50f},
+        {"analog_glow",0.20f},{"fx_reverb_mix",0.35f},
+    };
+
+    struct FactoryPresetEntry { const char* name; const FP* data; int count; };
+    static const FactoryPresetEntry kFactoryPresets[] = {
+        { "Classic Trance Lead", kFP_ClassicLead,   (int)std::size(kFP_ClassicLead)   },
+        { "Supersaw",            kFP_Supersaw,       (int)std::size(kFP_Supersaw)       },
+        { "Trance Bass",         kFP_TranceBass,     (int)std::size(kFP_TranceBass)     },
+        { "Acid Bass",           kFP_AcidBass,       (int)std::size(kFP_AcidBass)       },
+        { "Hoover",              kFP_Hoover,         (int)std::size(kFP_Hoover)         },
+        { "Electro Pluck",       kFP_ElectroPluck,   (int)std::size(kFP_ElectroPluck)   },
+        { "Euphoric Pad",        kFP_EuphoricPad,    (int)std::size(kFP_EuphoricPad)    },
+        { "Trance Stab",         kFP_TranceStab,     (int)std::size(kFP_TranceStab)     },
+        { "SID Classic",         kFP_SIDClassic,     (int)std::size(kFP_SIDClassic)     },
+        { "Arp Phrase",          kFP_ArpPhrase,      (int)std::size(kFP_ArpPhrase)      },
+        { "Digital Crunch",      kFP_DigitalCrunch,  (int)std::size(kFP_DigitalCrunch)  },
+        { "Unison Lead",         kFP_UnisonLead,     (int)std::size(kFP_UnisonLead)     },
+        { "Dream Pad",           kFP_DreamPad,       (int)std::size(kFP_DreamPad)       },
+        { "Trance Gate",         kFP_TranceGate,     (int)std::size(kFP_TranceGate)     },
+        { "Ring Modulator",      kFP_RingMod,        (int)std::size(kFP_RingMod)        },
+    };
+    static constexpr int kNumFactoryPresets = (int)std::size(kFactoryPresets);
+} // namespace
+
+// ============================================================
+//  Preset system implementation
+// ============================================================
+
+void SIDTranceAudioProcessorEditor::initPresets()
+{
+    presets_.clear();
+
+    // Add factory presets first
+    for (int i = 0; i < kNumFactoryPresets; ++i) {
+        PresetEntry e;
+        e.name      = kFactoryPresets[i].name;
+        e.isFactory = true;
+        presets_.add(e);
+    }
+
+    // Scan user presets folder
+    auto userDir = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+                       .getChildFile("SIDyssey").getChildFile("Presets");
+    if (userDir.exists()) {
+        juce::Array<juce::File> files;
+        userDir.findChildFiles(files, juce::File::findFiles, false, "*.xml");
+        files.sort();
+        for (auto& f : files) {
+            PresetEntry e;
+            e.name      = f.getFileNameWithoutExtension();
+            e.isFactory = false;
+            e.userFile  = f;
+            presets_.add(e);
+        }
+    }
+
+    currentPresetIdx_ = -1;  // Start as Init
+    presetDirty_      = false;
+}
+
+void SIDTranceAudioProcessorEditor::updatePresetBar()
+{
+    if (!mainView) return;
+
+    juce::String name;
+    if (currentPresetIdx_ >= 0 && currentPresetIdx_ < presets_.size())
+        name = presets_[currentPresetIdx_].name;
+
+    mainView->presetBar.setPresetName(name.toStdString());  // empty = "-- Init Patch --"
+    mainView->presetBar.setDirty(presetDirty_);
+}
+
+void SIDTranceAudioProcessorEditor::applyFactoryPreset(int factoryIndex)
+{
+    if (factoryIndex < 0 || factoryIndex >= kNumFactoryPresets) return;
+
+    // 1. Reset all parameters to defaults
+    for (auto* param : audioProcessor.getParameters())
+        param->setValueNotifyingHost(param->getDefaultValue());
+
+    // 2. Apply this preset's overrides (denormalized → normalize via convertTo0to1)
+    auto& apvts = audioProcessor.getAPVTS();
+    const auto& fp = kFactoryPresets[factoryIndex];
+    for (int i = 0; i < fp.count; ++i)
+        if (auto* p = apvts.getParameter(fp.data[i].id))
+            p->setValueNotifyingHost(p->convertTo0to1(fp.data[i].v));
+
+    // 3. Signal UI thread to rebind widgets
+    audioProcessor.stateJustLoaded = true;
+}
+
+void SIDTranceAudioProcessorEditor::loadPreset(int index)
+{
+    if (index < 0 || index >= presets_.size()) return;
+    const auto& entry = presets_.getReference(index);
+
+    if (entry.isFactory) {
+        applyFactoryPreset(index);
+    } else {
+        // Load user preset from XML file
+        if (auto xml = juce::XmlDocument::parse(entry.userFile)) {
+            if (xml->hasTagName(audioProcessor.getAPVTS().state.getType())) {
+                audioProcessor.getAPVTS().replaceState(juce::ValueTree::fromXml(*xml));
+                audioProcessor.stateJustLoaded = true;
+            }
+        }
+    }
+
+    currentPresetIdx_ = index;
+    presetDirty_      = false;
+    updatePresetBar();
+}
+
+void SIDTranceAudioProcessorEditor::resetToInit()
+{
+    for (auto* param : audioProcessor.getParameters())
+        param->setValueNotifyingHost(param->getDefaultValue());
+
+    currentPresetIdx_ = -1;
+    presetDirty_      = false;
+    audioProcessor.stateJustLoaded = true;
+    updatePresetBar();
+}
+
+void SIDTranceAudioProcessorEditor::prevPreset()
+{
+    if (presets_.isEmpty()) return;
+    const int next = (currentPresetIdx_ <= 0) ? presets_.size() - 1
+                                               : currentPresetIdx_ - 1;
+    loadPreset(next);
+}
+
+void SIDTranceAudioProcessorEditor::nextPreset()
+{
+    if (presets_.isEmpty()) return;
+    const int next = (currentPresetIdx_ < 0) ? 0
+                                              : (currentPresetIdx_ + 1) % presets_.size();
+    loadPreset(next);
+}
+
+void SIDTranceAudioProcessorEditor::savePreset()
+{
+    // Factory preset → must Save As (can't overwrite factory)
+    if (currentPresetIdx_ < 0 || currentPresetIdx_ >= presets_.size() ||
+        presets_[currentPresetIdx_].isFactory) {
+        savePresetAs();
+        return;
+    }
+
+    const auto& entry = presets_.getReference(currentPresetIdx_);
+    auto state = audioProcessor.getAPVTS().copyState();
+    if (auto xml = state.createXml()) {
+        xml->setAttribute("presetName", entry.name);
+        entry.userFile.replaceWithText(xml->toString());
+    }
+    presetDirty_ = false;
+    updatePresetBar();
+}
+
+void SIDTranceAudioProcessorEditor::savePresetAs()
+{
+    const juce::String defaultName =
+        (currentPresetIdx_ >= 0 && currentPresetIdx_ < presets_.size())
+            ? presets_[currentPresetIdx_].name
+            : "New Preset";
+
+    auto* dialog = new juce::AlertWindow("Save Preset As", "", juce::MessageBoxIconType::NoIcon);
+    dialog->addTextEditor("name", defaultName, "Preset name:");
+    dialog->addButton("Save",   1, juce::KeyPress(juce::KeyPress::returnKey));
+    dialog->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+
+    // SafePointer becomes null if the editor is deleted while the dialog is open
+    // (e.g., host closes the plugin window during the modal). Raw `this` would be
+    // a use-after-free if savePresetWithName() fires after the editor is gone.
+    juce::Component::SafePointer<SIDTranceAudioProcessorEditor> safeThis(this);
+    dialog->enterModalState(true,
+        juce::ModalCallbackFunction::create([safeThis, dialog](int result) {
+            if (safeThis == nullptr) return;   // editor was destroyed — abort
+            if (result == 1) {
+                auto name = dialog->getTextEditorContents("name").trim();
+                if (name.isEmpty()) name = "New Preset";
+                safeThis->savePresetWithName(name);
+            }
+        }), true /* deleteWhenDismissed */);
+}
+
+void SIDTranceAudioProcessorEditor::savePresetWithName(const juce::String& name)
+{
+    // Ensure the user presets directory exists
+    auto userDir = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+                       .getChildFile("SIDyssey").getChildFile("Presets");
+    userDir.createDirectory();
+
+    // Sanitize filename
+    const juce::String safeName = name.replaceCharacters("\\/:*?\"<>|", "_________");
+    auto file = userDir.getChildFile(safeName + ".xml");
+
+    // Write the current APVTS state to disk
+    auto state = audioProcessor.getAPVTS().copyState();
+    if (auto xml = state.createXml()) {
+        xml->setAttribute("presetName", name);
+        file.replaceWithText(xml->toString());
+    }
+
+    // Update or append in our preset list (user section only)
+    int existingIdx = -1;
+    for (int i = kNumFactoryPresets; i < presets_.size(); ++i)
+        if (presets_[i].name == name) { existingIdx = i; break; }
+
+    if (existingIdx >= 0) {
+        presets_.getReference(existingIdx).userFile = file;
+        currentPresetIdx_ = existingIdx;
+    } else {
+        PresetEntry e;
+        e.name      = name;
+        e.isFactory = false;
+        e.userFile  = file;
+        presets_.add(e);
+        currentPresetIdx_ = presets_.size() - 1;
+    }
+
+    presetDirty_ = false;
+    updatePresetBar();
 }
 
 void SIDTranceAudioProcessorEditor::onResize(int w, int h)

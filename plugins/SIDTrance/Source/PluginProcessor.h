@@ -9,7 +9,8 @@
 //  SIDOscillator — 6581-inspired phase-accumulator oscillator
 // ============================================================
 struct SIDOscillator {
-    enum class Wave : int { SAW = 0, TRI, PULSE, NOISE, SAW_TRI, RING };
+    // HYPERSAW adds 7 bandlimited saws with variable detune spread (Roland JP-8000 style)
+    enum class Wave : int { SAW = 0, TRI, PULSE, NOISE, SAW_TRI, RING, HYPERSAW };
 
     Wave     wave      = Wave::SAW;
     float    phase     = 0.0f;
@@ -24,9 +25,11 @@ struct SIDOscillator {
     float    driftPhs  = 0.0f;
     float    driftVal  = 0.0f;
     float    driftInc  = 0.0f;
+    uint32_t driftLfsr = 0xACE1u; // per-osc LFSR for drift — thread-safe (no rand())
 
     // DIGITAL AGE (bitcrusher)
     float    age       = 0.0f;   // amount 0..1
+    float    qCache    = 0.0f;   // precomputed 2^bits — updated once per note-on via updateAge()
 
     // SID mode: true = aliased (Classic), false = polyBLEP (Modern/Trance)
     bool     aliased   = false;
@@ -34,12 +37,50 @@ struct SIDOscillator {
     // Ring mod: feed from other osc
     float    ringIn    = 0.0f;
 
+    // OSC Sync: set true when this osc's phase wraps — used by synced osc to reset
+    bool     syncTick  = false;
+
+    // HYPERSAW: 6 additional phase accumulators for the 7-voice supersaw.
+    // Voice 0 uses the primary `phase` above; voices 1-6 use hypPhase[0..5].
+    // Detune is computed once in setFrequency() via hypInc[].
+    float    hypPhase[6] = {};
+    float    hypInc[6]   = {};
+
     // LFSR noise register
     uint32_t lfsr      = 0x7FFFF8u;
 
     void setFrequency(float freq, float sr) {
         phaseInc = std::max(0.0f, freq / sr);
         driftInc = 0.1f / sr;   // drift LFO ~0.1 Hz
+
+        // Hypersaw: precompute per-voice detuned increments.
+        // The 6 extra voices are spread symmetrically around the base frequency.
+        // `pw` is repurposed as detune spread: 0=unison, 0.5=medium, 1.0=full JP-8000 width.
+        // Max detune ≈ ±50 cents at pw=1.0 (JP-8000-style).
+        if (wave == Wave::HYPERSAW && freq > 0.0f) {
+            // Fixed spread ratios for 6 voices: ±12.5, ±25, ±37.5 cents relative to center
+            static constexpr float kCentSpreads[6] = {
+                -37.5f, -25.0f, -12.5f, +12.5f, +25.0f, +37.5f
+            };
+            const float spread = pw; // pw knob repurposed as detune spread
+            for (int i = 0; i < 6; ++i) {
+                const float cents = kCentSpreads[i] * spread;
+                const float ratio = std::pow(2.0f, cents / 1200.0f);
+                hypInc[i] = std::max(0.0f, freq * ratio / sr);
+            }
+        }
+    }
+
+    // Call once per note-on to precompute the bitcrusher quantisation step.
+    // Avoids std::pow() on every sample in the inner loop.
+    void updateAge(float a) {
+        age = a;
+        if (a > 0.0f) {
+            const float bits = 2.0f + (1.0f - a) * 14.0f;
+            qCache = std::pow(2.0f, bits);
+        } else {
+            qCache = 0.0f;
+        }
     }
 
     // polyBLEP correction for seamless waveforms
@@ -57,13 +98,17 @@ struct SIDOscillator {
         driftPhs += driftInc;
         if (driftPhs >= 1.0f) {
             driftPhs -= 1.0f;
-            driftVal = (float(rand()) / RAND_MAX * 2.0f - 1.0f) * 0.003f * drift;
+            // Per-oscillator LFSR — thread-safe, no global rand()
+            driftLfsr ^= (driftLfsr << 13); driftLfsr ^= (driftLfsr >> 17); driftLfsr ^= (driftLfsr << 5);
+            driftVal = (float(driftLfsr & 0xFFFFu) / 32767.5f - 1.0f) * 0.003f * drift;
         }
         const float driftedInc = phaseInc * (1.0f + driftVal);
 
         phase += driftedInc;
+        syncTick = false;
         if (phase >= 1.0f) {
             phase -= 1.0f;
+            syncTick = true;
             // LFSR advance on cycle boundary (SID noise behaviour)
             if (lfsr & 1u) lfsr = (lfsr >> 1) ^ 0x400000u;
             else            lfsr >>= 1;
@@ -107,16 +152,34 @@ struct SIDOscillator {
         case Wave::RING:
             out = (phase * 2.0f - 1.0f) * ringIn;
             break;
+
+        case Wave::HYPERSAW: {
+            // 7-voice bandlimited supersaw (Roland JP-8000 style).
+            // Voice 0 = primary phase (no detune); voices 1-6 = hypPhase[0..5].
+            // PolyBLEP on all voices for alias suppression.
+            const float saw0 = phase * 2.0f - 1.0f
+                               - ((!aliased && driftedInc > 0.0f) ? polyBlep(phase, driftedInc) : 0.0f);
+            out = saw0;
+            for (int i = 0; i < 6; ++i) {
+                hypPhase[i] += hypInc[i];
+                if (hypPhase[i] >= 1.0f) hypPhase[i] -= 1.0f;
+                float sawi = hypPhase[i] * 2.0f - 1.0f;
+                if (!aliased && hypInc[i] > 0.0f)
+                    sawi -= polyBlep(hypPhase[i], hypInc[i]);
+                out += sawi;
+            }
+            // Normalise by voice count and apply a mild mix correction (-6 dBish)
+            // so 7 voices ≈ same perceived loudness as a single saw.
+            out *= 0.143f;  // ≈ 1/7
+            break;
+        }
         }
 
-        // DIGITAL AGE: reduce bit depth
-        if (age > 0.0f) {
-            const float bits = 2.0f + (1.0f - age) * 14.0f;
-            const float q    = std::pow(2.0f, bits);
-            out = std::round(out * q) / q;
-        }
+        // DIGITAL AGE: reduce bit depth (qCache precomputed in updateAge() at note-on)
+        if (age > 0.0f && qCache > 0.0f)
+            out = std::round(out * qCache) / qCache;
 
-        return out * volume;
+        return out;   // volume applied by caller (prevents double-application at call sites)
     }
 };
 
@@ -149,19 +212,26 @@ struct ADSREnv {
 
     float process() {
         switch (stage) {
-        case Stage::Idle:    break;
+        case Stage::Idle: break;
         case Stage::Attack:
-            value += attRate;
-            if (value >= 1.0f) { value = 1.0f; stage = Stage::Decay; }
+            // Exponential approach to 1 — fast initial transient, smooth rounding at top.
+            // Matches hardware analogue (and SID) attack character better than linear.
+            // Clamp to 1.0 before the threshold check: the additive step can exceed 1.0 by a
+            // small amount when attRate is large relative to (1 - value), producing a one-sample
+            // pop at the start of decay. std::min is branchless and eliminates the overshoot.
+            value = std::min(value + attRate * (1.0f - value), 1.0f);
+            if (value >= 0.9999f) { value = 1.0f; stage = Stage::Decay; }
             break;
         case Stage::Decay:
-            value -= decRate;
-            if (value <= susLvl) { value = susLvl; stage = Stage::Sustain; }
+            // Exponential decay toward sustain level
+            value += decRate * (susLvl - value);
+            if (std::abs(value - susLvl) < 0.0001f) { value = susLvl; stage = Stage::Sustain; }
             break;
         case Stage::Sustain: break;
         case Stage::Release:
-            value -= relRate;
-            if (value <= 0.0f) { value = 0.0f; stage = Stage::Idle; }
+            // Exponential decay toward 0
+            value *= (1.0f - relRate);
+            if (value < 0.0001f) { value = 0.0f; stage = Stage::Idle; }
             break;
         }
         return value;
@@ -182,25 +252,23 @@ struct SIDFilter {
     void reset() { y1 = y2 = y3 = y4 = oldX = 0.0f; }
 
     float process(float x) {
-        const float f  = std::min(0.99f, 2.0f * cutoff / sr);
-        const float k  = 3.6f * f - 1.6f * f * f - 1.0f;
-        const float p  = (k + 1.0f) * 0.5f;
-        const float sc = std::exp((1.0f - p) * 1.386249f);
-        const float r  = res * sc;
-
-        const float xn = x - r * y4;
-        y1 = xn * p + oldX * p - k * y1;
-        y2 = y1 * p + y1  * p - k * y2;
-        y3 = y2 * p + y2  * p - k * y3;
-        y4 = y3 * p + y3  * p - k * y4;
-        y4 = std::tanh(y4);
-        oldX = xn;
-
+        // Bilinear-transform 4-pole ladder (Huovilainen-style, stable + self-oscillating)
+        const float fc = std::clamp(cutoff / sr, 0.0001f, 0.499f);
+        const float g  = std::tan(3.14159265f * fc);
+        const float k  = std::clamp(res * 4.0f, 0.0f, 3.96f);
+        // Soft-clip input with resonance feedback
+        x = std::tanh(x - k * y4);
+        // One-pole stages using TPT integrator
+        const float b = g / (1.0f + g);
+        y1 += b * (x  - y1);
+        y2 += b * (y1 - y2);
+        y3 += b * (y2 - y3);
+        y4 += b * (y3 - y4);
         switch (type) {
-        case 0: return slope24 ? y4 : y2;
-        case 1: return x - y4;
-        case 2: return 3.0f * (y3 - y4);
-        case 3: return x - 3.0f * (y3 - y4);
+        case 0: return slope24 ? y4 : y2;                   // LP 24/12
+        case 1: return slope24 ? (x - y4) : (x - y2);      // HP 24/12
+        case 2: return 2.0f * (y2 - y4);                    // BP
+        case 3: return x - 2.0f * (y2 - y4);               // Notch
         }
         return y4;
     }
@@ -211,7 +279,7 @@ struct SIDFilter {
 // ============================================================
 struct SIDVoice {
     SIDOscillator osc1, osc2, osc3;
-    ADSREnv       env1, env2, env3, ampEnv;
+    ADSREnv       env1, env2, env3, ampEnv, filterEnv;
     SIDFilter     filter;
 
     int   note    = -1;
@@ -220,11 +288,23 @@ struct SIDVoice {
     float velocity = 1.0f;
     float sr      = 44100.0f;
 
+    // Unison panning: -1 (full left) to +1 (full right), 0 = center
+    float uniPan  = 0.0f;
+
+    // Glide: pitch offset in semitones, converges to 0 each sample
+    float glideOffsetSemis = 0.0f;
+
+    // Pitch cache: recompute baseHz only when glide or pitch bend changes
+    float cachedBaseHz_    = 0.0f;
+    float cachedGlide_     = 1e30f;   // sentinel — forces recalc on first sample after noteOn
+    float cachedPitchBend_ = 1e30f;   // sentinel — same
+
     // Mod matrix destination offsets (applied each block)
     float modCutoff = 0.0f;
     float modRes    = 0.0f;
     float modPW1    = 0.0f;
     float modPW2    = 0.0f;
+    float modPW3    = 0.0f;   // OSC3 PW modulation (was missing — stub fixed)
     float modAmp    = 0.0f;
     float modFine1  = 0.0f;
     float modFine2  = 0.0f;
@@ -232,56 +312,136 @@ struct SIDVoice {
     void noteOn(int midiNote, float vel, float sampleRate) {
         note = midiNote; velocity = vel; sr = sampleRate;
         active = true;
+        uniPan           = 0.0f;   // reset before handleNoteOn sets the real value;
+                                   // prevents a stolen voice carrying a stale pan for 1 sample
+        cachedGlide_     = 1e30f;   // invalidate pitch cache so first sample recomputes baseHz
+        cachedPitchBend_ = 1e30f;
         filter.reset();
-        env1.noteOn(); env2.noteOn(); env3.noteOn(); ampEnv.noteOn();
+        env1.noteOn(); env2.noteOn(); env3.noteOn(); ampEnv.noteOn(); filterEnv.noteOn();
     }
 
     void noteOff() {
-        env1.noteOff(); env2.noteOff(); env3.noteOff(); ampEnv.noteOff();
+        env1.noteOff(); env2.noteOff(); env3.noteOff(); ampEnv.noteOff(); filterEnv.noteOff();
     }
 
-    // Returns stereo pair {L, R} — identical pre-unison (unison spread done in PolyEngine)
+    // Returns mono sample — unison panning applied by caller via uniPan
+    // glideRate:       fractional semitone convergence per sample (0 = no glide)
+    // oscSync:         if true, OSC1/2 phase resets when OSC3 completes a cycle
+    // fmAmt:           OSC3 → OSC1/2 FM depth (0..1)
+    // pitchBendSemis:  pitch wheel offset in semitones (passed from processor, ±range)
     float processMono(float baseCutoff, float baseRes,
-                      float keyTrack, float velSens) {
+                      float keyTrack, float velSens, float filterEnvAmt,
+                      float glideRate      = 0.0f,
+                      bool  oscSync        = false,
+                      float fmAmt          = 0.0f,
+                      float pitchBendSemis = 0.0f) {
         if (!active) return 0.0f;
 
         const float e1 = env1.process();
         const float e2 = env2.process();
         const float e3 = env3.process();
         const float eA = ampEnv.process();
+        const float fE = filterEnv.process();
 
         if (ampEnv.isIdle()) { active = false; return 0.0f; }
 
-        // MIDI → Hz for each osc (with semi + fine + mod)
-        const float baseHz = 440.0f * std::pow(2.0f, (note - 69) / 12.0f);
+        // Glide convergence: move glideOffsetSemis toward 0 by glideRate each sample
+        if (std::abs(glideOffsetSemis) > 0.001f) {
+            const float step = glideRate * glideOffsetSemis;
+            glideOffsetSemis -= std::clamp(step, -std::abs(glideOffsetSemis), std::abs(glideOffsetSemis));
+        } else {
+            glideOffsetSemis = 0.0f;
+        }
+
+        // MIDI → Hz: recompute baseHz only when pitch changes (glide every sample during
+        // portamento; pitch bend on wheel move; steady state skips the pow() entirely).
+        if (glideOffsetSemis != cachedGlide_ || pitchBendSemis != cachedPitchBend_) {
+            cachedGlide_     = glideOffsetSemis;
+            cachedPitchBend_ = pitchBendSemis;
+            cachedBaseHz_    = 440.0f * std::pow(2.0f,
+                                   (note - 69 + glideOffsetSemis + pitchBendSemis) / 12.0f);
+        }
         auto oscHz = [&](int semi, float fine, float extraFine) {
-            return baseHz * std::pow(2.0f, (semi + (fine + extraFine) / 100.0f) / 12.0f);
+            return cachedBaseHz_ * std::pow(2.0f, (semi + (fine + extraFine) / 100.0f) / 12.0f);
         };
 
-        osc1.setFrequency(oscHz(osc1.semi, osc1.fine, modFine1), sr);
-        osc2.setFrequency(oscHz(osc2.semi, osc2.fine, modFine2), sr);
-        osc3.setFrequency(oscHz(osc3.semi, osc3.fine, 0.0f),     sr);
+        // OSC3 runs first so it can be used as sync/FM source for OSC1/2
+        osc3.setFrequency(oscHz(osc3.semi, osc3.fine, 0.0f), sr);
 
+        // Apply PW mod temporarily — save/restore so the base value isn't accumulated each sample
+        const float savedPW1 = osc1.pw;
+        const float savedPW2 = osc2.pw;
+        const float savedPW3 = osc3.pw;
         osc1.pw = std::clamp(osc1.pw + modPW1, 0.05f, 0.95f);
         osc2.pw = std::clamp(osc2.pw + modPW2, 0.05f, 0.95f);
+        osc3.pw = std::clamp(osc3.pw + modPW3, 0.05f, 0.95f);
 
-        // OSC3 as ring-mod source for osc1+osc2 if in RING mode
-        const float s3 = osc3.process() * e3 * osc3.volume;
-        osc1.ringIn = s3;
-        osc2.ringIn = s3;
+        // OSC3 as ring-mod / FM source for osc1+osc2.
+        // process() is called exactly once per sample to advance the phase.
+        // s3osc : raw oscillator output (no envelope, no volume)
+        // s3raw : envelope-shaped     (for FM depth and OSC3 mix contribution)
+        // s3vol : envelope + volume   (what goes into the final output mixer)
+        //
+        // Ring mod carrier uses s3osc * volume (envelope-free) so that the RING
+        // waveform is always audible regardless of OSC3's ADSR state.  Without
+        // this, default OSC3 sustain=0 / decay=0.1 s kills the carrier instantly.
+        const float s3osc = osc3.process();           // raw osc — advances phase once
+        const float s3raw = s3osc * e3;               // envelope-shaped (mix/FM)
+        const float s3vol = s3raw * osc3.volume;      // volume-scaled (final mix)
+
+        osc1.ringIn = s3osc * osc3.volume;  // carrier: volume knob controls depth, not envelope
+        osc2.ringIn = s3osc * osc3.volume;
+
+        // OSC Sync: if OSC3 completed a cycle, reset OSC1/2 phase
+        if (oscSync && osc3.syncTick) {
+            osc1.phase = 0.0f;
+            osc2.phase = 0.0f;
+        }
+
+        // FM: OSC3 modulates OSC1/2 pitch (linear FM for SID-style metallic tones)
+        const float fmOffset = s3vol * fmAmt * 24.0f;  // up to ±24 semitones of FM
+
+        osc1.setFrequency(oscHz(osc1.semi, osc1.fine, modFine1 + fmOffset * 100.0f), sr);
+        osc2.setFrequency(oscHz(osc2.semi, osc2.fine, modFine2 + fmOffset * 100.0f * 0.7f), sr);
 
         const float s1 = osc1.process() * e1 * osc1.volume;
         const float s2 = osc2.process() * e2 * osc2.volume;
+        const float s3 = s3vol;
+
+        // Restore base PW so modulation doesn't accumulate across samples
+        osc1.pw = savedPW1;
+        osc2.pw = savedPW2;
+        osc3.pw = savedPW3;
+
         const float mixed = s1 + s2 + s3;
 
-        // Filter: cutoff from param + keytrack + mod
-        const float keyOff = (note - 60) * keyTrack * 50.0f;
-        const float velOff = (velocity - 0.5f) * velSens * 5000.0f;
-        filter.cutoff = std::clamp(baseCutoff + keyOff + velOff + modCutoff * 12000.0f,
+        // Filter: cutoff from param + keytrack + filter env + mod
+        const float keyOff    = (note - 60) * keyTrack * 50.0f;
+        const float velOff    = (velocity - 0.5f) * velSens * 5000.0f;
+        // Exponential filter envelope — fE*filterEnvAmt in octave domain gives
+        // the classic trance "CUT click": with fast A, short D, low S the filter
+        // spikes wide open then slams shut, producing a percussive transient.
+        // Power-law shaping: sqrt(fE) for positive envAmt gives a logarithmic attack
+        // curve — the filter opens VERY fast at first then plateaus, producing a
+        // sharp transient "click" even with a 5-20ms attack time (like the Virus CUT).
+        // For negative envAmt (filter closes on attack), sq(fE) gives the reverse.
+        // Guard against sqrt(negative): fE can dip slightly below 0 in the Decay
+        // stage when the exponential convergence overshoots sustain=0. Clamping to 0
+        // avoids NaN propagation into envMult / filter.cutoff.
+        const float fESafe    = std::max(0.0f, fE);
+        const float fEShaped  = (filterEnvAmt >= 0.0f)
+                                ? std::sqrt(fESafe)       // fast open: log curve
+                                : fESafe * fESafe;        // slow open: exp curve
+        // fE*filterEnvAmt*9 → up to 9 octaves (512× cutoff) when env is at peak.
+        const float envMult   = std::pow(2.0f, fEShaped * filterEnvAmt * 9.0f);
+        filter.cutoff = std::clamp((baseCutoff + keyOff + velOff + modCutoff * 12000.0f) * envMult,
                                    20.0f, 18000.0f);
         filter.res = std::clamp(baseRes + modRes, 0.0f, 0.99f);
 
-        const float filtered = filter.process(mixed);
+        float filtered = filter.process(mixed);
+        // NaN guard: high resonance + loud input can blow up the ladder filter.
+        // Detect it and reset state so the voice recovers cleanly.
+        if (!std::isfinite(filtered)) { filter.reset(); filtered = 0.0f; }
 
         // Amp: envelope × velocity × mod
         const float ampMod = 1.0f + std::clamp(modAmp, -0.9f, 1.0f);
@@ -290,29 +450,45 @@ struct SIDVoice {
 };
 
 // ============================================================
-//  LFOEngine — shapes: Sine, Tri, Saw, RevSaw, Square, S&H
+//  LFOEngine — shapes: Sine, Tri, Saw, RevSaw, Square, S&H, Step
 // ============================================================
 struct LFOEngine {
-    enum class Shape : int { SINE = 0, TRI, SAW, REVSAW, SQUARE, SHOLD };
+    enum class Shape : int { SINE = 0, TRI, SAW, REVSAW, SQUARE, SHOLD, STEP };
 
-    Shape shape  = Shape::SINE;
-    float phase  = 0.0f;
-    float rate   = 1.0f;     // Hz (free) or beat-division (sync)
-    float sr     = 44100.0f;
-    bool  syncOn = false;
-    bool  retrig = true;
-    float holdVal = 0.0f;
+    // Musical sync divisions (index into kSyncDivMult): 0=1/32 .. 7=4/1
+
+    Shape    shape     = Shape::SINE;
+    float    phase     = 0.0f;
+    float    rate      = 1.0f;     // Hz in free mode
+    float    sr        = 44100.0f;
+    bool     enabled   = true;     // on/off gate
+    bool     syncOn    = false;
+    int      syncDiv   = 3;        // index into kSyncDivMult (default: 1/4 note)
+    bool     retrig    = true;
+    float    holdVal   = 0.0f;
+    uint32_t sHoldLfsr = 0x13579BDFu; // per-LFO — thread-safe S&H
+
+    // 16 user-drawn step values in range -1..+1 (populated from APVTS each block)
+    float stepValues[16] = {};
 
     void retrigger() { if (retrig) phase = 0.0f; }
 
     float process(float hostBPM) {
-        const float freq = syncOn ? (hostBPM * rate / 60.0f) : rate;
+        // When sync is on, derive freq from BPM and the selected musical division.
+        // multiples of (BPM/60) = quarter-note: ×8=32nd, ×4=16th, ×2=8th, ×1=4th,
+        //                                        ×0.5=half, ×0.25=whole, etc.
+        static const float kDiv[8] = { 8.f, 4.f, 2.f, 1.f, 0.5f, 0.25f, 0.125f, 0.0625f };
+        const float freq = syncOn
+            ? (hostBPM / 60.0f) * kDiv[std::clamp(syncDiv, 0, 7)]
+            : rate;
         const float inc  = freq / sr;
         phase += inc;
         if (phase >= 1.0f) {
             phase -= 1.0f;
-            if (shape == Shape::SHOLD)
-                holdVal = (float(rand()) / RAND_MAX) * 2.0f - 1.0f;
+            if (shape == Shape::SHOLD) {
+                sHoldLfsr ^= (sHoldLfsr << 13); sHoldLfsr ^= (sHoldLfsr >> 17); sHoldLfsr ^= (sHoldLfsr << 5);
+                holdVal = float(sHoldLfsr & 0xFFFFu) / 32767.5f - 1.0f;
+            }
         }
 
         switch (shape) {
@@ -322,6 +498,11 @@ struct LFOEngine {
         case Shape::REVSAW: return 1.0f - phase * 2.0f;
         case Shape::SQUARE: return phase < 0.5f ? 1.0f : -1.0f;
         case Shape::SHOLD:  return holdVal;
+        case Shape::STEP: {
+            // 16 evenly-spaced steps; sample-and-hold per step cell
+            const int idx = std::clamp(int(phase * 16.0f), 0, 15);
+            return stepValues[idx];
+        }
         }
         return 0.0f;
     }
@@ -331,13 +512,21 @@ struct LFOEngine {
 //  Freeverb Schroeder reverb (8 comb + 4 allpass, stereo)
 // ============================================================
 struct SIDReverb {
-    static constexpr int kCombL[]    = {1116,1188,1277,1356,1422,1491,1557,1617};
-    static constexpr int kCombR[]    = {1139,1211,1300,1379,1445,1514,1580,1640};
-    static constexpr int kAllpassL[] = {556, 441, 341, 225};
-    static constexpr int kAllpassR[] = {579, 464, 364, 248};
+    // Reference delay lengths (samples at 44100 Hz — Freeverb defaults)
+    static constexpr int kCombRefL[]    = {1116,1188,1277,1356,1422,1491,1557,1617};
+    static constexpr int kCombRefR[]    = {1139,1211,1300,1379,1445,1514,1580,1640};
+    static constexpr int kAllpassRefL[] = {556, 441, 341, 225};
+    static constexpr int kAllpassRefR[] = {579, 464, 364, 248};
 
-    static constexpr int kMaxComb    = 1700;
-    static constexpr int kMaxAllpass = 600;
+    // Buffers sized for up to 192 kHz (≈4.35× the 44100 Hz lengths)
+    static constexpr int kMaxComb    = 7200;
+    static constexpr int kMaxAllpass = 2600;
+
+    // Scaled lengths (recalculated in prepare() per actual sample rate)
+    int scaledCombL[8]    = {1116,1188,1277,1356,1422,1491,1557,1617};
+    int scaledCombR[8]    = {1139,1211,1300,1379,1445,1514,1580,1640};
+    int scaledAllpassL[4] = {556, 441, 341, 225};
+    int scaledAllpassR[4] = {579, 464, 364, 248};
 
     float combL[8][kMaxComb]    = {};
     float combR[8][kMaxComb]    = {};
@@ -351,11 +540,30 @@ struct SIDReverb {
     float damp     = 0.5f;
     float wet      = 0.3f;
 
+    void prepare(double sr) {
+        const double ratio = sr / 44100.0;
+        for (int i = 0; i < 8; ++i) {
+            scaledCombL[i] = std::clamp(int(kCombRefL[i] * ratio + 0.5), 1, kMaxComb - 1);
+            scaledCombR[i] = std::clamp(int(kCombRefR[i] * ratio + 0.5), 1, kMaxComb - 1);
+        }
+        for (int i = 0; i < 4; ++i) {
+            scaledAllpassL[i] = std::clamp(int(kAllpassRefL[i] * ratio + 0.5), 1, kMaxAllpass - 1);
+            scaledAllpassR[i] = std::clamp(int(kAllpassRefR[i] * ratio + 0.5), 1, kMaxAllpass - 1);
+        }
+        reset();
+    }
+
     void reset() {
         for (auto& b : combL) for (auto& s : b) s = 0.0f;
         for (auto& b : combR) for (auto& s : b) s = 0.0f;
         for (auto& b : allL)  for (auto& s : b) s = 0.0f;
         for (auto& b : allR)  for (auto& s : b) s = 0.0f;
+        for (auto& p : combPL)  p = 0;
+        for (auto& p : combPR)  p = 0;
+        for (auto& p : allPL)   p = 0;
+        for (auto& p : allPR)   p = 0;
+        for (auto& f : combFiltL) f = 0.0f;
+        for (auto& f : combFiltR) f = 0.0f;
     }
 
     void process(float& L, float& R) {
@@ -366,7 +574,7 @@ struct SIDReverb {
 
         // 8 comb filters
         for (int i = 0; i < 8; ++i) {
-            const int lenL = kCombL[i], lenR = kCombR[i];
+            const int lenL = scaledCombL[i], lenR = scaledCombR[i];
             float& fl = combFiltL[i]; float& fr = combFiltR[i];
             int&   pL = combPL[i];    int&   pR = combPR[i];
 
@@ -386,7 +594,7 @@ struct SIDReverb {
 
         // 4 allpass filters
         for (int i = 0; i < 4; ++i) {
-            const int lenL = kAllpassL[i], lenR = kAllpassR[i];
+            const int lenL = scaledAllpassL[i], lenR = scaledAllpassR[i];
             int& pL = allPL[i]; int& pR = allPR[i];
 
             const float aL = allL[i][pL];
@@ -479,7 +687,7 @@ struct SIDChorus {
         if (lfoPhase >= 1.0f) lfoPhase -= 1.0f;
 
         const float lfo1 = std::sin(lfoPhase * 6.28318f);
-        const float lfo2 = std::sin(lfoPhase * 6.28318f + 3.14159f);
+        const float lfo2 = -lfo1;   // sin(x + π) == -sin(x) — saves a redundant transcendental
 
         const float delayMs1 = 5.0f + depth * 15.0f * (lfo1 + 1.0f) * 0.5f;
         const float delayMs2 = 5.0f + depth * 15.0f * (lfo2 + 1.0f) * 0.5f;
@@ -527,17 +735,76 @@ struct ArpSequencer {
     float gateCount    = 0.0f;
     bool  gateOpen     = false;
 
-    std::vector<int> held;    // held MIDI notes
-    int   currentNote  = -1;
-    int   octOffset    = 0;
+    // Fixed-size held-note array: no heap allocation on the audio thread.
+    static constexpr int kMaxHeld = 32;
+    int  heldNotes[kMaxHeld] = {};
+    int  heldCount            = 0;
+    int      currentNote  = -1;
+    int      octOffset    = 0;
+    uint32_t randLfsr     = 0xFACEB00Cu; // thread-safe random for arp RANDOM mode
 
     void addNote(int note) {
-        if (std::find(held.begin(), held.end(), note) == held.end())
-            held.push_back(note);
+        for (int i = 0; i < heldCount; ++i)
+            if (heldNotes[i] == note) return;  // already held
+        if (heldCount < kMaxHeld)
+            heldNotes[heldCount++] = note;
     }
     void removeNote(int note) {
-        held.erase(std::remove(held.begin(), held.end(), note), held.end());
+        for (int i = 0; i < heldCount; ++i) {
+            if (heldNotes[i] == note) {
+                heldNotes[i] = heldNotes[--heldCount];  // swap with last, shrink count
+                return;
+            }
+        }
     }
+};
+
+// ============================================================
+//  TranceGate — 16-step volume gate with swing
+// ============================================================
+struct TranceGate {
+    bool  enabled    = false;
+    float levels[16] = {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1};  // 0..1
+    float swing      = 0.0f;
+
+    int   stepIdx    = 0;
+    float beatPhase  = 0.0f;
+    float currentLevel = 1.0f;   // smoothed gate level
+
+    float process(float samp, float stepLen, float smoothCoef) {
+        // Advance to next step if needed (called once per sample)
+        const bool isOdd = (stepIdx % 2 == 1);
+        const float swingOff = stepLen * swing * 0.5f;
+        const float curLen   = stepLen + (isOdd ? swingOff : -swingOff);
+        beatPhase += 1.0f;
+        if (beatPhase >= curLen) {
+            beatPhase -= curLen;
+            stepIdx = (stepIdx + 1) % 16;
+        }
+        // Smooth toward current step level
+        const float target = levels[stepIdx];
+        currentLevel += (target - currentLevel) * smoothCoef;
+        return samp * currentLevel;
+    }
+
+    // Process L and R in one call so beatPhase advances exactly once per sample.
+    // Calling process() twice (once per channel) would run the gate at 2× speed.
+    void processStereo(float& L, float& R, float stepLen, float smoothCoef) {
+        const bool isOdd = (stepIdx % 2 == 1);
+        const float swingOff = stepLen * swing * 0.5f;
+        const float curLen   = stepLen + (isOdd ? swingOff : -swingOff);
+        beatPhase += 1.0f;
+        if (beatPhase >= curLen) {
+            beatPhase -= curLen;
+            stepIdx = (stepIdx + 1) % 16;
+        }
+        const float target = levels[stepIdx];
+        currentLevel += (target - currentLevel) * smoothCoef;
+        L *= currentLevel;
+        R *= currentLevel;
+    }
+
+    void reset() { stepIdx = 0; beatPhase = 0.0f; currentLevel = 1.0f; }
 };
 
 // ============================================================
@@ -558,7 +825,7 @@ public:
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
 
-    const juce::String getName() const override { return "SID Trance Machine"; }
+    const juce::String getName() const override { return "SIDyssey"; }
     bool   acceptsMidi()     const override { return true; }
     bool   producesMidi()    const override { return false; }
     double getTailLengthSeconds() const override { return 2.0; }
@@ -578,28 +845,36 @@ public:
     juce::AbstractFifo         scopeFifo  { 2048 };
     juce::AudioBuffer<float>   scopeBuf   { 2, 2048 };
 
+    // Set to true in setStateInformation so the editor reloads all widget values
+    // on the next render tick (Visage controls are not APVTS listeners).
+    std::atomic<bool> stateJustLoaded { false };
+
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
     // Voice management
-    int allocateVoice(int midiNote);
+    int allocateVoice(int midiNote, const int* excluded = nullptr, int nExcluded = 0);
     void handleNoteOn(int ch, int note, float vel);
     void handleNoteOff(int ch, int note);
-    void applyModMatrix(SIDVoice& v, float lfo1v, float lfo2v, float vel, float mw);
+    // Per-block cached mod values (avoids APVTS map lookup inside the sample loop)
+    struct CachedMod { int src = 0, dst = 0; float amt = 0.0f; };
+    void applyModMatrix(SIDVoice& v, float lfo1v, float lfo2v, float vel, float mw,
+                        const CachedMod* mods);
     void processArpEvents(juce::MidiBuffer& out, int numSamples, float bpm);
-    float analogGlow(float x, float amount);
+    float analogGlow(float x, float amount, int type = 0, float precomputedBitcrushQ = 0.0f);
 
     juce::AudioProcessorValueTreeState apvts;
 
     // DSP instances
     static constexpr int kMaxVoices  = 16;
-    static constexpr int kMaxUnison  = 7;
+    static constexpr int kMaxUnison  = 16;
 
     std::array<SIDVoice, kMaxVoices> voices;
     int voiceCounter = 0;  // age counter for voice steal
 
     LFOEngine   lfo1, lfo2;
     ArpSequencer arp;
+    TranceGate  gate;
     SIDChorus   chorus;
     SIDDelay    delay;
     SIDReverb   reverb;
@@ -613,6 +888,67 @@ private:
 
     // Lookahead limiter state
     float limEnvL = 0.0f, limEnvR = 0.0f;
+
+    // Cached raw-parameter pointers — filled in prepareToPlay, used on audio thread
+    // to avoid juce::String construction and HashMap lookups inside the hot path.
+    std::atomic<float>* seqStepParams_[16]  = {};   // seq_step_01..16
+    std::atomic<float>* modSrcParams_[4]    = {};   // mod1_src .. mod4_src
+    std::atomic<float>* modAmtParams_[4]    = {};   // mod1_amt .. mod4_amt
+    std::atomic<float>* modDstParams_[4]    = {};   // mod1_dst .. mod4_dst
+    std::atomic<float>* gateStepParams_[16]  = {};   // gate_step_01..16
+    std::atomic<float>* lfo1StepParams_[16] = {};   // lfo1_step_01..16 (step-curve LFO)
+    std::atomic<float>* lfo2StepParams_[16] = {};   // lfo2_step_01..16 (step-curve LFO)
+    std::atomic<float>* masterVoicesParam_  = {};   // master_voices (used in allocateVoice)
+    std::atomic<float>* masterPolyParam_    = {};   // master_poly   (used in allocateVoice)
+
+    // Note-on / arp params — cached to avoid juce::String heap alloc on the audio thread.
+    // getRawParameterValue(const char*) constructs a String + does a HashMap lookup every call.
+    std::atomic<float>* digitalAgeParam_   = {};   // digital_age
+    std::atomic<float>* tranceDriftParam_  = {};   // trance_drift
+    std::atomic<float>* sidModeParam_      = {};   // sid_mode
+    std::atomic<float>* uniVoicesParam_    = {};   // unison_voices
+    std::atomic<float>* uniDetuneParam_    = {};   // unison_detune
+    std::atomic<float>* uniSpreadParam_    = {};   // unison_spread
+    std::atomic<float>* glideModeParam_    = {};   // glide_mode
+    std::atomic<float>* ampAtkParam_       = {};   // amp_attack
+    std::atomic<float>* ampDecParam_       = {};   // amp_decay
+    std::atomic<float>* ampSusParam_       = {};   // amp_sustain
+    std::atomic<float>* ampRelParam_       = {};   // amp_release
+    std::atomic<float>* fenvAtkParam_      = {};   // filter_env_attack
+    std::atomic<float>* fenvDecParam_      = {};   // filter_env_decay
+    std::atomic<float>* fenvSusParam_      = {};   // filter_env_sustain
+    std::atomic<float>* fenvRelParam_      = {};   // filter_env_release
+    std::atomic<float>* arpTempoParam_     = {};   // arp_tempo
+    std::atomic<float>* arpSyncParam_      = {};   // arp_sync
+    std::atomic<float>* arpGateParam_      = {};   // arp_gate
+    std::atomic<float>* arpSwingParam_     = {};   // arp_swing
+    std::atomic<float>* arpOctaveParam_    = {};   // arp_octave
+    std::atomic<float>* arpModeParam_      = {};   // arp_mode
+
+    // Per-oscillator cached pointers (index 0=osc1, 1=osc2, 2=osc3).
+    // Eliminates juce::String heap allocation + HashMap lookup per note-on.
+    std::atomic<float>* oscWaveParam_[3] = {};
+    std::atomic<float>* oscSemiParam_[3] = {};
+    std::atomic<float>* oscFineParam_[3] = {};
+    std::atomic<float>* oscPwParam_[3]   = {};
+    std::atomic<float>* oscVolParam_[3]  = {};
+    std::atomic<float>* oscAtkParam_[3]  = {};
+    std::atomic<float>* oscDecParam_[3]  = {};
+    std::atomic<float>* oscSusParam_[3]  = {};
+    std::atomic<float>* oscRelParam_[3]  = {};
+
+    // Pitch bend
+    float pitchBendSemis_ = 0.0f;    // current wheel offset in semitones (updated from MIDI)
+    static constexpr float kPitchBendRange = 2.0f;  // ±2 semitones (standard GM)
+
+    // Sustain pedal (CC64) — deferred note-off logic
+    bool  sustainHeld_   = false;
+    int   sustainedNotes_[128] = {};  // notes waiting to be released when pedal lifts
+    int   sustainedCount_ = 0;
+
+    // Glide tracking: last played note for glide interval calculation
+    int   lastPlayedNote_  = -1;
+    float glideOffsetAccum_ = 0.0f;  // current glide offset in semitones (per-voice set at noteOn)
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SIDTranceAudioProcessor)
 };
