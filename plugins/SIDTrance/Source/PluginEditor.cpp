@@ -616,10 +616,14 @@ void SIDTranceAudioProcessorEditor::onRender()
 
     // ── Per-oscillator scopes: drain each FIFO into the corresponding view ──
     // Lock-free, no allocations.  Each OSC has its own ring buffer fed by
-    // processBlock; we read at the editor's render rate (~60 fps).  Voice 0's
-    // live audio output is captured per-OSC for visualisation.
+    // processBlock; we read at the editor's render rate.  The scratch buffer
+    // holds 2× the display width so we can run a rising-zero-cross trigger
+    // search and align the displayed slice to a stable phase — without that,
+    // the waveform appears to flicker/drift each frame.
     auto& proc = audioProcessor;
-    // kScopeMax is the class-member constant declared in the header.
+    static constexpr int kDisplaySamples = SIDTranceAudioProcessorEditor::kScopeMax; // 512
+    static constexpr int kReadSamples    = kDisplaySamples * 2;                       // 1024
+    float wideScratch[kReadSamples];
 
     SIDOscilloscopeView* const oscScopes[3] = {
         &mainView->scope1, &mainView->scope2, &mainView->scope3
@@ -628,11 +632,11 @@ void SIDTranceAudioProcessorEditor::onRender()
     for (int o = 0; o < 3; ++o) {
         auto& fifo = proc.oscScope[o].fifo;
         const int avail = fifo.getNumReady();
-        if (avail <= 0) continue;
+        if (avail <= 0) continue;   // hold previous frame
 
-        const int toShow    = std::min(avail, kScopeMax);
+        // Read up to kReadSamples newest samples.  Discard older ones first.
+        const int toShow    = std::min(avail, kReadSamples);
         const int toDiscard = avail - toShow;
-
         if (toDiscard > 0) {
             int ds1, dsz1, ds2, dsz2;
             fifo.prepareToRead(toDiscard, ds1, dsz1, ds2, dsz2);
@@ -643,13 +647,43 @@ void SIDTranceAudioProcessorEditor::onRender()
         fifo.prepareToRead(toShow, s1, sz1, s2, sz2);
         const float* src = proc.oscScope[o].buf.getReadPointer(0);
         int written = 0;
-        for (int i = 0; i < sz1 && written < kScopeMax; ++i, ++written)
-            localBuf_[written] = src[s1 + i];
-        for (int i = 0; i < sz2 && written < kScopeMax; ++i, ++written)
-            localBuf_[written] = src[s2 + i];
+        for (int i = 0; i < sz1 && written < kReadSamples; ++i, ++written)
+            wideScratch[written] = src[s1 + i];
+        for (int i = 0; i < sz2 && written < kReadSamples; ++i, ++written)
+            wideScratch[written] = src[s2 + i];
         fifo.finishedRead(toShow);
 
-        oscScopes[o]->updateSamples(localBuf_, written);
+        // Need at least one display window — otherwise hold previous frame.
+        if (written < kDisplaySamples) continue;
+
+        // Silence detection: if the entire buffer is essentially zero, draw
+        // a flat line (just clear localBuf_ — the scope renders centre line).
+        float peak = 0.0f;
+        for (int i = 0; i < written; ++i)
+            peak = std::max(peak, std::abs(wideScratch[i]));
+
+        if (peak < 0.002f) {
+            std::memset(localBuf_, 0, sizeof(localBuf_));
+            oscScopes[o]->updateSamples(localBuf_, kDisplaySamples);
+            continue;
+        }
+
+        // Trigger sync: find first rising zero-crossing in the search window
+        // (the portion of the buffer before the display window).  Locks the
+        // displayed slice to a consistent phase so the waveform stands still.
+        const int searchEnd = written - kDisplaySamples;   // last index that still leaves room
+        int triggerIdx = 0;
+        for (int i = 1; i < searchEnd; ++i) {
+            if (wideScratch[i - 1] < 0.0f && wideScratch[i] >= 0.0f) {
+                triggerIdx = i;
+                break;
+            }
+        }
+
+        // Copy the display window starting at the trigger point.
+        std::memcpy(localBuf_, wideScratch + triggerIdx,
+                    sizeof(float) * kDisplaySamples);
+        oscScopes[o]->updateSamples(localBuf_, kDisplaySamples);
     }
 
     // filterScope is now SIDFilterInfoView — driven by setFilterState() above, not audio data

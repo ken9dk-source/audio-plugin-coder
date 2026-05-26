@@ -950,13 +950,14 @@ void SIDTranceAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         const float smR   = smRes.getNextValue();
         const float smVol = smMasterVol.getNextValue();
 
-        // Sum all active voices — with unison panning per voice
+        // Sum all active voices — with unison panning per voice.
+        // Also accumulate per-osc sums across all voices so the scopes show
+        // every playing note (chord, unison stack, etc.) — not just one voice.
         float sumL = 0.0f, sumR = 0.0f;
+        float scopeSum1 = 0.0f, scopeSum2 = 0.0f, scopeSum3 = 0.0f;
         int   activeCount = 0;
-        SIDVoice* captureVoice = nullptr;   // first active voice (for per-osc scope display)
         for (auto& v : voices) {
             if (!v.active) continue;
-            if (captureVoice == nullptr) captureVoice = &v;
 
             // Apply mod matrix (uses block-cached values — no APVTS read here)
             applyModMatrix(v, l1, l2, v.velocity, modWheelVal, modCache);
@@ -968,6 +969,11 @@ void SIDTranceAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                                              glideRate, oscSync, fmAmt,
                                              pitchBendSemis_);
 
+            // processMono just wrote v.lastS1/2/3 — accumulate them across voices.
+            scopeSum1 += v.lastS1;
+            scopeSum2 += v.lastS2;
+            scopeSum3 += v.lastS3;
+
             // Unison panning: equal-power constant-gain
             const float pan  = v.uniPan;   // -1..+1
             const float panL = std::sqrt(std::max(0.0f, 0.5f - pan * 0.5f));
@@ -977,19 +983,18 @@ void SIDTranceAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             ++activeCount;
         }
 
-        // Capture per-osc samples from the canonical "display" voice for the
-        // per-oscillator scope displays.  Decays to silence when no voice plays.
+        // Capture per-osc voice-sums for the scopes.  Match the audio path's
+        // 1/sqrt(N) RMS normalisation so the scope amplitude is stable
+        // regardless of how many notes are held.  When no voice plays, write
+        // exact zeros so the UI's silence detector trips cleanly.
         // (Safety guard: skip if host gave us a larger block than promised.)
         if (samp < (int)oscScopeScratch_[0].size()) {
-            if (captureVoice != nullptr) {
-                oscScopeScratch_[0][samp] = captureVoice->lastS1;
-                oscScopeScratch_[1][samp] = captureVoice->lastS2;
-                oscScopeScratch_[2][samp] = captureVoice->lastS3;
-            } else {
-                oscScopeScratch_[0][samp] = 0.0f;
-                oscScopeScratch_[1][samp] = 0.0f;
-                oscScopeScratch_[2][samp] = 0.0f;
-            }
+            const float scopeNorm = activeCount > 0
+                                  ? (1.0f / std::sqrt(float(activeCount)))
+                                  : 0.0f;
+            oscScopeScratch_[0][samp] = scopeSum1 * scopeNorm;
+            oscScopeScratch_[1][samp] = scopeSum2 * scopeNorm;
+            oscScopeScratch_[2][samp] = scopeSum3 * scopeNorm;
         }
 
         // Normalise by voice count (prevents clipping with 7-voice unison)
