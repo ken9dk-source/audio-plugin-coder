@@ -1,8 +1,11 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
-static constexpr int kWindowW = 1200;
-static constexpr int kWindowH = 740;
+// Editor size matches the GUI design PNG aspect ratio (1672 × 941, 16:9).
+// 1280×720 keeps the window at a sensible desktop size while preserving the
+// design proportions so the background image scales without letterboxing.
+static constexpr int kWindowW = 1280;
+static constexpr int kWindowH = 720;
 
 SIDTranceAudioProcessorEditor::SIDTranceAudioProcessorEditor(SIDTranceAudioProcessor& p)
     : VisagePluginEditor(p), audioProcessor(p)
@@ -92,7 +95,13 @@ void SIDTranceAudioProcessorEditor::addAllFrames()
     v.addChild(&v.gatePanel);
     v.addChild(&v.macroPanel);
     v.addChild(&v.voiceModPanel);
+    v.addChild(&v.chipSwitch);            // top-level; sits over chip badges in PNG
     v.addChild(&v.presetBar);
+
+    // Debug overlay — translucent yellow rectangles around every field so
+    // the layout-to-PNG mapping can be visually verified.  Set to false
+    // (or remove the call) once the layout is confirmed correct.
+    v.setDebugOverlay(true);
 
     // Arp — default state matching reference (steps 1-6, 8-11, 13-14, 16 active)
     const std::array<bool, 16> defaultSteps = {
@@ -248,8 +257,8 @@ void SIDTranceAudioProcessorEditor::bindAllParameters()
         const int cur = p != nullptr
                       ? int(std::round(apvts.getRawParameterValue("chip_model")->load()))
                       : 1;
-        v.presetBar.chipSwitch.setIndex(std::clamp(cur, 0, 1));
-        v.presetBar.chipSwitch.onChanged = [&apvts](int idx) {
+        v.chipSwitch.setIndex(std::clamp(cur, 0, 1));
+        v.chipSwitch.onChanged = [&apvts](int idx) {
             if (auto* pp = apvts.getParameter("chip_model"))
                 pp->setValueNotifyingHost(idx == 0 ? 0.0f : 1.0f);
             // No direct setModelTarget call — processBlock reads the parameter

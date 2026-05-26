@@ -16,66 +16,74 @@
 // ============================================================
 
 namespace SIDColors {
-    // Backgrounds
-    static constexpr uint32_t BG_VOID         = 0xFF060E1E;
-    static constexpr uint32_t BG_PANEL        = 0xFF0A1628;
-    static constexpr uint32_t BG_PANEL_DARK   = 0xFF071120;
-    static constexpr uint32_t BG_SECTION      = 0xFF0F1E35;
+    // ── Blue → purple neon palette (matched to TranceSID Gui Design.png) ──
+    // The PNG uses a deep navy void with cyan-to-magenta gradient edges.
+    // All widget chrome should sit on top of the PNG and tint with these.
 
-    // Borders
-    static constexpr uint32_t BORDER_PANEL    = 0xFF1A3A6B;
-    static constexpr uint32_t BORDER_INNER    = 0xFF0F2A50;
-    static constexpr uint32_t SEPARATOR       = 0xFF152840;
+    // Backgrounds  (panel interior — semi-transparent to let the PNG show through)
+    static constexpr uint32_t BG_VOID         = 0xFF05060A;   // user-spec'd void
+    static constexpr uint32_t BG_PANEL        = 0xC00E1424;   // 75% alpha so PNG edges peek
+    static constexpr uint32_t BG_PANEL_DARK   = 0xD00B1020;   // a bit darker for inner wells
+    static constexpr uint32_t BG_SECTION      = 0xC0121A2E;
 
-    // Accent cyan (most controls)
-    static constexpr uint32_t ACCENT_CYAN_BRIGHT = 0xFF00D4FF;
-    static constexpr uint32_t ACCENT_CYAN        = 0xFF0099CC;
-    static constexpr uint32_t ACCENT_CYAN_DIM    = 0xFF005577;
-    static constexpr uint32_t ACCENT_CYAN_GLOW   = 0x4400D4FF;
+    // Borders — pick up the neon edge accents from the design
+    static constexpr uint32_t BORDER_PANEL    = 0xFF1E90FF;   // glow blue
+    static constexpr uint32_t BORDER_INNER    = 0xFF2E3A60;
+    static constexpr uint32_t SEPARATOR       = 0xFF1A2244;
 
-    // Accent green (resonance only)
-    static constexpr uint32_t ACCENT_GREEN    = 0xFF00FF7F;
-    static constexpr uint32_t ACCENT_GREEN_DIM= 0xFF006633;
+    // Accent cyan (left edge of the gradient)
+    static constexpr uint32_t ACCENT_CYAN_BRIGHT = 0xFF00C8FF;   // cyan-accent
+    static constexpr uint32_t ACCENT_CYAN        = 0xFF1E90FF;   // glow blue
+    static constexpr uint32_t ACCENT_CYAN_DIM    = 0xFF1A4080;
+    static constexpr uint32_t ACCENT_CYAN_GLOW   = 0x6600C8FF;
+
+    // Accent magenta (right edge of the gradient — replaces green-only resonance)
+    static constexpr uint32_t ACCENT_GREEN    = 0xFFC84DE0;   // magenta-accent
+    static constexpr uint32_t ACCENT_GREEN_DIM= 0xFF66208C;
+    static constexpr uint32_t ACCENT_MAGENTA  = 0xFFC84DE0;
+    static constexpr uint32_t ACCENT_PURPLE   = 0xFF9B4DFF;   // glow purple
+    static constexpr uint32_t ACCENT_PURPLE_DIM   = 0xFF5226A0;
+    static constexpr uint32_t ACCENT_PURPLE_GLOW  = 0x669B4DFF;
 
     // Knob / fader
-    static constexpr uint32_t KNOB_BODY       = 0xFF1A2840;
-    static constexpr uint32_t KNOB_BODY_LARGE = 0xFF101E32;
-    static constexpr uint32_t KNOB_INDICATOR  = 0xFFE8F4FD;
-    static constexpr uint32_t FADER_TRACK     = 0xFF0C1A30;
-    static constexpr uint32_t FADER_THUMB     = 0xFF1E3A5A;
-    static constexpr uint32_t FADER_THUMB_ACT = 0xFF2A5080;
+    static constexpr uint32_t KNOB_BODY       = 0xFF141A2C;
+    static constexpr uint32_t KNOB_BODY_LARGE = 0xFF0E1424;
+    static constexpr uint32_t KNOB_INDICATOR  = 0xFFD8DEE9;   // user-spec silver
+    static constexpr uint32_t FADER_TRACK     = 0xFF0B1020;
+    static constexpr uint32_t FADER_THUMB     = 0xFF1E2A50;
+    static constexpr uint32_t FADER_THUMB_ACT = 0xFF2C3A78;
 
     // Step sequencer
-    static constexpr uint32_t STEP_ACTIVE     = 0xFF1E6FBF;
-    static constexpr uint32_t STEP_INACTIVE   = 0xFF0A1E38;
-    static constexpr uint32_t STEP_PLAYING    = 0xFF00D4FF;
-    static constexpr uint32_t STEP_BORDER     = 0xFF1A4080;
+    static constexpr uint32_t STEP_ACTIVE     = 0xFF1E90FF;   // blue (active)
+    static constexpr uint32_t STEP_INACTIVE   = 0xFF0B1228;
+    static constexpr uint32_t STEP_PLAYING    = 0xFF9B4DFF;   // purple (playing)
+    static constexpr uint32_t STEP_BORDER     = 0xFF1E3A78;
 
     // Text
-    static constexpr uint32_t TEXT_PRIMARY    = 0xFFE8F4FD;
-    static constexpr uint32_t TEXT_LABEL      = 0xFF8BAFD4;
-    static constexpr uint32_t TEXT_DIM        = 0xFF4A6A8A;
-    static constexpr uint32_t TEXT_ACCENT     = 0xFF00D4FF;
+    static constexpr uint32_t TEXT_PRIMARY    = 0xFFD8DEE9;   // user-spec silver
+    static constexpr uint32_t TEXT_LABEL      = 0xFF98A6C8;
+    static constexpr uint32_t TEXT_DIM        = 0xFF52608A;
+    static constexpr uint32_t TEXT_ACCENT     = 0xFF00C8FF;
 
     // Buttons
-    static constexpr uint32_t BTN_OFF_BG      = 0xFF0A1628;
-    static constexpr uint32_t BTN_OFF_BORDER  = 0xFF1A3A6B;
-    static constexpr uint32_t BTN_ON_BG       = 0xFF003366;
-    static constexpr uint32_t BTN_ON_BORDER   = 0xFF0066CC;
-    static constexpr uint32_t BTN_ON_TEXT     = 0xFF00D4FF;
-    static constexpr uint32_t LED_ON          = 0xFFFFAA00;
-    static constexpr uint32_t LED_OFF         = 0xFF332200;
+    static constexpr uint32_t BTN_OFF_BG      = 0xC00E1424;
+    static constexpr uint32_t BTN_OFF_BORDER  = 0xFF2A3A66;
+    static constexpr uint32_t BTN_ON_BG       = 0xFF1E2A60;
+    static constexpr uint32_t BTN_ON_BORDER   = 0xFF1E90FF;
+    static constexpr uint32_t BTN_ON_TEXT     = 0xFF00C8FF;
+    static constexpr uint32_t LED_ON          = 0xFFC84DE0;   // magenta LED
+    static constexpr uint32_t LED_OFF         = 0xFF2C1240;
 
     // Scope
-    static constexpr uint32_t SCOPE_LINE      = 0xFF00D4FF;
-    static constexpr uint32_t SCOPE_FILL      = 0x2200D4FF;
-    static constexpr uint32_t SCOPE_BG        = 0xFF060E1E;
+    static constexpr uint32_t SCOPE_LINE      = 0xFF00C8FF;
+    static constexpr uint32_t SCOPE_FILL      = 0x3300C8FF;
+    static constexpr uint32_t SCOPE_BG        = 0xC005060A;
 
-    // ADSR envelope colors (reference image color scheme)
-    static constexpr uint32_t ENV_ATTACK      = 0xFFFF7700;  // orange
-    static constexpr uint32_t ENV_DECAY       = 0xFFFFCC00;  // yellow
-    static constexpr uint32_t ENV_SUSTAIN     = 0xFF0099FF;  // blue
-    static constexpr uint32_t ENV_RELEASE     = 0xFFAA00FF;  // purple
+    // ADSR envelope colors (kept distinct for envelope display)
+    static constexpr uint32_t ENV_ATTACK      = 0xFFFF7700;
+    static constexpr uint32_t ENV_DECAY       = 0xFFFFCC00;
+    static constexpr uint32_t ENV_SUSTAIN     = 0xFF1E90FF;
+    static constexpr uint32_t ENV_RELEASE     = 0xFF9B4DFF;
 }
 
 // ============================================================
@@ -192,17 +200,20 @@ public:
         drawArcApprox(canvas, cx, cy, arcR, kStartAngle, kSweep,
                       0xFF091C30, trackWidth);
 
-        // ── Arc value fill — wide bloom + sharp core ──────────
+        // ── Arc value fill — bloom in single accent + blue→purple gradient core ──
         const float valueSweep = kSweep * value_;
         if (valueSweep > 0.002f) {
-            // Bloom glow (wide, semi-transparent)
-            const uint32_t bloomCol = (ringColor_ & 0x00FFFFFFu) | 0x30000000u;
+            // Bloom glow stays single-colour cyan so the gradient core sits on top
+            // of a soft halo (matches the neon-edge look of the design PNG).
+            const uint32_t bloomCol = (SIDColors::ACCENT_CYAN_BRIGHT & 0x00FFFFFFu) | 0x30000000u;
             drawArcApprox(canvas, cx, cy, arcR, kStartAngle, valueSweep, bloomCol, trackWidth + 6.0f);
-            // Mid glow (medium, more opaque)
-            const uint32_t midCol   = (ringColor_ & 0x00FFFFFFu) | 0x70000000u;
+            const uint32_t midCol = (SIDColors::ACCENT_PURPLE & 0x00FFFFFFu) | 0x60000000u;
             drawArcApprox(canvas, cx, cy, arcR, kStartAngle, valueSweep, midCol,   trackWidth + 2.0f);
-            // Core bright arc
-            drawArcApprox(canvas, cx, cy, arcR, kStartAngle, valueSweep, ringColor_, trackWidth);
+            // Core: linearly interpolated blue → purple along the value sweep.
+            drawArcGradient(canvas, cx, cy, arcR, kStartAngle, valueSweep,
+                            SIDColors::ACCENT_CYAN_BRIGHT,   // start = blue
+                            SIDColors::ACCENT_PURPLE,        // end   = purple
+                            trackWidth);
         }
 
         // ── Knob body shadow rim ───────────────────────────────
@@ -299,6 +310,40 @@ private:
         for (int i = 0; i < N; ++i) {
             const float a0 = startAngle + sweep * (float(i)   / N);
             const float a1 = startAngle + sweep * (float(i+1) / N);
+            const float x0 = cx + r * std::cos(a0);
+            const float y0 = cy + r * std::sin(a0);
+            const float x1 = cx + r * std::cos(a1);
+            const float y1 = cy + r * std::sin(a1);
+            canvas.segment(x0, y0, x1, y1, lineWidth, false);
+        }
+    }
+
+    // Same as drawArcApprox but linearly interpolates the colour from
+    // colorStart at sweep=0 to colorEnd at sweep=full.  Used for the
+    // blue→purple neon ring on knobs that matches the PNG's accent gradient.
+    static uint32_t lerpColor(uint32_t c0, uint32_t c1, float t) {
+        t = std::clamp(t, 0.0f, 1.0f);
+        auto chan = [](uint32_t c, int shift) -> int { return int((c >> shift) & 0xFFu); };
+        const int a0 = chan(c0, 24), r0 = chan(c0, 16), g0 = chan(c0, 8), b0 = chan(c0, 0);
+        const int a1 = chan(c1, 24), r1 = chan(c1, 16), g1 = chan(c1, 8), b1 = chan(c1, 0);
+        const int aa = int(std::round(a0 + (a1 - a0) * t));
+        const int rr = int(std::round(r0 + (r1 - r0) * t));
+        const int gg = int(std::round(g0 + (g1 - g0) * t));
+        const int bb = int(std::round(b0 + (b1 - b0) * t));
+        return (uint32_t(aa) << 24) | (uint32_t(rr) << 16) | (uint32_t(gg) << 8) | uint32_t(bb);
+    }
+
+    void drawArcGradient(visage::Canvas& canvas, float cx, float cy, float r,
+                         float startAngle, float sweep,
+                         uint32_t colorStart, uint32_t colorEnd, float lineWidth) {
+        const int N = 16;
+        for (int i = 0; i < N; ++i) {
+            const float t0 = float(i)     / N;
+            const float t1 = float(i + 1) / N;
+            // Use the segment's midpoint colour so endpoint joints look smooth.
+            canvas.setColor(lerpColor(colorStart, colorEnd, (t0 + t1) * 0.5f));
+            const float a0 = startAngle + sweep * t0;
+            const float a1 = startAngle + sweep * t1;
             const float x0 = cx + r * std::cos(a0);
             const float y0 = cy + r * std::sin(a0);
             const float x1 = cx + r * std::cos(a1);
@@ -2062,7 +2107,9 @@ private:
 class SIDPresetBar : public visage::Frame {
 public:
     SIDToggleButton saveBtn, saveAsBtn, initBtn;
-    SIDChipSwitch   chipSwitch;            // 6581 / 8580 dual-engine selector
+    // chipSwitch moved out — it now lives at the top of the editor as a
+    // separate top-level child of SIDMainView so it can sit directly over
+    // the two chip badges drawn into the PNG background.
 
     // Callbacks for preset navigation (Prev/Next arrows)
     std::function<void()> onPrev, onNext;
@@ -2074,7 +2121,6 @@ public:
         addChild(&saveBtn);
         addChild(&saveAsBtn);
         addChild(&initBtn);
-        addChild(&chipSwitch);
         updateFonts();
     }
     void dpiChanged() override { updateFonts(); }
@@ -2084,9 +2130,6 @@ public:
         saveBtn.setBounds(width() - 186, bY, 52, bH);
         saveAsBtn.setBounds(width() - 130, bY, 62, bH);
         initBtn.setBounds(width() - 64,  bY, 56, bH);
-        // Chip switch sits just left of the MOS branding, in what used to be
-        // the unused "SID SYNTHESIZER FOR TRANCE MUSIC" tagline area.
-        chipSwitch.setBounds(width() - 294, bY, 92, bH);
     }
 
     // Click on the Prev (<) and Next (>) arrows (not child frames — drawn in draw())
@@ -2160,10 +2203,7 @@ public:
         canvas.setColor(SIDColors::TEXT_LABEL);
         canvas.text("v", fonts_->label, visage::Font::kRight, bankX, bY, bankW - 4, bH);
 
-        // Right side: CHIP label (chipSwitch child draws itself) + MOS logo
-        canvas.setColor(SIDColors::TEXT_LABEL);
-        canvas.text("CHIP:", fonts_->label, visage::Font::kRight,
-                    width() - 340, 0, 42, height());
+        // Right side: MOS chip logo (chipSwitch is at the TOP of the editor now)
         canvas.setColor(SIDColors::ACCENT_CYAN);
         canvas.text("MOS", fonts_->section, visage::Font::kLeft,
                     width() - 196, 0, 40, height());
@@ -2184,7 +2224,6 @@ private:
         saveBtn.setFonts(fonts_);    saveBtn.setLabel("SAVE");
         saveAsBtn.setFonts(fonts_);  saveAsBtn.setLabel("SAVE AS");
         initBtn.setFonts(fonts_);    initBtn.setLabel("INIT");
-        chipSwitch.setFonts(fonts_);
     }
 
     SIDFonts*   fonts_     = nullptr;
@@ -2479,8 +2518,17 @@ public:
     // Voice mod (middle section, right of master)
     SIDVoiceModPanel     voiceModPanel;
 
+    // Chip selector — top-level child, positioned over the two chip badges
+    // drawn into the background PNG.  Bound to chip_model in PluginEditor.
+    SIDChipSwitch        chipSwitch;
+
     // Preset bar
     SIDPresetBar         presetBar;
+
+    // Toggle for the debug overlay (light yellow field rectangles).  Set
+    // from PluginEditor — when true the layout map is drawn on top of
+    // the PNG so you can verify each module sits inside its field.
+    void setDebugOverlay(bool on) { debugOverlay_ = on; redraw(); }
 
     void init() override {
         // CRITICAL: sets initialized_ = true so addChild() will call child->init()
@@ -2498,67 +2546,37 @@ public:
     }
 
     void draw(visage::Canvas& canvas) override {
-        const float W = float(width());
+        const int W = width(), H = height();
 
-        // ── Window background ──────────────────────────────────
-        canvas.setColor(SIDColors::BG_VOID);
-        canvas.fill(0, 0, width(), height());
-
-        // ── Top info bar background (scopes + logo + branding) ─
-        canvas.setColor(0xFF080F1C);
-        canvas.roundedRectangle(4, 4, W - 8, 122, 5.0f);
-        canvas.setColor(SIDColors::BORDER_PANEL);
-        canvas.roundedRectangleBorder(4, 4, W - 8, 122, 5.0f, 1.0f);
-
-        // ── Commodore logo — circle with italic "C" (matches HTML template) ──
-        {
-            // Logo cell background
-            canvas.setColor(0xFF050D18);
-            canvas.roundedRectangle(10, 8, 76, 114, 5.0f);
-            canvas.setColor(0xFF1A3A6B);
-            canvas.roundedRectangleBorder(10, 8, 76, 114, 5.0f, 1.0f);
-
-            // Circle border (the iconic Commodore badge shape)
-            const float cx = 48.0f, cy = 56.0f, cr = 26.0f;
-            // Draw circle as a filled ring: outer fill then inner cut
-            canvas.setColor(0xFF1E6DA8);
-            canvas.circle(cx - cr, cy - cr, cr * 2.0f);               // filled circle
-            canvas.setColor(0xFF050D18);
-            canvas.circle(cx - cr + 3.0f, cy - cr + 3.0f, (cr-3.0f)*2.0f); // punch out centre
-
-            if (font_title_.size() > 0) {
-                // Italic bold "C" inside the ring — the classic Commodore look
-                canvas.setColor(0xFF2E8FD4);
-                canvas.text("C", font_title_, visage::Font::kCenter, 10, 30, 76, 50);
-
-                // "commodore" caption below circle
-                canvas.setColor(0xFF3A6A8C);
-                canvas.text("commodore", font_label_small_, visage::Font::kCenter, 10, 95, 76, 16);
-            }
-
-            // Vertical separator right of logo
-            canvas.setColor(SIDColors::BORDER_INNER);
-            canvas.fill(88, 8, 1, 114);
+        // ── PNG background — fills the whole editor with the design chrome.
+        //    BinaryData symbol comes from juce_add_binary_data in CMakeLists;
+        //    "TranceSID Gui Design.png" → TranceSID_Gui_Design_png (JUCE
+        //    converts spaces to underscores).  Data is `const char*` —
+        //    cast to unsigned for visage::Canvas::image().
+        const auto* png = reinterpret_cast<const unsigned char*>(
+            BinaryData::TranceSID_Gui_Design_png);
+        const int pngSize = BinaryData::TranceSID_Gui_Design_pngSize;
+        if (png != nullptr && pngSize > 0)
+            canvas.image(png, pngSize, 0, 0, W, H);
+        else {
+            // Fallback if the binary symbol wasn't generated (build issue)
+            canvas.setColor(SIDColors::BG_VOID);
+            canvas.fill(0, 0, W, H);
         }
 
-        // ── Plugin branding — top right (matches HTML template) ───────────
-        if (font_large_.size() > 0) {
-            // Large "SID" — template blue #2e8fd4, right-aligned
-            canvas.setColor(0xFF2E8FD4);
-            canvas.text("SID", font_large_, visage::Font::kRight,
-                        870, 6, 314, 62);
-            // "TRANCE MACHINE" subtitle
-            canvas.setColor(0xFF4A8AAB);
-            canvas.text("TRANCE MACHINE", font_label_, visage::Font::kRight,
-                        870, 68, 314, 18);
-            // "C-MOS" model tag in lighter blue
-            canvas.setColor(0xFF6AACCB);
-            canvas.text("C-MOS", font_label_small_, visage::Font::kRight,
-                        870, 88, 314, 14);
-
-            // Branding separator
-            canvas.setColor(SIDColors::BORDER_INNER);
-            canvas.fill(868, 8, 1, 114);
+        // ── Debug overlay — translucent yellow rectangles around every
+        //    field so you can verify modules sit fully inside their panel
+        //    artwork.  Toggle via setDebugOverlay(true) from PluginEditor.
+        if (debugOverlay_) {
+            for (const auto& f : currentFields_) {
+                canvas.setColor(0x33FFFF00);                    // 20% yellow fill
+                canvas.fill(f.x, f.y, f.w, f.h);
+                canvas.setColor(0xCCFFE000);                    // bright outline
+                canvas.fill(f.x, f.y,             f.w, 1);     // top
+                canvas.fill(f.x, f.y + f.h - 1,   f.w, 1);     // bottom
+                canvas.fill(f.x, f.y,             1,   f.h);   // left
+                canvas.fill(f.x + f.w - 1, f.y,   1,   f.h);   // right
+            }
         }
     }
 
@@ -2575,72 +2593,119 @@ private:
         }
     }
 
+    // Field rectangles measured directly off the 1672×941 background PNG
+    // (from a pixel-scan of dark-fill regions in TranceSID Gui Design.png).
+    // resized() scales them to the current editor size so the layout
+    // stays glued to the artwork even if the host resizes the window.
+    struct FieldRect { int x, y, w, h; };
+    static constexpr int kPngW = 1672;
+    static constexpr int kPngH = 941;
+
+    static constexpr FieldRect kPngHeader      { 0,    0,    kPngW, 200 };
+    static constexpr FieldRect kPngChipSwitch  { 540,  46,  208,  86  }; // over the two badges
+    static constexpr FieldRect kPngMacros      { 32,   220, 156,  436 };
+    static constexpr FieldRect kPngOsc1        { 208,  220, 272,  436 };
+    static constexpr FieldRect kPngOsc2        { 484,  220, 296,  436 };
+    static constexpr FieldRect kPngOsc3        { 752,  220, 312,  436 };
+    static constexpr FieldRect kPngFilter      { 1092, 220, 256,  296 };
+    static constexpr FieldRect kPngAmpMaster   { 1368, 220, 270,  296 };
+    static constexpr FieldRect kPngVoiceMod    { 1092, 528, 540,  132 };
+    static constexpr FieldRect kPngModMatrix   { 32,   680, 440,  168 };
+    static constexpr FieldRect kPngLfo1        { 484,  680, 292,  168 };
+    static constexpr FieldRect kPngLfo2        { 788,  680, 296,  168 };
+    static constexpr FieldRect kPngArpGateFx   { 1092, 680, 540,  168 };
+    static constexpr FieldRect kPngPresetBar   { 0,    876, kPngW, 60  };
+
     void layoutAll() {
-        const int W = width();
-        const int H = height();
-        const int PAD = 8, GAP = 4;
+        const int W = width(), H = height();
+        const float sx = float(W) / float(kPngW);
+        const float sy = float(H) / float(kPngH);
 
-        // ── Preset bar (bottom strip, fixed height) ─────────
-        const int presetBarH = 36;
-        presetBar.setBounds(0, H - presetBarH, W, presetBarH);
+        auto map = [&](const FieldRect& f, int margin = 4) {
+            return FieldRect{
+                int(std::round(f.x * sx)) + margin,
+                int(std::round(f.y * sy)) + margin,
+                int(std::round(f.w * sx)) - 2 * margin,
+                int(std::round(f.h * sy)) - 2 * margin };
+        };
+        auto place = [&](visage::Frame& frame, const FieldRect& f, int margin = 4) {
+            const auto r = map(f, margin);
+            frame.setBounds(r.x, r.y, r.w, r.h);
+            currentFields_.push_back(r);   // record for the debug overlay
+        };
 
-        // ── Header row — 3 OSC scopes + filter info display ───
-        const int scopeY  = PAD + 2;
-        const int scopeH  = 114;
-        const int scopeL  = 106;
-        const int scopeR  = 926;
-        const int filterW = 210;
-        const int oscScopeW = (scopeR - scopeL - filterW - 3 * GAP) / 3;
-        scope1.setBounds(scopeL,                       scopeY, oscScopeW, scopeH);
-        scope2.setBounds(scopeL + oscScopeW + GAP,     scopeY, oscScopeW, scopeH);
-        scope3.setBounds(scopeL + 2*(oscScopeW + GAP), scopeY, oscScopeW, scopeH);
-        filterScope.setBounds(scopeR - filterW,        scopeY, filterW,   scopeH);
+        currentFields_.clear();
 
-        // ── Middle section ──────────────────────────────────
-        const int midY = scopeY + scopeH + GAP;
-        const int midH = 308;
-        const int oscW = 200;
-        osc1.setBounds(PAD,               midY, oscW, midH);
-        osc2.setBounds(PAD + oscW + GAP,  midY, oscW, midH);
-        osc3.setBounds(PAD + 2*(oscW+GAP),midY, oscW, midH);
+        // Top of editor — chip switch over the two badges, preset bar at bottom.
+        place(chipSwitch, kPngChipSwitch, /*margin=*/6);
+        place(presetBar,  kPngPresetBar,  /*margin=*/0);
 
-        const int filterX = PAD + 3*(oscW+GAP);
-        filterPanel.setBounds(filterX, midY, 220, 200);
-        ampPanel.setBounds(filterX, midY + 204, 220, 104);
-        masterPanel.setBounds(filterX + 224, midY, 148, midH);
+        // Macros vertical strip on the far left.
+        place(macroPanel, kPngMacros);
 
-        // Voice mod panel: right of master, fills remaining middle width
-        const int voiceModX = filterX + 224 + 148 + GAP;
-        const int voiceModW = W - voiceModX - PAD;
-        voiceModPanel.setBounds(voiceModX, midY, std::max(voiceModW, 160), midH);
+        // Three OSC fields — each holds a small scope at the top and the
+        // oscillator-panel content underneath.  Splitting inside the field
+        // keeps the existing modules unchanged but slots them into the
+        // PNG-defined column layout.
+        auto placeOscField = [&](SIDOscillatorPanel& panel, SIDOscilloscopeView& scope,
+                                  const FieldRect& field) {
+            const auto r = map(field);
+            const int scopeH = std::max(48, r.h / 7);
+            const int gap    = 4;
+            scope.setBounds(r.x, r.y, r.w, scopeH);
+            panel.setBounds(r.x, r.y + scopeH + gap, r.w, r.h - scopeH - gap);
+            currentFields_.push_back(r);
+        };
+        placeOscField(osc1, scope1, kPngOsc1);
+        placeOscField(osc2, scope2, kPngOsc2);
+        placeOscField(osc3, scope3, kPngOsc3);
 
-        // ── Bottom section ─────────────────────────────────
-        const int botY = midY + midH + GAP;
-        const int botH = H - presetBarH - PAD - botY;
-        modMatrix.setBounds(PAD, botY, 296, botH);
-        effectsPanel.setBounds(PAD + 300, botY, 196, botH);
+        // Filter (upper right field A) + small filter-state display at top.
+        {
+            const auto r = map(kPngFilter);
+            const int infoH = std::max(36, r.h / 9);
+            const int gap   = 4;
+            filterScope.setBounds(r.x, r.y, r.w, infoH);
+            filterPanel.setBounds(r.x, r.y + infoH + gap, r.w, r.h - infoH - gap);
+            currentFields_.push_back(r);
+        }
 
-        const int lfoX = PAD + 300 + 200;
-        lfo1.setBounds(lfoX, botY, 160, 108);
-        lfo2.setBounds(lfoX + 164, botY, 160, 108);
+        // Amp + Master share the upper right field B (amp on top, master below).
+        {
+            const auto r = map(kPngAmpMaster);
+            const int ampH = int(r.h * 0.55f);
+            const int gap  = 4;
+            ampPanel.setBounds(r.x,    r.y,                r.w, ampH);
+            masterPanel.setBounds(r.x, r.y + ampH + gap,   r.w, r.h - ampH - gap);
+            currentFields_.push_back(r);
+        }
 
-        // Macro panel: to the right of lfo2, full height of upper row
-        const int macroX = lfoX + 328;
-        const int macroW = W - macroX - PAD;
-        macroPanel.setBounds(macroX, botY, macroW, 108);
+        // Right horizontal strip — voice mod (unison / glide / drive).
+        place(voiceModPanel, kPngVoiceMod);
 
-        // Lower row: arpPanel + gatePanel side by side
-        const int arpY    = botY + 112;
-        const int arpRowH = botH - 112;
-        const int arpW    = (W - lfoX - PAD - GAP) / 2;
-        arpPanel.setBounds(lfoX,          arpY, arpW, arpRowH);
-        gatePanel.setBounds(lfoX + arpW + GAP, arpY, arpW, arpRowH);
+        // Bottom row left to right: ModMatrix, LFO1, LFO2, then (Arp + Gate + FX).
+        place(modMatrix, kPngModMatrix);
+        place(lfo1,      kPngLfo1);
+        place(lfo2,      kPngLfo2);
 
-        (void)H;
+        // The 4th bottom field holds 3 panels side-by-side.
+        {
+            const auto r = map(kPngArpGateFx);
+            const int gap = 4;
+            const int sub = (r.w - 2 * gap) / 3;
+            arpPanel.setBounds    (r.x,                       r.y, sub, r.h);
+            gatePanel.setBounds   (r.x + sub + gap,           r.y, sub, r.h);
+            effectsPanel.setBounds(r.x + 2 * (sub + gap),     r.y, r.w - 2 * (sub + gap), r.h);
+            currentFields_.push_back(r);
+        }
     }
 
     visage::Font font_large_;
     visage::Font font_title_;
     visage::Font font_label_;
     visage::Font font_label_small_;
+
+    // Debug overlay
+    bool debugOverlay_ = false;
+    std::vector<FieldRect> currentFields_;
 };
