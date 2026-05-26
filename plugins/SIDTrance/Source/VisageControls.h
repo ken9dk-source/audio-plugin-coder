@@ -445,6 +445,81 @@ private:
 };
 
 // ============================================================
+//  SIDChipSwitch — 2-segment chip-model selector (6581 / 8580).
+//
+//  Click on a segment to select that chip.  Bound to the chip_model
+//  AudioParameterChoice in PluginEditor::bindAllParameters() via the same
+//  onChanged-callback pattern every other Visage widget in this plugin uses
+//  (sets the parameter via setValueNotifyingHost; preset load /
+//  automation refresh comes through stateJustLoaded → bindAllParameters,
+//  which calls setIndex() on this widget).  Functionally equivalent to a
+//  juce::AudioProcessorValueTreeState::ButtonAttachment.
+// ============================================================
+class SIDChipSwitch : public visage::Frame {
+public:
+    std::function<void(int)> onChanged;   // 0 = 6581, 1 = 8580
+
+    void setIndex(int idx) {
+        idx = std::clamp(idx, 0, 1);
+        if (idx != index_) { index_ = idx; redraw(); }
+    }
+    int  getIndex() const           { return index_; }
+    void setFonts(SIDFonts* f)      { fonts_ = f; }
+
+    void draw(visage::Canvas& canvas) override {
+        const float W = float(width()), H = float(height());
+        const float r = 3.0f;
+        const float segW = W * 0.5f;
+
+        // Inactive base
+        canvas.setColor(SIDColors::BTN_OFF_BG);
+        canvas.roundedRectangle(0, 0, W, H, r);
+
+        // Active segment fill (left = 6581, right = 8580)
+        const float ax = (index_ == 0) ? 0.0f : segW;
+        canvas.setColor(SIDColors::BTN_ON_BG);
+        canvas.roundedRectangle(ax, 0, segW, H, r);
+        // Subtle top highlight on the active half
+        canvas.setColor(0x1AFFFFFF);
+        canvas.roundedRectangle(ax + 1, 1, segW - 2, H * 0.45f, r - 1.0f);
+
+        // Outer border + inner divider
+        canvas.setColor(SIDColors::BTN_OFF_BORDER);
+        canvas.roundedRectangleBorder(0, 0, W, H, r, 1.0f);
+        canvas.setColor(SIDColors::BORDER_INNER);
+        canvas.fill(segW - 0.5f, 2.0f, 1.0f, H - 4.0f);
+
+        // Labels
+        if (fonts_) {
+            canvas.setColor(index_ == 0 ? SIDColors::BTN_ON_TEXT : SIDColors::TEXT_DIM);
+            canvas.text("6581", fonts_->button, visage::Font::kCenter,
+                        0, 0, int(segW), int(H));
+            canvas.setColor(index_ == 1 ? SIDColors::BTN_ON_TEXT : SIDColors::TEXT_DIM);
+            canvas.text("8580", fonts_->button, visage::Font::kCenter,
+                        int(segW), 0, int(segW), int(H));
+        }
+    }
+
+    void mouseDown(const visage::MouseEvent& e) override {
+        const float W = float(width());
+        const int newIdx = (e.position.x < W * 0.5f) ? 0 : 1;
+        if (newIdx != index_) {
+            index_ = newIdx;
+            redraw();
+            if (onChanged) onChanged(index_);
+        }
+    }
+
+    void mouseEnter(const visage::MouseEvent&) override { hovered_ = true;  redraw(); }
+    void mouseExit (const visage::MouseEvent&) override { hovered_ = false; redraw(); }
+
+private:
+    int       index_   = 1;     // default = 8580 (matches chip_model default)
+    bool      hovered_ = false;
+    SIDFonts* fonts_   = nullptr;
+};
+
+// ============================================================
 //  SIDToggleButton — lit/unlit button (SYNC, RETRIG, KEY TRACK…)
 // ============================================================
 class SIDToggleButton : public visage::Frame {
@@ -1987,6 +2062,7 @@ private:
 class SIDPresetBar : public visage::Frame {
 public:
     SIDToggleButton saveBtn, saveAsBtn, initBtn;
+    SIDChipSwitch   chipSwitch;            // 6581 / 8580 dual-engine selector
 
     // Callbacks for preset navigation (Prev/Next arrows)
     std::function<void()> onPrev, onNext;
@@ -1998,6 +2074,7 @@ public:
         addChild(&saveBtn);
         addChild(&saveAsBtn);
         addChild(&initBtn);
+        addChild(&chipSwitch);
         updateFonts();
     }
     void dpiChanged() override { updateFonts(); }
@@ -2007,6 +2084,9 @@ public:
         saveBtn.setBounds(width() - 186, bY, 52, bH);
         saveAsBtn.setBounds(width() - 130, bY, 62, bH);
         initBtn.setBounds(width() - 64,  bY, 56, bH);
+        // Chip switch sits just left of the MOS branding, in what used to be
+        // the unused "SID SYNTHESIZER FOR TRANCE MUSIC" tagline area.
+        chipSwitch.setBounds(width() - 294, bY, 92, bH);
     }
 
     // Click on the Prev (<) and Next (>) arrows (not child frames — drawn in draw())
@@ -2080,10 +2160,10 @@ public:
         canvas.setColor(SIDColors::TEXT_LABEL);
         canvas.text("v", fonts_->label, visage::Font::kRight, bankX, bY, bankW - 4, bH);
 
-        // Right side: tagline + MOS chip logo
-        canvas.setColor(SIDColors::TEXT_DIM);
-        canvas.text("SID SYNTHESIZER FOR TRANCE MUSIC", fonts_->label, visage::Font::kRight,
-                    width() - 330, 0, 130, height());
+        // Right side: CHIP label (chipSwitch child draws itself) + MOS logo
+        canvas.setColor(SIDColors::TEXT_LABEL);
+        canvas.text("CHIP:", fonts_->label, visage::Font::kRight,
+                    width() - 340, 0, 42, height());
         canvas.setColor(SIDColors::ACCENT_CYAN);
         canvas.text("MOS", fonts_->section, visage::Font::kLeft,
                     width() - 196, 0, 40, height());
@@ -2104,6 +2184,7 @@ private:
         saveBtn.setFonts(fonts_);    saveBtn.setLabel("SAVE");
         saveAsBtn.setFonts(fonts_);  saveAsBtn.setLabel("SAVE AS");
         initBtn.setFonts(fonts_);    initBtn.setLabel("INIT");
+        chipSwitch.setFonts(fonts_);
     }
 
     SIDFonts*   fonts_     = nullptr;

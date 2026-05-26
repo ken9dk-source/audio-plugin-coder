@@ -32,8 +32,14 @@ struct SIDOscillator {
     float    age       = 0.0f;   // amount 0..1
     float    qCache    = 0.0f;   // precomputed 2^bits — updated once per note-on via updateAge()
 
-    // SID mode: true = aliased (Classic), false = polyBLEP (Modern/Trance)
-    bool     aliased   = false;
+    // Dual-engine chip blend.  0.0 = 6581 (no polyBLEP correction → aliased,
+    // raw "old/dirty" character).  1.0 = 8580 (full polyBLEP correction →
+    // bandlimited, "new/clean" character).  Intermediate values are linear
+    // mixes of the same aliased waveform plus a scaled alias-suppression term,
+    // which is the correct crossfade for two phase-coherent engines (constant-
+    // power would over-boost in the middle because the signals are correlated).
+    // Updated per-sample from the processor's smoothed chip_model parameter.
+    float    chipBlend = 1.0f;
 
     // Ring mod: feed from other osc
     float    ringIn    = 0.0f;
@@ -119,8 +125,8 @@ struct SIDOscillator {
         switch (wave) {
         case Wave::SAW:
             out = phase * 2.0f - 1.0f;
-            if (!aliased && driftedInc > 0.0f)
-                out -= polyBlep(phase, driftedInc);
+            if (chipBlend > 0.0f && driftedInc > 0.0f)
+                out -= chipBlend * polyBlep(phase, driftedInc);
             break;
 
         case Wave::TRI:
@@ -129,9 +135,9 @@ struct SIDOscillator {
 
         case Wave::PULSE: {
             out = (phase < pw) ? 1.0f : -1.0f;
-            if (!aliased && driftedInc > 0.0f) {
-                out += polyBlep(phase, driftedInc);
-                out -= polyBlep(std::fmod(phase - pw + 1.0f, 1.0f), driftedInc);
+            if (chipBlend > 0.0f && driftedInc > 0.0f) {
+                out += chipBlend * polyBlep(phase, driftedInc);
+                out -= chipBlend * polyBlep(std::fmod(phase - pw + 1.0f, 1.0f), driftedInc);
             }
             break;
         }
@@ -159,14 +165,16 @@ struct SIDOscillator {
             // Voice 0 = primary phase (no detune); voices 1-6 = hypPhase[0..5].
             // PolyBLEP on all voices for alias suppression.
             const float saw0 = phase * 2.0f - 1.0f
-                               - ((!aliased && driftedInc > 0.0f) ? polyBlep(phase, driftedInc) : 0.0f);
+                               - ((chipBlend > 0.0f && driftedInc > 0.0f)
+                                  ? chipBlend * polyBlep(phase, driftedInc)
+                                  : 0.0f);
             out = saw0;
             for (int i = 0; i < 6; ++i) {
                 hypPhase[i] += hypInc[i];
                 if (hypPhase[i] >= 1.0f) hypPhase[i] -= 1.0f;
                 float sawi = hypPhase[i] * 2.0f - 1.0f;
-                if (!aliased && hypInc[i] > 0.0f)
-                    sawi -= polyBlep(hypPhase[i], hypInc[i]);
+                if (chipBlend > 0.0f && hypInc[i] > 0.0f)
+                    sawi -= chipBlend * polyBlep(hypPhase[i], hypInc[i]);
                 out += sawi;
             }
             // Normalise by voice count and apply a mild mix correction (-6 dBish)
@@ -943,7 +951,7 @@ private:
     // getRawParameterValue(const char*) constructs a String + does a HashMap lookup every call.
     std::atomic<float>* digitalAgeParam_   = {};   // digital_age
     std::atomic<float>* tranceDriftParam_  = {};   // trance_drift
-    std::atomic<float>* sidModeParam_      = {};   // sid_mode
+    std::atomic<float>* chipModelParam_    = {};   // chip_model   (0=6581, 1=8580)
     std::atomic<float>* uniVoicesParam_    = {};   // unison_voices
     std::atomic<float>* uniDetuneParam_    = {};   // unison_detune
     std::atomic<float>* uniSpreadParam_    = {};   // unison_spread
@@ -991,6 +999,25 @@ private:
     // Per-block scratch buffer for the per-osc scope feed.  Sized to the host's
     // max block size in prepareToPlay(); avoids any audio-thread allocation.
     std::vector<float> oscScopeScratch_[3];
+
+    // Dual-engine chip selector: smoothed crossfade between 6581 and 8580
+    // character.  0.0 = pure 6581 (raw aliased), 1.0 = pure 8580 (full
+    // polyBLEP correction).  Smoothing time set in prepareToPlay(); the audio
+    // thread reads chipModelSmoothed_.getNextValue() once per sample and
+    // pushes that into every active voice's three oscillators.
+    juce::SmoothedValue<float> chipModelSmoothed_;
+
+public:
+    // Audio-thread-safe (target update is atomic via SmoothedValue).
+    // Called from processBlock() each block after reading chipModelParam_.
+    // Tests / advanced hosts may also call this from the message thread —
+    // the smoothing ramp absorbs any timing jitter so transitions stay
+    // click-free regardless of when the target moves.
+    void setModelTarget(int chipIndex) noexcept {
+        chipModelSmoothed_.setTargetValue(juce::jlimit(0.0f, 1.0f, float(chipIndex)));
+    }
+
+private:
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SIDTranceAudioProcessor)
 };

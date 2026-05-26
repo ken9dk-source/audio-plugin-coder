@@ -237,6 +237,27 @@ void SIDTranceAudioProcessorEditor::bindAllParameters()
     bindToggle(v.masterPanel.limiterBtn,     "master_limiter");
     bindToggle(v.masterPanel.polyModeBtn,    "master_poly");
 
+    // ── Chip switch (6581 / 8580) ───────────────────────────
+    // Two-way binding via the same callback pattern every other Visage
+    // widget in this plugin uses (Visage frames aren't juce::Buttons so
+    // ButtonAttachment can't bind to them directly; bindAllParameters is
+    // re-run on stateJustLoaded so preset-load / host automation paths
+    // refresh the widget visually — functional parity with an attachment).
+    {
+        auto* p = apvts.getParameter("chip_model");
+        const int cur = p != nullptr
+                      ? int(std::round(apvts.getRawParameterValue("chip_model")->load()))
+                      : 1;
+        v.presetBar.chipSwitch.setIndex(std::clamp(cur, 0, 1));
+        v.presetBar.chipSwitch.onChanged = [&apvts](int idx) {
+            if (auto* pp = apvts.getParameter("chip_model"))
+                pp->setValueNotifyingHost(idx == 0 ? 0.0f : 1.0f);
+            // No direct setModelTarget call — processBlock reads the parameter
+            // each block and feeds the smoother, so the click-free crossfade
+            // path is the only thing the UI ever triggers.
+        };
+    }
+
     // ── LFOs ────────────────────────────────────────────────
     // LFO 1
     bindToggle(v.lfo1.onBtn,     "lfo1_on");
@@ -800,7 +821,7 @@ namespace {
         {"filter_cutoff",900.f},{"filter_res",0.65f},
         {"filter_env_amount",0.70f},
         {"amp_sustain",0.85f},
-        {"sid_mode",0.f},{"digital_age",0.30f},{"analog_glow",0.20f},
+        {"chip_model",0.f},{"digital_age",0.30f},{"analog_glow",0.20f},  // 6581 for SID Classic
     };
     static const FP kFP_ArpPhrase[] = {
         {"osc1_wave",0.f},{"osc1_volume",0.90f},

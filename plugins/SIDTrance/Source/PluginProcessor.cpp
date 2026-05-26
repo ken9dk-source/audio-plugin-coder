@@ -178,7 +178,13 @@ APVTS::ParameterLayout SIDTranceAudioProcessor::createParameterLayout()
     addFloat("digital_age",   "Digital Age",   0.0f, 1.0f, 0.0f);
     addFloat("sid_width",     "SID Width",     0.0f, 1.0f, 0.5f);
     addFloat("analog_glow",   "Analog Glow",   0.0f, 1.0f, 0.25f);
-    addInt  ("sid_mode",      "SID Mode",      0, 2,      2);
+
+    // Dual-engine chip selector (replaces the old sid_mode int 0..2 — value 1
+    // was DSP-identical to value 2, so we collapse to a clean 2-way choice).
+    // Default = 1 (8580) preserves the prior default character (non-aliased).
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{"chip_model", 1}, "Chip Model",
+        juce::StringArray{"6581", "8580"}, 1));
 
     // ── Unison / Detune ─────────────────────────────────────
     addInt  ("unison_voices",  "Unison Voices", 1, 16,     1);
@@ -315,7 +321,7 @@ void SIDTranceAudioProcessor::prepareToPlay(double sampleRate_, int samplesPerBl
     // Note-on / arp param cache — eliminates String alloc + HashMap lookup on audio thread
     digitalAgeParam_   = apvts.getRawParameterValue("digital_age");
     tranceDriftParam_  = apvts.getRawParameterValue("trance_drift");
-    sidModeParam_      = apvts.getRawParameterValue("sid_mode");
+    chipModelParam_    = apvts.getRawParameterValue("chip_model");
     uniVoicesParam_    = apvts.getRawParameterValue("unison_voices");
     uniDetuneParam_    = apvts.getRawParameterValue("unison_detune");
     uniSpreadParam_    = apvts.getRawParameterValue("unison_spread");
@@ -349,6 +355,16 @@ void SIDTranceAudioProcessor::prepareToPlay(double sampleRate_, int samplesPerBl
         oscScopeScratch_[o].assign(std::size_t(std::max(samplesPerBlock, 1)), 0.0f);
         oscScope[o].fifo.reset();
     }
+
+    // Chip-model crossfade: 30 ms ramp absorbs the discrete parameter change
+    // without any click/pop.  Snap to current param value on prepareToPlay so
+    // there's no audible ramp on first audio block after a state load.
+    chipModelSmoothed_.reset(sr, 0.030);
+    if (chipModelParam_ != nullptr)
+        chipModelSmoothed_.setCurrentAndTargetValue(
+            juce::jlimit(0.0f, 1.0f, chipModelParam_->load()));
+    else
+        chipModelSmoothed_.setCurrentAndTargetValue(1.0f);   // default = 8580
 }
 
 // ============================================================
@@ -417,7 +433,10 @@ void SIDTranceAudioProcessor::handleNoteOn(int, int note, float vel)
     if (digitalAgeParam_ == nullptr) return;  // guard: cache not populated before prepareToPlay
     const float digitalAge  = digitalAgeParam_->load();
     const float tranceDrift = tranceDriftParam_->load();
-    const int   sidMode     = int(sidModeParam_->load());
+    // Chip blend at note-on time = current smoothed value (so a voice spawned
+    // mid-crossfade picks up the current blend).  Per-sample updates in
+    // processBlock keep it tracking the smoother for the rest of the note.
+    const float initialChipBlend = chipModelSmoothed_.getCurrentValue();
 
     // Unison parameters
     const int   uniCount  = std::clamp(int(uniVoicesParam_->load()), 1, kMaxUnison);
@@ -441,8 +460,8 @@ void SIDTranceAudioProcessor::handleNoteOn(int, int note, float vel)
         osc.pw      = oscPwParam_[idx]->load();
         osc.volume  = oscVolParam_[idx]->load();
         osc.updateAge(digitalAge);  // precomputes qCache for the bitcrusher (avoids pow() per sample)
-        osc.drift   = tranceDrift;
-        osc.aliased = (sidMode == 0);
+        osc.drift     = tranceDrift;
+        osc.chipBlend = initialChipBlend;
     };
     auto loadEnv = [&](ADSREnv& env, int n) {
         const int idx = n - 1;
@@ -863,6 +882,13 @@ void SIDTranceAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         v.filter.sr      = float(sr);
     }
 
+    // ── Dual-engine target: read the discrete chip_model parameter and feed
+    //    it into the smoother.  The crossfade is then driven per-sample from
+    //    the smoothed value, so flipping the UI switch produces a click-free
+    //    transition between the 6581 (aliased) and 8580 (bandlimited) sounds.
+    if (chipModelParam_ != nullptr)
+        setModelTarget(int(std::round(chipModelParam_->load())));
+
     // ── Arp: route MIDI ──────────────────────────────────────
     if (arp.enabled) {
         // Intercept user note-on/off → feed arp held list
@@ -949,6 +975,18 @@ void SIDTranceAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         const float smCut = smCutoff.getNextValue();
         const float smR   = smRes.getNextValue();
         const float smVol = smMasterVol.getNextValue();
+
+        // Dual-engine crossfade: one step of the chip-model smoother per
+        // sample, then write the result into every voice's three oscillators
+        // before they render.  Linear blend of the polyBLEP correction —
+        // correct for two phase-coherent engines (see SIDOscillator::chipBlend).
+        const float chipBlend = chipModelSmoothed_.getNextValue();
+        for (auto& vv : voices) {
+            if (!vv.active) continue;
+            vv.osc1.chipBlend = chipBlend;
+            vv.osc2.chipBlend = chipBlend;
+            vv.osc3.chipBlend = chipBlend;
+        }
 
         // Sum all active voices — with unison panning per voice.
         // Also accumulate per-osc sums across all voices so the scopes show
