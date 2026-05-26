@@ -95,7 +95,10 @@ void SIDTranceAudioProcessorEditor::addAllFrames()
     v.addChild(&v.gatePanel);
     v.addChild(&v.macroPanel);
     v.addChild(&v.voiceModPanel);
-    v.addChild(&v.chipSwitch);            // top-level; sits over chip badges in PNG
+    // Two invisible click regions overlaid on the chip badges painted in
+    // the PNG header.  Replace the old standalone SIDChipSwitch widget.
+    v.addChild(&v.chip6581Area);
+    v.addChild(&v.chip8580Area);
     v.addChild(&v.presetBar);
 
     // Shared popup overlay must be the LAST child added so it sits on top
@@ -279,25 +282,28 @@ void SIDTranceAudioProcessorEditor::bindAllParameters()
     bindToggle(v.masterPanel.limiterBtn,     "master_limiter");
     bindToggle(v.masterPanel.polyModeBtn,    "master_poly");
 
-    // ── Chip switch (6581 / 8580) ───────────────────────────
-    // Two-way binding via the same callback pattern every other Visage
-    // widget in this plugin uses (Visage frames aren't juce::Buttons so
-    // ButtonAttachment can't bind to them directly; bindAllParameters is
-    // re-run on stateJustLoaded so preset-load / host automation paths
-    // refresh the widget visually — functional parity with an attachment).
+    // ── Chip selector — two clickable chip overlays ─────────
+    // Each chip badge in the PNG header has an invisible SIDChipClickArea
+    // on top.  Clicking either chip sets chip_model and updates the
+    // highlight on both areas so the active model is visually obvious.
+    // Same callback pattern as every other Visage widget (the
+    // stateJustLoaded → bindAllParameters refresh covers preset-load and
+    // host automation, so this is functionally equivalent to a JUCE
+    // ButtonAttachment).
     {
-        auto* p = apvts.getParameter("chip_model");
-        const int cur = p != nullptr
-                      ? int(std::round(apvts.getRawParameterValue("chip_model")->load()))
-                      : 1;
-        v.chipSwitch.setIndex(std::clamp(cur, 0, 1));
-        v.chipSwitch.onChanged = [&apvts](int idx) {
+        auto syncHighlight = [&v, &apvts]() {
+            const int cur = int(std::round(apvts.getRawParameterValue("chip_model")->load()));
+            v.chip6581Area.setActive(cur == 0);
+            v.chip8580Area.setActive(cur == 1);
+        };
+        syncHighlight();
+        auto setChip = [&apvts, syncHighlight](int idx) {
             if (auto* pp = apvts.getParameter("chip_model"))
                 pp->setValueNotifyingHost(idx == 0 ? 0.0f : 1.0f);
-            // No direct setModelTarget call — processBlock reads the parameter
-            // each block and feeds the smoother, so the click-free crossfade
-            // path is the only thing the UI ever triggers.
+            syncHighlight();
         };
+        v.chip6581Area.onClicked = [setChip]() { setChip(0); };
+        v.chip8580Area.onClicked = [setChip]() { setChip(1); };
     }
 
     // ── LFOs ────────────────────────────────────────────────

@@ -792,6 +792,52 @@ private:
 };
 
 // ============================================================
+//  SIDChipClickArea — invisible click region overlaid on a SID chip
+//  badge painted into the background PNG.  Hosts the chip-model
+//  selector now that the standalone SIDChipSwitch widget is gone.
+//
+//  When `active_` is true we draw a soft cyan→purple glow ring
+//  around the chip so the user can see which model is selected;
+//  when inactive we draw nothing and the PNG art shows through.
+// ============================================================
+class SIDChipClickArea : public visage::Frame {
+public:
+    std::function<void()> onClicked;
+
+    void setActive(bool on) { if (on != active_) { active_ = on; redraw(); } }
+    bool getActive() const  { return active_; }
+
+    void draw(visage::Canvas& canvas) override {
+        const float W = float(width()), H = float(height());
+        if (active_) {
+            // Outer halo
+            canvas.setColor((SIDColors::ACCENT_CYAN_BRIGHT & 0x00FFFFFFu) | 0x33000000u);
+            canvas.roundedRectangle(-2, -2, W + 4, H + 4, 8.0f);
+            // Inner crisp ring
+            canvas.setColor(SIDColors::ACCENT_CYAN_BRIGHT);
+            canvas.roundedRectangleBorder(1, 1, W - 2, H - 2, 6.0f, 2.0f);
+            // Faint purple secondary ring
+            canvas.setColor((SIDColors::ACCENT_PURPLE & 0x00FFFFFFu) | 0x55000000u);
+            canvas.roundedRectangleBorder(0, 0, W, H, 7.0f, 1.0f);
+        } else if (hovered_) {
+            canvas.setColor((SIDColors::ACCENT_CYAN_BRIGHT & 0x00FFFFFFu) | 0x22000000u);
+            canvas.roundedRectangleBorder(0, 0, W, H, 6.0f, 1.0f);
+        }
+        // Otherwise: draw nothing so the painted chip badge underneath shows.
+    }
+
+    void mouseDown(const visage::MouseEvent&) override {
+        if (onClicked) onClicked();
+    }
+    void mouseEnter(const visage::MouseEvent&) override { hovered_ = true;  redraw(); }
+    void mouseExit (const visage::MouseEvent&) override { hovered_ = false; redraw(); }
+
+private:
+    bool active_  = false;
+    bool hovered_ = false;
+};
+
+// ============================================================
 //  SIDPopupOverlay — single full-canvas popup that every dropdown
 //  widget goes through.  Replaces visage::PopupMenu (whose internal
 //  PopupMenuFrame has no mouseDown/mouseUp of its own, so clicks
@@ -1509,26 +1555,37 @@ public:
 
     void resized() override {
         const int W = width();
-        // ── Row 1: Large knobs + env amount ─────────────────
-        cutoffKnob.setBounds(8, 18, 68, 68);
-        resonanceKnob.setBounds(82, 18, 68, 68);
-        envAmountKnob.setBounds(160, 24, 52, 52);
+        // The Filter field is ~188 effective px in the PNG-mapped layout.
+        // Every row below now fits inside that width with a small margin,
+        // and the spacing between Cutoff → Resonance is identical to
+        // Resonance → Env Amount (matches the requested layout).
+        // ── Row 1: Cutoff, Resonance, Env Amount (uniform size + gap) ─
+        const int ks  = 58;       // shared knob size for the top row
+        const int gap = 4;
+        const int row1Y = 18;
+        const int row1X = 4;
+        cutoffKnob.setBounds   (row1X,                          row1Y, ks, ks);
+        resonanceKnob.setBounds(row1X + (ks + gap),             row1Y, ks, ks);
+        envAmountKnob.setBounds(row1X + 2 * (ks + gap),         row1Y, ks, ks);
 
         // ── Row 2: Type cycle + Slope toggle ─────────────────
-        typeBtn.setBounds(8, 92, 118, 20);
-        slopeBtn.setBounds(132, 92, 80, 20);
+        typeBtn.setBounds (4,   92, 104, 20);
+        slopeBtn.setBounds(112, 92, 72,  20);
 
         // ── Row 3: Filter ENV knobs ───────────────────────────
-        const int ek = 36, gap = 4;
-        int ex = 8;
-        envAttackKnob.setBounds(ex, 118, ek, ek);   ex += ek + gap;
-        envDecayKnob.setBounds(ex, 118, ek, ek);    ex += ek + gap;
-        envSustainKnob.setBounds(ex, 118, ek, ek);  ex += ek + gap;
+        const int ek = 36;
+        const int egap = 4;
+        const int totEnv = 4 * ek + 3 * egap;            // 156
+        int ex = (W - totEnv) / 2;                       // centred
+        envAttackKnob.setBounds(ex, 118, ek, ek);   ex += ek + egap;
+        envDecayKnob.setBounds(ex, 118, ek, ek);    ex += ek + egap;
+        envSustainKnob.setBounds(ex, 118, ek, ek);  ex += ek + egap;
         envReleaseKnob.setBounds(ex, 118, ek, ek);
 
         // ── Row 4: Key track + Velocity ──────────────────────
-        keyTrackBtn.setBounds(8,     height() - 26, 96, 20);
-        velocityBtn.setBounds(W / 2, height() - 26, 96, 20);
+        const int bw = 84;
+        keyTrackBtn.setBounds(4,           height() - 26, bw, 20);
+        velocityBtn.setBounds(W - 4 - bw,  height() - 26, bw, 20);
     }
 
     void draw(visage::Canvas& canvas) override {
@@ -1595,13 +1652,20 @@ public:
     void dpiChanged() override { updateFonts(); }
 
     void resized() override {
-        const int ks = 40, gap = 4;
-        int x = 4;
-        attackKnob.setBounds(x, 24, ks, ks);   x += ks + gap;
-        decayKnob.setBounds(x, 24, ks, ks);    x += ks + gap;
-        sustainKnob.setBounds(x, 24, ks, ks);  x += ks + gap;
-        releaseKnob.setBounds(x, 24, ks, ks);  x += ks + gap;
-        volumeKnob.setBounds(x, 24, ks, ks);
+        // The Amp field is ~199 effective px in the PNG-mapped layout.
+        // 5 knobs × 40 + 4 gaps was 216 px — VOL ran off the right edge.
+        // Centre the row inside the panel so every knob sits fully inside
+        // its field with a margin on both sides.
+        const int W   = width();
+        const int ks  = 36;
+        const int gap = 3;
+        const int total = 5 * ks + 4 * gap;              // 192
+        int x = std::max(2, (W - total) / 2);
+        attackKnob.setBounds (x, 24, ks, ks); x += ks + gap;
+        decayKnob.setBounds  (x, 24, ks, ks); x += ks + gap;
+        sustainKnob.setBounds(x, 24, ks, ks); x += ks + gap;
+        releaseKnob.setBounds(x, 24, ks, ks); x += ks + gap;
+        volumeKnob.setBounds (x, 24, ks, ks);
     }
 
     void draw(visage::Canvas& canvas) override {
@@ -2263,14 +2327,18 @@ public:
         initBtn.setBounds(width() - 64,  bY, 56, bH);
     }
 
-    // Click on the Prev (<) and Next (>) arrows (not child frames — drawn in draw())
+    // Click on the Prev (<) and Next (>) arrows (drawn in draw(), not child
+    // frames).  IMPORTANT: e.relative_position is the per-event mouse MOVEMENT
+    // delta in Visage (≈0 at mouseDown), not a local coordinate — using it
+    // here would always read (0,0) and miss every arrow.  e.position is the
+    // local coord relative to this frame and is what we want.
     void mouseDown(const visage::MouseEvent& e) override {
         const int bH = height() - 8, bY = 4;
         const int nameX = 66, nameW = 260;
         const int arrowX = nameX + nameW + 4;
         const int nextX  = arrowX + bH + 3;
 
-        const int ex = int(e.relative_position.x), ey = int(e.relative_position.y);
+        const int ex = int(e.position.x), ey = int(e.position.y);
         if (ey >= bY && ey < bY + bH) {
             if (ex >= arrowX && ex < arrowX + bH) { if (onPrev) onPrev(); return; }
             if (ex >= nextX  && ex < nextX  + bH) { if (onNext) onNext(); return; }
@@ -2649,9 +2717,12 @@ public:
     // Voice mod (middle section, right of master)
     SIDVoiceModPanel     voiceModPanel;
 
-    // Chip selector — top-level child, positioned over the two chip badges
-    // drawn into the background PNG.  Bound to chip_model in PluginEditor.
-    SIDChipSwitch        chipSwitch;
+    // Chip-model selectors — two invisible click regions overlaid on the
+    // 6581 / 8580 badges painted into the background PNG.  Each has its own
+    // onClicked callback so PluginEditor can wire them to the chip_model
+    // parameter (and call the other one's setActive(false) for highlight).
+    SIDChipClickArea     chip6581Area;
+    SIDChipClickArea     chip8580Area;
 
     // Preset bar
     SIDPresetBar         presetBar;
@@ -2750,8 +2821,19 @@ private:
     static constexpr int kPngH = 941;
 
     static constexpr FieldRect kPngHeader      { 0,    0,    kPngW, 200 };
-    static constexpr FieldRect kPngChipSwitch  { 540,  46,  208,  86  }; // over the two badges
-    static constexpr FieldRect kPngMacros      { 32,   220, 156,  436 };
+    // ── Top header: two CHIP badges painted in the PNG.  These rects are
+    //    invisible click areas overlaid on the artwork; their highlight
+    //    glow makes the active model visible.
+    static constexpr FieldRect kPngChip6581    { 538,  44,  104,  90  };
+    static constexpr FieldRect kPngChip8580    { 650,  44,  104,  90  };
+    // ── Top-left: two macro fields (Macros moved here from the left
+    //    vertical strip).  Spans the empty header area left of the chips
+    //    so the 4 macro knobs get plenty of size.
+    static constexpr FieldRect kPngMacrosTopA  { 36,   28,  244,  152 };
+    static constexpr FieldRect kPngMacrosTopB  { 288,  28,  244,  152 };
+    // ── Left vertical strip — FX (Chorus / Delay / Reverb) lives here now
+    //    (was Macros).  effectsPanel stacks the three FX sections vertically.
+    static constexpr FieldRect kPngFx          { 32,   220, 156,  436 };
     static constexpr FieldRect kPngOsc1        { 208,  220, 272,  436 };
     static constexpr FieldRect kPngOsc2        { 484,  220, 296,  436 };
     static constexpr FieldRect kPngOsc3        { 752,  220, 312,  436 };
@@ -2761,7 +2843,8 @@ private:
     static constexpr FieldRect kPngModMatrix   { 32,   680, 440,  168 };
     static constexpr FieldRect kPngLfo1        { 484,  680, 292,  168 };
     static constexpr FieldRect kPngLfo2        { 788,  680, 296,  168 };
-    static constexpr FieldRect kPngArpGateFx   { 1092, 680, 540,  168 };
+    // FX moved out of this slot; bottom-right is now Arp + Gate split in half.
+    static constexpr FieldRect kPngArpGate     { 1092, 680, 540,  168 };
     static constexpr FieldRect kPngPresetBar   { 0,    876, kPngW, 60  };
 
     void layoutAll() {
@@ -2790,12 +2873,30 @@ private:
         // mid-popup doesn't snatch it away.
         popupOverlay.setBounds(0, 0, W, H);
 
-        // Top of editor — chip switch over the two badges, preset bar at bottom.
-        place(chipSwitch, kPngChipSwitch, /*margin=*/6);
-        place(presetBar,  kPngPresetBar,  /*margin=*/0);
+        // Top header — invisible click areas over the painted SID 6581 / 8580
+        // chip badges, and the preset bar at the bottom.
+        place(chip6581Area, kPngChip6581, /*margin=*/0);
+        place(chip8580Area, kPngChip8580, /*margin=*/0);
+        place(presetBar,    kPngPresetBar, /*margin=*/0);
 
-        // Macros vertical strip on the far left.
-        place(macroPanel, kPngMacros);
+        // Macros — moved from the left vertical strip to the empty area in
+        // the top header (left of the chip badges).  The two header fields
+        // share one wide macroPanel so its 4 knobs end up evenly distributed
+        // across both with bigger sizes than the cramped vertical layout.
+        {
+            const auto a = map(kPngMacrosTopA);
+            const auto b = map(kPngMacrosTopB);
+            const int x = a.x;
+            const int y = a.y;
+            const int w = (b.x + b.w) - a.x;
+            const int h = a.h;
+            macroPanel.setBounds(x, y, w, h);
+            currentFields_.push_back({x, y, w, h});
+        }
+
+        // FX (Chorus / Delay / Reverb) — placed in the left vertical strip
+        // that used to hold Macros.
+        place(effectsPanel, kPngFx);
 
         // Three OSC fields — each holds a small scope at the top and the
         // oscillator-panel content underneath.  Splitting inside the field
@@ -2842,14 +2943,14 @@ private:
         place(lfo1,      kPngLfo1);
         place(lfo2,      kPngLfo2);
 
-        // The 4th bottom field holds 3 panels side-by-side.
+        // Bottom-right field now holds Arp + Gate side by side (FX moved
+        // to the left vertical strip), each with half the field width.
         {
-            const auto r = map(kPngArpGateFx);
+            const auto r = map(kPngArpGate);
             const int gap = 4;
-            const int sub = (r.w - 2 * gap) / 3;
-            arpPanel.setBounds    (r.x,                       r.y, sub, r.h);
-            gatePanel.setBounds   (r.x + sub + gap,           r.y, sub, r.h);
-            effectsPanel.setBounds(r.x + 2 * (sub + gap),     r.y, r.w - 2 * (sub + gap), r.h);
+            const int half = (r.w - gap) / 2;
+            arpPanel.setBounds (r.x,             r.y, half,         r.h);
+            gatePanel.setBounds(r.x + half + gap, r.y, r.w - half - gap, r.h);
             currentFields_.push_back(r);
         }
     }
