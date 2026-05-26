@@ -53,8 +53,31 @@ struct SIDOscillator {
     float    hypPhase[6] = {};
     float    hypInc[6]   = {};
 
+    // SUPERSAW mode — independent of the Wave selector.  When superOn is true
+    // the oscillator renders (1 + sides) detuned saws regardless of the wave
+    // choice, using the JP-8000 mix curve and 1/√N gain compensation so the
+    // loudness stays constant as voice count or detune changes.  Up to 10 side
+    // voices (so totals of 7, 9, or 11 fit), each with its own phase
+    // accumulator that's randomised on note-on for a wide, lively start.
+    bool     superOn       = false;
+    int      superVoices   = 7;        // 7, 9, or 11
+    float    superDetune   = 0.5f;     // 0..1, drives the spread curve
+    float    superMix      = 0.5f;     // 0..1, centre ↔ sides balance
+    float    ssPhase[10]   = {};
+    float    ssInc[10]     = {};
+
     // LFSR noise register
     uint32_t lfsr      = 0x7FFFF8u;
+
+    // Randomise the supersaw side-voice phases.  Called from the voice's
+    // noteOn() so each new note starts wide rather than phase-aligned (which
+    // would sound thin until the detune naturally drifts the voices apart).
+    void randomizeSuperPhases() {
+        for (int i = 0; i < 10; ++i) {
+            lfsr ^= (lfsr << 13); lfsr ^= (lfsr >> 17); lfsr ^= (lfsr << 5);
+            ssPhase[i] = float(lfsr & 0xFFFFu) / 65535.0f;
+        }
+    }
 
     void setFrequency(float freq, float sr) {
         phaseInc = std::max(0.0f, freq / sr);
@@ -74,6 +97,32 @@ struct SIDOscillator {
                 const float cents = kCentSpreads[i] * spread;
                 const float ratio = std::pow(2.0f, cents / 1200.0f);
                 hypInc[i] = std::max(0.0f, freq * ratio / sr);
+            }
+        }
+
+        // SUPERSAW mode — also precompute side-voice phase increments.
+        // JP-8000-style: side voices are spread in symmetric pairs around the
+        // centre voice with an exponential outward curve, so the outer pairs
+        // are detuned much more than the inner ones (the classic "supersaw"
+        // chorus shimmer).  The Detune knob (0..1) scales the maximum spread
+        // up to ±50 cents; at 0 every voice tracks the centre (unison).
+        if (superOn && freq > 0.0f) {
+            const int sides = std::clamp(superVoices - 1, 0, 10);  // 6, 8, or 10
+            const int pairs = sides / 2;                            // 3, 4, or 5
+            const float maxCents = 50.0f;
+            for (int p = 1; p <= pairs; ++p) {
+                // Normalised position 0..1 — outer pair gets full curve.
+                const float pos = float(p) / float(pairs);
+                // Exponential outward: pos^1.7 concentrates spread on outer
+                // voices (matches JP-8000 character).
+                const float curve = std::pow(pos, 1.7f);
+                const float cents = curve * maxCents * superDetune;
+                const float ratioDn = std::pow(2.0f, -cents / 1200.0f);
+                const float ratioUp = std::pow(2.0f, +cents / 1200.0f);
+                const int idxLo = (p - 1) * 2;
+                const int idxHi = idxLo + 1;
+                ssInc[idxLo] = std::max(0.0f, freq * ratioDn / sr);
+                ssInc[idxHi] = std::max(0.0f, freq * ratioUp / sr);
             }
         }
     }
@@ -182,6 +231,41 @@ struct SIDOscillator {
             out *= 0.143f;  // ≈ 1/7
             break;
         }
+        }
+
+        // ── SUPERSAW mode (overrides the wave switch when enabled) ──────
+        // Centre voice + N detuned side voices.  Each side voice advances its
+        // own phase accumulator at the ratio set by setFrequency().  JP-8000
+        // mix curve weighs centre vs sides; explicit 1/√N normalisation keeps
+        // the perceived loudness constant as voice count or detune changes.
+        if (superOn) {
+            const int sides = std::clamp(superVoices - 1, 0, 10);  // 6/8/10
+            // Centre voice: enveloped saw with polyBLEP (already-advanced phase).
+            float centreSaw = phase * 2.0f - 1.0f;
+            if (chipBlend > 0.0f && driftedInc > 0.0f)
+                centreSaw -= chipBlend * polyBlep(phase, driftedInc);
+            // Side voices: each accumulator advances independently.
+            float sumSides = 0.0f;
+            for (int i = 0; i < sides; ++i) {
+                ssPhase[i] += ssInc[i];
+                if (ssPhase[i] >= 1.0f) ssPhase[i] -= 1.0f;
+                float sawi = ssPhase[i] * 2.0f - 1.0f;
+                if (chipBlend > 0.0f && ssInc[i] > 0.0f)
+                    sawi -= chipBlend * polyBlep(ssPhase[i], ssInc[i]);
+                sumSides += sawi;
+            }
+            // JP-8000 mix curve (Adam Szabo's emulation paper):
+            //   centre = -0.55366·m + 0.99785
+            //   side   = -0.73764·m² + 1.2841·m + 0.044372
+            // At m=0 the output is pure centre; at m=1 the sides dominate.
+            const float m = std::clamp(superMix, 0.0f, 1.0f);
+            const float centreLvl = -0.55366f * m + 0.99785f;
+            const float sideLvl   = -0.73764f * m * m + 1.2841f * m + 0.044372f;
+            // 1/√N gain compensation — total voices = 1 + sides.  Together
+            // with the JP-8000 mix curve this keeps the perceived loudness
+            // roughly constant across all voice-count / detune settings.
+            const float norm = 1.0f / std::sqrt(float(1 + sides));
+            out = (centreSaw * centreLvl + sumSides * sideLvl) * norm;
         }
 
         // DIGITAL AGE: reduce bit depth (qCache precomputed in updateAge() at note-on)
@@ -989,6 +1073,11 @@ private:
     std::atomic<float>* oscDecParam_[3]  = {};
     std::atomic<float>* oscSusParam_[3]  = {};
     std::atomic<float>* oscRelParam_[3]  = {};
+    // SUPERSAW mode params (cached so handleNoteOn doesn't touch APVTS strings).
+    std::atomic<float>* oscSuperOnParam_[3]     = {};
+    std::atomic<float>* oscSuperVoicesParam_[3] = {};
+    std::atomic<float>* oscSuperDetuneParam_[3] = {};
+    std::atomic<float>* oscSuperMixParam_[3]    = {};
 
     // Pitch bend
     float pitchBendSemis_ = 0.0f;    // current wheel offset in semitones (updated from MIDI)

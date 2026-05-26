@@ -130,6 +130,10 @@ void SIDTranceAudioProcessorEditor::addAllFrames()
         v.arpPanel.swingBtn.setPopupOverlay(p);
         v.arpPanel.tempoBtn.setPopupOverlay(p);
         v.gatePanel.gateSwingBtn.setPopupOverlay(p);
+        // Per-OSC supersaw voice-count selectors
+        v.osc1.superVoicesBtn.setPopupOverlay(p);
+        v.osc2.superVoicesBtn.setPopupOverlay(p);
+        v.osc3.superVoicesBtn.setPopupOverlay(p);
         for (int i = 0; i < 4; ++i) {
             v.modMatrix.srcBtn[i].setPopupOverlay(p);
             v.modMatrix.dstBtn[i].setPopupOverlay(p);
@@ -227,6 +231,17 @@ void SIDTranceAudioProcessorEditor::bindAllParameters()
     bindKnob(v.osc1.decayKnob,   "osc1_decay");
     bindKnob(v.osc1.sustainKnob, "osc1_sustain");
     bindKnob(v.osc1.releaseKnob, "osc1_release");
+    bindToggle(v.osc1.superBtn,        "osc1_super_on");
+    bindKnob  (v.osc1.superDetuneKnob, "osc1_super_detune");
+    bindKnob  (v.osc1.superMixKnob,    "osc1_super_mix");
+    {
+        int cur = int(std::round(*apvts.getRawParameterValue("osc1_super_voices")));
+        v.osc1.superVoicesBtn.setIndex(std::clamp(cur, 0, 2));
+        v.osc1.superVoicesBtn.onChanged = [&apvts](int i) {
+            if (auto* p = apvts.getParameter("osc1_super_voices"))
+                p->setValueNotifyingHost((float)i / 2.0f);   // 3 options
+        };
+    }
 
     // ── OSC 2 ───────────────────────────────────────────────
     bindKnob(v.osc2.semiKnob,      "osc2_semi");
@@ -237,6 +252,17 @@ void SIDTranceAudioProcessorEditor::bindAllParameters()
     bindKnob(v.osc2.decayKnob,   "osc2_decay");
     bindKnob(v.osc2.sustainKnob, "osc2_sustain");
     bindKnob(v.osc2.releaseKnob, "osc2_release");
+    bindToggle(v.osc2.superBtn,        "osc2_super_on");
+    bindKnob  (v.osc2.superDetuneKnob, "osc2_super_detune");
+    bindKnob  (v.osc2.superMixKnob,    "osc2_super_mix");
+    {
+        int cur = int(std::round(*apvts.getRawParameterValue("osc2_super_voices")));
+        v.osc2.superVoicesBtn.setIndex(std::clamp(cur, 0, 2));
+        v.osc2.superVoicesBtn.onChanged = [&apvts](int i) {
+            if (auto* p = apvts.getParameter("osc2_super_voices"))
+                p->setValueNotifyingHost((float)i / 2.0f);
+        };
+    }
 
     // ── OSC 3 ───────────────────────────────────────────────
     bindKnob(v.osc3.semiKnob,      "osc3_semi");
@@ -247,6 +273,17 @@ void SIDTranceAudioProcessorEditor::bindAllParameters()
     bindKnob(v.osc3.decayKnob,   "osc3_decay");
     bindKnob(v.osc3.sustainKnob, "osc3_sustain");
     bindKnob(v.osc3.releaseKnob, "osc3_release");
+    bindToggle(v.osc3.superBtn,        "osc3_super_on");
+    bindKnob  (v.osc3.superDetuneKnob, "osc3_super_detune");
+    bindKnob  (v.osc3.superMixKnob,    "osc3_super_mix");
+    {
+        int cur = int(std::round(*apvts.getRawParameterValue("osc3_super_voices")));
+        v.osc3.superVoicesBtn.setIndex(std::clamp(cur, 0, 2));
+        v.osc3.superVoicesBtn.onChanged = [&apvts](int i) {
+            if (auto* p = apvts.getParameter("osc3_super_voices"))
+                p->setValueNotifyingHost((float)i / 2.0f);
+        };
+    }
 
     // ── Filter ───────────────────────────────────────────────
     bindKnob(v.filterPanel.cutoffKnob,    "filter_cutoff");

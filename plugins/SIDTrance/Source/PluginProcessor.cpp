@@ -49,6 +49,11 @@ APVTS::ParameterLayout SIDTranceAudioProcessor::createParameterLayout()
     addFloat   ("osc1_sustain", "OSC1 S",   0.0f, 1.0f, 0.7f);
     addFloatLog("osc1_release", "OSC1 R",   0.001f, 20.0f, 0.5f);
     addFloat("osc1_volume",  "OSC1 Vol",    0.0f, 1.0f, 0.8f);
+    // OSC1 SUPERSAW mode (JP-8000-style multi-saw, off by default)
+    addBool ("osc1_super_on",      "OSC1 Super",  false);
+    addInt  ("osc1_super_voices",  "OSC1 SVoices", 0, 2, 0);  // 0=7, 1=9, 2=11
+    addFloat("osc1_super_detune",  "OSC1 SDetune", 0.0f, 1.0f, 0.5f);
+    addFloat("osc1_super_mix",     "OSC1 SMix",    0.0f, 1.0f, 0.5f);
 
     // ── OSC 2 ───────────────────────────────────────────────
     addInt  ("osc2_wave",    "OSC2 Wave",   0, 6,       1);  // 6 = Hypersaw
@@ -60,6 +65,11 @@ APVTS::ParameterLayout SIDTranceAudioProcessor::createParameterLayout()
     addFloat   ("osc2_sustain", "OSC2 S",  0.0f, 1.0f, 0.7f);
     addFloatLog("osc2_release", "OSC2 R",  0.001f, 20.0f, 0.5f);
     addFloat("osc2_volume",  "OSC2 Vol",   0.0f, 1.0f, 0.6f);
+    // OSC2 SUPERSAW mode (JP-8000-style multi-saw, off by default)
+    addBool ("osc2_super_on",      "OSC2 Super",  false);
+    addInt  ("osc2_super_voices",  "OSC2 SVoices", 0, 2, 0);  // 0=7, 1=9, 2=11
+    addFloat("osc2_super_detune",  "OSC2 SDetune", 0.0f, 1.0f, 0.5f);
+    addFloat("osc2_super_mix",     "OSC2 SMix",    0.0f, 1.0f, 0.5f);
 
     // ── OSC 3 ───────────────────────────────────────────────
     addInt  ("osc3_wave",    "OSC3 Wave",   0, 6,       3); // NOISE; 6 = Hypersaw
@@ -71,6 +81,11 @@ APVTS::ParameterLayout SIDTranceAudioProcessor::createParameterLayout()
     addFloat   ("osc3_sustain", "OSC3 S",  0.0f, 1.0f, 0.0f);
     addFloatLog("osc3_release", "OSC3 R",  0.001f, 20.0f, 0.1f);
     addFloat("osc3_volume",  "OSC3 Vol",   0.0f, 1.0f, 0.3f);
+    // OSC3 SUPERSAW mode (JP-8000-style multi-saw, off by default)
+    addBool ("osc3_super_on",      "OSC3 Super",  false);
+    addInt  ("osc3_super_voices",  "OSC3 SVoices", 0, 2, 0);  // 0=7, 1=9, 2=11
+    addFloat("osc3_super_detune",  "OSC3 SDetune", 0.0f, 1.0f, 0.5f);
+    addFloat("osc3_super_mix",     "OSC3 SMix",    0.0f, 1.0f, 0.5f);
 
     // ── Filter ──────────────────────────────────────────────
     addFloat("filter_cutoff",    "Cutoff",     20.0f, 18000.0f, 1200.0f); // start lower for filter sweep room
@@ -313,6 +328,10 @@ void SIDTranceAudioProcessor::prepareToPlay(double sampleRate_, int samplesPerBl
         oscDecParam_[n]  = cache("decay");
         oscSusParam_[n]  = cache("sustain");
         oscRelParam_[n]  = cache("release");
+        oscSuperOnParam_[n]     = cache("super_on");
+        oscSuperVoicesParam_[n] = cache("super_voices");
+        oscSuperDetuneParam_[n] = cache("super_detune");
+        oscSuperMixParam_[n]    = cache("super_mix");
     }
 
     masterVoicesParam_ = apvts.getRawParameterValue("master_voices");
@@ -462,6 +481,18 @@ void SIDTranceAudioProcessor::handleNoteOn(int, int note, float vel)
         osc.updateAge(digitalAge);  // precomputes qCache for the bitcrusher (avoids pow() per sample)
         osc.drift     = tranceDrift;
         osc.chipBlend = initialChipBlend;
+        // SUPERSAW: copy mode params from cached pointers, then randomise side
+        // phases so each note starts wide.  Voice count: 0→7, 1→9, 2→11.
+        const bool superOn = oscSuperOnParam_[idx]->load() > 0.5f;
+        osc.superOn = superOn;
+        if (superOn) {
+            const int voicesIdx = std::clamp(int(std::round(oscSuperVoicesParam_[idx]->load())), 0, 2);
+            static constexpr int kVoiceCounts[3] = { 7, 9, 11 };
+            osc.superVoices = kVoiceCounts[voicesIdx];
+            osc.superDetune = oscSuperDetuneParam_[idx]->load();
+            osc.superMix    = oscSuperMixParam_[idx]->load();
+            osc.randomizeSuperPhases();   // wide, lively start
+        }
     };
     auto loadEnv = [&](ADSREnv& env, int n) {
         const int idx = n - 1;

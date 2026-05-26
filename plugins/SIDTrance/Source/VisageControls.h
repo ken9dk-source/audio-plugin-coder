@@ -1494,6 +1494,17 @@ public:
     // uniform-style rework).  Used to be SIDFader; the per-knob hover
     // value readout works the same way and the rest of the synth uses knobs.
     SIDKnob  attackKnob, decayKnob, sustainKnob, releaseKnob;
+
+    // SUPERSAW mode controls — JP-8000-style multi-saw, independent of the
+    // wave selector above.  superBtn toggles the mode on/off; voicesBtn
+    // picks 7 / 9 / 11 voices; detuneKnob (0-1) drives the exponential
+    // spread curve; mixKnob (0-1) is the centre↔sides balance using the
+    // classic JP-8000 mix curve.
+    SIDToggleButton superBtn;
+    SIDCycleButton  superVoicesBtn;
+    SIDKnob         superDetuneKnob;
+    SIDKnob         superMixKnob;
+
     SIDOscilloscopeView envelopeDisplay;
 
     // Waveform selector buttons (7 types: SAW TRI SQR NOI S+T RNG HSW)
@@ -1527,6 +1538,10 @@ public:
         addChild(&decayKnob);
         addChild(&sustainKnob);
         addChild(&releaseKnob);
+        addChild(&superBtn);
+        addChild(&superVoicesBtn);
+        addChild(&superDetuneKnob);
+        addChild(&superMixKnob);
         addChild(&envelopeDisplay);
         updateFontsAndLayout();
 
@@ -1580,9 +1595,27 @@ public:
         sustainKnob.setBounds(eX + 2 * (ek + egap),     eY, ek, ek);
         releaseKnob.setBounds(eX + 3 * (ek + egap),     eY, ek, ek);
 
-        // Envelope display + volume knob
-        envelopeDisplay.setBounds(4, 206, w - 62, 50);
-        volumeKnob.setBounds(w - 58, 206, ks, ks);
+        // SUPERSAW row — fits between ADSR (ends ~y=160) and the envelope
+        // display (was y=206).  4 controls in one row.  Layout adapts to
+        // the panel width: toggle + voice picker take fixed-ish space on
+        // the left, the two knobs take the remaining width on the right.
+        const int sY      = 174;                       // top of SUPER row
+        const int sToggleW = 56;
+        const int sVoicesW = 44;
+        const int sKnob    = std::clamp((w - sToggleW - sVoicesW - 16) / 2 - 4, 28, 38);
+        const int sToggleH = 18;
+        superBtn.setBounds      (6,                                       sY + 4, sToggleW, sToggleH);
+        superVoicesBtn.setBounds(6 + sToggleW + 4,                        sY + 4, sVoicesW, sToggleH);
+        const int sKnobY = sY - 4;
+        const int sKnobX1 = 6 + sToggleW + 4 + sVoicesW + 6;
+        const int sKnobX2 = sKnobX1 + sKnob + 4;
+        superDetuneKnob.setBounds(sKnobX1, sKnobY, sKnob, sKnob);
+        superMixKnob.setBounds   (sKnobX2, sKnobY, sKnob, sKnob);
+
+        // Envelope display + volume knob — pushed down a bit to make room
+        // for the supersaw row above.
+        envelopeDisplay.setBounds(4, 220, w - 62, 46);
+        volumeKnob.setBounds(w - 58, 220, ks, ks);
     }
 
     void draw(visage::Canvas& canvas) override {
@@ -1613,6 +1646,13 @@ private:
         sustainKnob.setRingColor(SIDColors::ENV_SUSTAIN);
         releaseKnob.setFonts(&fonts_);   releaseKnob.setLabel("R");
         releaseKnob.setRingColor(SIDColors::ENV_RELEASE);
+        // Supersaw row
+        superBtn.setFonts(&fonts_);          superBtn.setLabel("SUPER");
+        superVoicesBtn.setFonts(&fonts_);    superVoicesBtn.setOptions({"7", "9", "11"});
+        superDetuneKnob.setFonts(&fonts_);   superDetuneKnob.setLabel("DTN");
+        superDetuneKnob.setRingColor(SIDColors::ACCENT_CYAN_BRIGHT);
+        superMixKnob.setFonts(&fonts_);      superMixKnob.setLabel("MIX");
+        superMixKnob.setRingColor(SIDColors::ACCENT_PURPLE);
         envelopeDisplay.setFonts(&fonts_);
 
         for (int i = 0; i < kNumWaveforms; ++i)
