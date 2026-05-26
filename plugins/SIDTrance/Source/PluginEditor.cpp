@@ -99,6 +99,7 @@ void SIDTranceAudioProcessorEditor::addAllFrames()
     // the PNG header.  Replace the old standalone SIDChipSwitch widget.
     v.addChild(&v.chip6581Area);
     v.addChild(&v.chip8580Area);
+    v.addChild(&v.masterVolKnob);   // top-header rotary, bound to master_volume
     v.addChild(&v.presetBar);
 
     // Shared popup overlay must be the LAST child added so it sits on top
@@ -279,6 +280,11 @@ void SIDTranceAudioProcessorEditor::bindAllParameters()
 
     // ── Master ───────────────────────────────────────────────
     bindFader(v.masterPanel.outputFader,     "master_volume");
+    // Mirror the same parameter on the top-header rotary knob — both
+    // controls drive the same master_volume APVTS parameter, and the
+    // stateJustLoaded → bindAllParameters refresh keeps them in sync on
+    // preset load and host automation.
+    bindKnob (v.masterVolKnob,               "master_volume");
     bindToggle(v.masterPanel.limiterBtn,     "master_limiter");
     bindToggle(v.masterPanel.polyModeBtn,    "master_poly");
 

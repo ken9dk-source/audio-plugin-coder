@@ -93,7 +93,7 @@ APVTS::ParameterLayout SIDTranceAudioProcessor::createParameterLayout()
     addFloat("amp_volume",  "Amp Vol",0.0f, 1.0f,   0.85f);
 
     // ── LFO 1 ───────────────────────────────────────────────
-    addBool ("lfo1_on",     "LFO1 On",    true);
+    addBool ("lfo1_on",     "LFO1 On",    false);  // off by default — INIT also forces off
     addInt  ("lfo1_shape",  "LFO1 Shape", 0, 6, 0);   // 0=Sine..5=S&H..6=Step
     addFloat("lfo1_rate",   "LFO1 Rate",  0.01f, 20.0f, 1.0f);
     addBool ("lfo1_sync",   "LFO1 Sync",  false);
@@ -108,7 +108,7 @@ APVTS::ParameterLayout SIDTranceAudioProcessor::createParameterLayout()
     }
 
     // ── LFO 2 ───────────────────────────────────────────────
-    addBool ("lfo2_on",     "LFO2 On",    true);
+    addBool ("lfo2_on",     "LFO2 On",    false);  // off by default — INIT also forces off
     addInt  ("lfo2_shape",  "LFO2 Shape", 0, 6, 1);   // 0=Sine..5=S&H..6=Step
     addFloat("lfo2_rate",   "LFO2 Rate",  0.01f, 20.0f, 0.25f);
     addBool ("lfo2_sync",   "LFO2 Sync",  false);
@@ -157,7 +157,7 @@ APVTS::ParameterLayout SIDTranceAudioProcessor::createParameterLayout()
     addInt  ("master_voices",  "Voice Count", 1, 16, 16);
 
     // ── Arp / Sequencer ─────────────────────────────────────
-    addBool ("arp_on",     "Arp On",     true);    // ON by default
+    addBool ("arp_on",     "Arp On",     false);   // off by default — INIT also forces off
     addInt  ("arp_mode",   "Arp Mode",   0, 4, 0);
     addInt  ("arp_octave", "Arp Octave", 1, 4, 1);
     addFloat("arp_gate",   "Arp Gate",   0.0f, 1.0f, 0.75f);

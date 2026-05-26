@@ -2075,48 +2075,67 @@ public:
     void dpiChanged() override { updateFonts(); }
 
     void resized() override {
-        const int ks = 32;   // knob size
-        // Row Y: 22 (chorus), 82 (delay), 142 (reverb)
-        static constexpr int kY[3] = { 22, 82, 142 };
+        // The panel now lives in the narrow left vertical strip (~111 px
+        // wide, ~325 px tall after PNG-mapping).  The old horizontal layout
+        // (knobs at x=84+) ran off the right edge.  Stack the three FX
+        // sections vertically with three knobs centred in each section.
+        const int W = width(), H = height();
+        const int titleArea = 22;                         // top area for panel title
+        const int sectionH  = (H - titleArea) / 3;
+        const int ks   = 28;
+        const int kgap = 4;
+        const int row3W = 3 * ks + 2 * kgap;              // 92
+        const int rowX  = std::max(4, (W - row3W) / 2);
 
-        // LED toggles — small square left of label
-        chorusBtn.setBounds(4,  kY[0] + 2, 14, 14);
-        delayBtn.setBounds(4,   kY[1] + 2, 14, 14);
-        reverbBtn.setBounds(4,  kY[2] + 2, 14, 14);
+        auto placeSection = [&](int idx,
+                                SIDToggleButton& led,
+                                visage::Frame& a, visage::Frame& b, visage::Frame& c) {
+            const int y0 = titleArea + idx * sectionH;
+            led.setBounds(6, y0 + 6, 12, 12);
+            const int ry = y0 + 24;
+            a.setBounds(rowX,                    ry, ks, ks);
+            b.setBounds(rowX + (ks + kgap),      ry, ks, ks);
+            c.setBounds(rowX + 2 * (ks + kgap),  ry, ks, ks);
+        };
 
-        // Knobs aligned right-side
-        const int kx0 = 84;
-        chorusRate.setBounds(kx0,             kY[0] - 3, ks, ks);
-        chorusDepth.setBounds(kx0 + ks + 4,   kY[0] - 3, ks, ks);
-        chorusMix.setBounds(kx0 + 2*(ks+4),   kY[0] - 3, ks, ks);
+        placeSection(0, chorusBtn, chorusRate,    chorusDepth,   chorusMix);
 
-        delayTimeBtn.setBounds(kx0,            kY[1] - 3, 46, 16);   // time division picker
-        delayFeedback.setBounds(kx0 + 50,      kY[1] - 3, ks, ks);
-        delayMix.setBounds(kx0 + 50 + ks + 4, kY[1] - 3, ks, ks);
+        // Delay row: time-picker (smaller than a knob) + FDBK + MIX
+        {
+            const int y0 = titleArea + 1 * sectionH;
+            delayBtn.setBounds(6, y0 + 6, 12, 12);
+            const int ry = y0 + 24;
+            const int pickerW = ks;                       // match knob width
+            const int pickerH = 16;
+            const int pickerY = ry + (ks - pickerH) / 2;  // vertically centred
+            delayTimeBtn.setBounds(rowX,                            pickerY, pickerW, pickerH);
+            delayFeedback.setBounds(rowX + (ks + kgap),             ry,      ks, ks);
+            delayMix.setBounds     (rowX + 2 * (ks + kgap),         ry,      ks, ks);
+        }
 
-        reverbSize.setBounds(kx0,              kY[2] - 3, ks, ks);
-        reverbDamping.setBounds(kx0 + ks + 4,  kY[2] - 3, ks, ks);
-        reverbMix.setBounds(kx0 + 2*(ks+4),    kY[2] - 3, ks, ks);
+        placeSection(2, reverbBtn, reverbSize,    reverbDamping, reverbMix);
     }
 
     void draw(visage::Canvas& canvas) override {
         drawPanelBase(canvas);
 
-        // Effect name labels (drawn next to the LED squares)
+        // Per-section name labels next to the LED squares + divider lines
+        // between sections.  Geometry mirrors resized()'s sectionH math.
         if (fonts_.label.size() > 0) {
-            static constexpr int kY[3] = { 22, 82, 142 };
+            const int W = width(), H = height();
+            const int titleArea = 22;
+            const int sectionH  = (H - titleArea) / 3;
             static constexpr const char* kNames[3] = { "CHORUS", "DELAY", "REVERB" };
+            canvas.setColor(SIDColors::BORDER_INNER);
+            for (int i = 1; i < 3; ++i)
+                canvas.fill(4, titleArea + i * sectionH - 1, W - 8, 1);
             for (int i = 0; i < 3; ++i) {
+                const int y0 = titleArea + i * sectionH;
                 canvas.setColor(SIDColors::TEXT_PRIMARY);
                 canvas.text(kNames[i], fonts_.button, visage::Font::kLeft,
-                            22, kY[i] + 1, 58, 14);
+                            22, y0 + 4, W - 26, 14);
             }
         }
-
-        // Dividers between FX sections
-        canvas.setColor(SIDColors::BORDER_INNER);
-        canvas.fill(4, 68, width() - 8, 1);
-        canvas.fill(4, 128, width() - 8, 1);
     }
 
 private:
@@ -2724,6 +2743,11 @@ public:
     SIDChipClickArea     chip6581Area;
     SIDChipClickArea     chip8580Area;
 
+    // Master Volume — rotary knob placed in the square empty field next to
+    // the TranceSID logo in the header.  Bound to master_volume in
+    // PluginEditor (same parameter the SIDMasterPanel output fader uses).
+    SIDKnob              masterVolKnob;
+
     // Preset bar
     SIDPresetBar         presetBar;
 
@@ -2809,6 +2833,13 @@ private:
             font_label_      = visage::Font(13.0f, fd, fs, dpi);  // TRANCE MACHINE
             font_label_small_= visage::Font(9.0f,  fd, fs, dpi);  // G-MOS / commodore
             popupOverlay.setFont(visage::Font(12.0f, fd, fs, dpi));
+            // Master volume knob inherits the small-label font for its caption.
+            masterVolKnob.setFonts(&masterVolFonts_);
+            masterVolFonts_.init(dpi, fd, fs);
+            masterVolKnob.setFonts(&masterVolFonts_);
+            masterVolKnob.setLarge(true);
+            masterVolKnob.setLabel("MASTER");
+            masterVolKnob.setRingColor(SIDColors::ACCENT_CYAN_BRIGHT);
         }
     }
 
@@ -2821,11 +2852,15 @@ private:
     static constexpr int kPngH = 941;
 
     static constexpr FieldRect kPngHeader      { 0,    0,    kPngW, 200 };
-    // ── Top header: two CHIP badges painted in the PNG.  These rects are
-    //    invisible click areas overlaid on the artwork; their highlight
-    //    glow makes the active model visible.
-    static constexpr FieldRect kPngChip6581    { 538,  44,  104,  90  };
-    static constexpr FieldRect kPngChip8580    { 650,  44,  104,  90  };
+    // ── Top header: two CHIP badges painted in the PNG.  Positions found
+    //    by scanning the PNG for the bright neon outlines (the chip housing
+    //    spans x=653..1017, with the two inner badges at roughly 720..840
+    //    and 842..960).  Click areas now sit exactly on top of each badge.
+    static constexpr FieldRect kPngChip6581    { 720,  44,  120,  88  };
+    static constexpr FieldRect kPngChip8580    { 842,  44,  120,  88  };
+    // ── Master Volume — square empty field next to the TranceSID logo
+    //    (detected by the rect scan: x=1116, y=52, w=116, h=128).
+    static constexpr FieldRect kPngMasterVol   { 1116, 52,  116, 128  };
     // ── Top-left: two macro fields (Macros moved here from the left
     //    vertical strip).  Spans the empty header area left of the chips
     //    so the 4 macro knobs get plenty of size.
@@ -2874,9 +2909,20 @@ private:
         popupOverlay.setBounds(0, 0, W, H);
 
         // Top header — invisible click areas over the painted SID 6581 / 8580
-        // chip badges, and the preset bar at the bottom.
+        // chip badges, master-volume knob in the square slot next to the
+        // TranceSID logo, and the preset bar at the bottom.
         place(chip6581Area, kPngChip6581, /*margin=*/0);
         place(chip8580Area, kPngChip8580, /*margin=*/0);
+        // Master volume — centre a square rotary inside its field with
+        // generous internal padding so the label fits cleanly under the dial.
+        {
+            const auto r = map(kPngMasterVol, /*margin=*/6);
+            const int side = std::min(r.w, r.h) - 8;   // leave room for label
+            const int cx = r.x + (r.w - side) / 2;
+            const int cy = r.y + (r.h - side) / 2;
+            masterVolKnob.setBounds(cx, cy, side, side);
+            currentFields_.push_back(r);
+        }
         place(presetBar,    kPngPresetBar, /*margin=*/0);
 
         // Macros — moved from the left vertical strip to the empty area in
@@ -2959,6 +3005,9 @@ private:
     visage::Font font_title_;
     visage::Font font_label_;
     visage::Font font_label_small_;
+
+    // Font cache used by the standalone master-volume knob.
+    SIDFonts masterVolFonts_;
 
     // Debug overlay
     bool debugOverlay_ = false;
