@@ -1,6 +1,8 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
+#include <cstring>
+
 using APVTS = juce::AudioProcessorValueTreeState;
 
 // ============================================================
@@ -95,7 +97,7 @@ APVTS::ParameterLayout SIDTranceAudioProcessor::createParameterLayout()
     addInt  ("lfo1_shape",  "LFO1 Shape", 0, 6, 0);   // 0=Sine..5=S&H..6=Step
     addFloat("lfo1_rate",   "LFO1 Rate",  0.01f, 20.0f, 1.0f);
     addBool ("lfo1_sync",   "LFO1 Sync",  false);
-    addInt  ("lfo1_div",    "LFO1 Div",   0, 7, 3); // 0=1/32..7=4/1, default=1/4
+    addInt  ("lfo1_div",    "LFO1 Div",   0, 12, 3); // 0-7=straight, 8-10=triplets, 11-12=dotted
     addBool ("lfo1_retrig", "LFO1 Retrig",true);
     // 16 step-curve bars for LFO1 (active when shape == STEP)
     for (int i = 1; i <= 16; ++i) {
@@ -110,7 +112,7 @@ APVTS::ParameterLayout SIDTranceAudioProcessor::createParameterLayout()
     addInt  ("lfo2_shape",  "LFO2 Shape", 0, 6, 1);   // 0=Sine..5=S&H..6=Step
     addFloat("lfo2_rate",   "LFO2 Rate",  0.01f, 20.0f, 0.25f);
     addBool ("lfo2_sync",   "LFO2 Sync",  false);
-    addInt  ("lfo2_div",    "LFO2 Div",   0, 7, 3); // 0=1/32..7=4/1, default=1/4
+    addInt  ("lfo2_div",    "LFO2 Div",   0, 12, 3); // 0-7=straight, 8-10=triplets, 11-12=dotted
     addBool ("lfo2_retrig", "LFO2 Retrig",false);
     // 16 step-curve bars for LFO2 (active when shape == STEP)
     for (int i = 1; i <= 16; ++i) {
@@ -341,7 +343,12 @@ void SIDTranceAudioProcessor::prepareToPlay(double sampleRate_, int samplesPerBl
     sustainedCount_   = 0;
     pitchBendSemis_   = 0.0f;
 
-    juce::ignoreUnused(samplesPerBlock);
+    // Pre-size per-osc scope scratch buffers to host's block size so the
+    // audio thread never reallocates.  Cleared each block in processBlock.
+    for (int o = 0; o < 3; ++o) {
+        oscScopeScratch_[o].assign(std::size_t(std::max(samplesPerBlock, 1)), 0.0f);
+        oscScope[o].fifo.reset();
+    }
 }
 
 // ============================================================
@@ -946,8 +953,10 @@ void SIDTranceAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         // Sum all active voices — with unison panning per voice
         float sumL = 0.0f, sumR = 0.0f;
         int   activeCount = 0;
+        SIDVoice* captureVoice = nullptr;   // first active voice (for per-osc scope display)
         for (auto& v : voices) {
             if (!v.active) continue;
+            if (captureVoice == nullptr) captureVoice = &v;
 
             // Apply mod matrix (uses block-cached values — no APVTS read here)
             applyModMatrix(v, l1, l2, v.velocity, modWheelVal, modCache);
@@ -966,6 +975,21 @@ void SIDTranceAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             sumL += mono * panL;
             sumR += mono * panR;
             ++activeCount;
+        }
+
+        // Capture per-osc samples from the canonical "display" voice for the
+        // per-oscillator scope displays.  Decays to silence when no voice plays.
+        // (Safety guard: skip if host gave us a larger block than promised.)
+        if (samp < (int)oscScopeScratch_[0].size()) {
+            if (captureVoice != nullptr) {
+                oscScopeScratch_[0][samp] = captureVoice->lastS1;
+                oscScopeScratch_[1][samp] = captureVoice->lastS2;
+                oscScopeScratch_[2][samp] = captureVoice->lastS3;
+            } else {
+                oscScopeScratch_[0][samp] = 0.0f;
+                oscScopeScratch_[1][samp] = 0.0f;
+                oscScopeScratch_[2][samp] = 0.0f;
+            }
         }
 
         // Normalise by voice count (prevents clipping with 7-voice unison)
@@ -1056,6 +1080,21 @@ void SIDTranceAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                 scopeBuf.copyFrom(1, start2, buffer, 1, size1, size2);
             }
             scopeFifo.finishedWrite(toWrite);
+        }
+    }
+
+    // ── Push per-osc samples to their FIFOs (UI reads at ~30 fps) ────
+    for (int o = 0; o < 3; ++o) {
+        auto& s = oscScope[o];
+        const int toWrite = std::min(numSamples, s.fifo.getFreeSpace());
+        if (toWrite > 0) {
+            int s1, sz1, s2, sz2;
+            s.fifo.prepareToWrite(toWrite, s1, sz1, s2, sz2);
+            float*       dst = s.buf.getWritePointer(0);
+            const float* src = oscScopeScratch_[o].data();
+            if (sz1 > 0) std::memcpy(dst + s1, src,       size_t(sz1) * sizeof(float));
+            if (sz2 > 0) std::memcpy(dst + s2, src + sz1, size_t(sz2) * sizeof(float));
+            s.fifo.finishedWrite(toWrite);
         }
     }
 

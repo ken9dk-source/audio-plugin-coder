@@ -726,7 +726,10 @@ public:
         canvas.segment(ax,        ay + 4.0f, ax + 3.5f, ay,        1.3f, false);
     }
 
-    // Click → cycle forward; drag up/down → select index directly
+    // Click → open popup menu (true dropdown).
+    // Drag up/down → fine-select index directly without opening the popup.
+    // Wheel → cycle one step.
+    // Click again while popup is open → toggle-close (suppress reopening).
     void mouseDown(const visage::MouseEvent& e) override {
         dragStartY_   = e.position.y;
         dragStartIdx_ = index_;
@@ -746,10 +749,26 @@ public:
     }
     void mouseUp(const visage::MouseEvent&) override {
         if (!dragged_ && !options_.empty()) {
-            // Plain click with no drag: cycle forward
-            index_ = (index_ + 1) % (int)options_.size();
-            redraw();
-            if (onChanged) onChanged(index_);
+            // Plain click with no drag: open popup (or toggle-close if already open)
+            if (popupOpen_) {
+                // Visage's focus loss will close the popup; suppress reopening.
+                popupOpen_ = false;
+                return;
+            }
+            visage::PopupMenu menu;
+            for (int i = 0; i < (int)options_.size(); ++i)
+                menu.addOption(i, options_[i]).select(i == index_);
+            menu.onSelection() += [this](int id) {
+                popupOpen_ = false;
+                if (id >= 0 && id < (int)options_.size() && id != index_) {
+                    index_ = id;
+                    redraw();
+                    if (onChanged) onChanged(index_);
+                }
+            };
+            menu.onCancel() += [this]() { popupOpen_ = false; };
+            popupOpen_ = true;
+            menu.show(this);
         }
         dragged_ = false;
     }
@@ -776,6 +795,7 @@ private:
     float     dragStartY_ = 0.0f;
     int       dragStartIdx_ = 0;
     bool      dragged_    = false;
+    bool      popupOpen_  = false;   // toggle-close support
     SIDFonts* fonts_      = nullptr;
 };
 
@@ -833,19 +853,27 @@ public:
         canvas.segment(ax,        ay + 4.0f, ax + 3.5f, ay,        1.3f, false);
     }
 
-    // Click → open popup menu
+    // Click → open popup menu.  Click again while open → toggle-close
+    // (Visage's focus loss closes the open popup; we just suppress reopening).
     void mouseDown(const visage::MouseEvent&) override {
         if (options_.empty()) return;
+        if (popupOpen_) {
+            popupOpen_ = false;
+            return;
+        }
         visage::PopupMenu menu;
         for (int i = 0; i < (int)options_.size(); ++i)
             menu.addOption(i, options_[i]).select(i == index_);
         menu.onSelection() += [this](int id) {
+            popupOpen_ = false;
             if (id >= 0 && id < (int)options_.size() && id != index_) {
                 index_ = id;
                 redraw();
                 if (onChanged) onChanged(index_);
             }
         };
+        menu.onCancel() += [this]() { popupOpen_ = false; };
+        popupOpen_ = true;
         menu.show(this);
     }
 
@@ -867,9 +895,10 @@ public:
 
 private:
     std::vector<std::string> options_;
-    int       index_   = 0;
-    bool      hovered_ = false;
-    SIDFonts* fonts_   = nullptr;
+    int       index_      = 0;
+    bool      hovered_    = false;
+    bool      popupOpen_  = false;   // toggle-close support
+    SIDFonts* fonts_      = nullptr;
 };
 
 // ============================================================
@@ -1562,7 +1591,11 @@ private:
         syncBtn.setFonts(&fonts_);   syncBtn.setLabel("SYNC");
         retrigBtn.setFonts(&fonts_); retrigBtn.setLabel("RETRIG");
         syncDivBtn.setFonts(&fonts_);
-        syncDivBtn.setOptions({"1/32","1/16","1/8","1/4","1/2","1/1","2/1","4/1"});
+        syncDivBtn.setOptions({
+            "1/32","1/16","1/8","1/4","1/2","1/1","2/1","4/1",   // straight
+            "1/4T","1/8T","1/16T",                                // triplets
+            "1/4D","1/8D"                                          // dotted
+        });
         syncDivBtn.setIndex(3); // default 1/4
     }
 

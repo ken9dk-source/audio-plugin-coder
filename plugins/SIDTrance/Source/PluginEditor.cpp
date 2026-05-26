@@ -265,13 +265,13 @@ void SIDTranceAudioProcessorEditor::bindAllParameters()
                 p->setValueNotifyingHost(p->convertTo0to1(val));
         };
     }
-    // LFO 1 sync division (int 0-7)
+    // LFO 1 sync division (int 0-12: 0-7=straight, 8-10=triplets, 11-12=dotted)
     {
         int cur = int(std::round(*apvts.getRawParameterValue("lfo1_div")));
-        v.lfo1.syncDivBtn.setIndex(std::clamp(cur, 0, 7));
+        v.lfo1.syncDivBtn.setIndex(std::clamp(cur, 0, 12));
         v.lfo1.syncDivBtn.onChanged = [&apvts](int i) {
             if (auto* p = apvts.getParameter("lfo1_div"))
-                p->setValueNotifyingHost((float)i / 7.0f);
+                p->setValueNotifyingHost((float)i / 12.0f);
         };
     }
     // LFO 2
@@ -301,13 +301,13 @@ void SIDTranceAudioProcessorEditor::bindAllParameters()
                 p->setValueNotifyingHost(p->convertTo0to1(val));
         };
     }
-    // LFO 2 sync division (int 0-7)
+    // LFO 2 sync division (int 0-12: 0-7=straight, 8-10=triplets, 11-12=dotted)
     {
         int cur = int(std::round(*apvts.getRawParameterValue("lfo2_div")));
-        v.lfo2.syncDivBtn.setIndex(std::clamp(cur, 0, 7));
+        v.lfo2.syncDivBtn.setIndex(std::clamp(cur, 0, 12));
         v.lfo2.syncDivBtn.onChanged = [&apvts](int i) {
             if (auto* p = apvts.getParameter("lfo2_div"))
-                p->setValueNotifyingHost((float)i / 7.0f);
+                p->setValueNotifyingHost((float)i / 12.0f);
         };
     }
 
@@ -614,78 +614,45 @@ void SIDTranceAudioProcessorEditor::onRender()
         mainView->osc3.envelopeDisplay.updateSamples(adsrBuf_, 512);
     }
 
-    // Drain scope FIFO (written by audio thread) → feed scope views (UI thread)
+    // ── Per-oscillator scopes: drain each FIFO into the corresponding view ──
+    // Lock-free, no allocations.  Each OSC has its own ring buffer fed by
+    // processBlock; we read at the editor's render rate (~60 fps).  Voice 0's
+    // live audio output is captured per-OSC for visualisation.
     auto& proc = audioProcessor;
-    const int available = proc.scopeFifo.getNumReady();
-    if (available <= 0) return;
+    // kScopeMax is the class-member constant declared in the header.
 
-    // If more data than scopes can display, discard the older tail first
-    static constexpr int kScopeMax = 512;   // matches SIDOscilloscopeView::kMaxSamples
-    const int toShow    = std::min(available, kScopeMax);
-    const int toDiscard = available - toShow;
+    SIDOscilloscopeView* const oscScopes[3] = {
+        &mainView->scope1, &mainView->scope2, &mainView->scope3
+    };
 
-    if (toDiscard > 0) {
+    for (int o = 0; o < 3; ++o) {
+        auto& fifo = proc.oscScope[o].fifo;
+        const int avail = fifo.getNumReady();
+        if (avail <= 0) continue;
+
+        const int toShow    = std::min(avail, kScopeMax);
+        const int toDiscard = avail - toShow;
+
+        if (toDiscard > 0) {
+            int ds1, dsz1, ds2, dsz2;
+            fifo.prepareToRead(toDiscard, ds1, dsz1, ds2, dsz2);
+            fifo.finishedRead(toDiscard);
+        }
+
         int s1, sz1, s2, sz2;
-        proc.scopeFifo.prepareToRead(toDiscard, s1, sz1, s2, sz2);
-        proc.scopeFifo.finishedRead(toDiscard);
+        fifo.prepareToRead(toShow, s1, sz1, s2, sz2);
+        const float* src = proc.oscScope[o].buf.getReadPointer(0);
+        int written = 0;
+        for (int i = 0; i < sz1 && written < kScopeMax; ++i, ++written)
+            localBuf_[written] = src[s1 + i];
+        for (int i = 0; i < sz2 && written < kScopeMax; ++i, ++written)
+            localBuf_[written] = src[s2 + i];
+        fifo.finishedRead(toShow);
+
+        oscScopes[o]->updateSamples(localBuf_, written);
     }
 
-    int start1, size1, start2, size2;
-    proc.scopeFifo.prepareToRead(toShow, start1, size1, start2, size2);
-
-    // Copy L channel into per-instance member buffer (was static — shared across instances)
-    const float* srcL = proc.scopeBuf.getReadPointer(0);
-    int written = 0;
-    for (int i = 0; i < size1 && written < kScopeMax; ++i, ++written)
-        localBuf_[written] = srcL[start1 + i];
-    for (int i = 0; i < size2 && written < kScopeMax; ++i, ++written)
-        localBuf_[written] = srcL[start2 + i];
-
-    proc.scopeFifo.finishedRead(toShow);
-
-    // Feed scope1 with the live audio (mixed output)
-    mainView->scope1.updateSamples(localBuf_, written);
-
-    // Scopes 2 & 3 show a static waveform preview based on each OSC's current type,
-    // so the top panels show what each oscillator is set to.
-    {
-        auto genWave = [](int wave, float* buf, int n) {
-            for (int i = 0; i < n; ++i) {
-                const float t = float(i) / float(n);
-                float v = 0.0f;
-                switch (wave) {
-                case 0: v = 2.0f * t - 1.0f;                                        break; // SAW
-                case 1: v = t < 0.5f ? 4.0f*t-1.0f : 3.0f-4.0f*t;                  break; // TRI
-                case 2: v = t < 0.5f ? 0.85f : -0.85f;                              break; // PULSE
-                case 3: v = (std::sin(t*37.1f)*0.6f + std::sin(t*73.4f)*0.4f
-                           + std::sin(t*113.7f)*0.25f);                              break; // NOISE
-                case 4: v = std::sin(6.28318530f * t);                               break; // S+T
-                case 5: { // RNG — ring-modulated-looking waveform preview
-                    const float a = t * 6.2832f * 2.2f;
-                    v = std::sin(a) * (0.35f + 0.65f * std::abs(std::sin(t * 3.14159f)));
-                    break;
-                }
-                case 6: { // HSW — supersaw: sum of 3 slightly detuned saws
-                    v = (2.0f*t-1.0f) * 0.5f
-                      + (std::fmod(t * 1.005f, 1.0f) * 2.0f - 1.0f) * 0.25f
-                      + (std::fmod(t * 0.995f, 1.0f) * 2.0f - 1.0f) * 0.25f;
-                    break;
-                }
-                default: v = std::sin(6.28318530f * t);                              break;
-                }
-                buf[i] = v;
-            }
-        };
-
-        auto& apvts2 = audioProcessor.getAPVTS();
-        const int w2 = std::clamp(int(std::round(*apvts2.getRawParameterValue("osc2_wave"))), 0, 6);
-        const int w3 = std::clamp(int(std::round(*apvts2.getRawParameterValue("osc3_wave"))), 0, 6);
-        genWave(w2, wvBuf_, 512);
-        mainView->scope2.updateSamples(wvBuf_, 512);
-        genWave(w3, wvBuf_, 512);
-        mainView->scope3.updateSamples(wvBuf_, 512);
-    }
-    // filterScope is now SIDFilterInfoView — driven by setFilterState() in onRender(), not audio data
+    // filterScope is now SIDFilterInfoView — driven by setFilterState() above, not audio data
 }
 
 void SIDTranceAudioProcessorEditor::onDestroy()
@@ -977,8 +944,40 @@ void SIDTranceAudioProcessorEditor::loadPreset(int index)
 
 void SIDTranceAudioProcessorEditor::resetToInit()
 {
+    auto& apvts = audioProcessor.getAPVTS();
+
+    // First: reset everything to its declared default
     for (auto* param : audioProcessor.getParameters())
         param->setValueNotifyingHost(param->getDefaultValue());
+
+    // Then override the "on" toggles and modulation amounts so INIT is a
+    // truly blank slate: nothing is modulating, nothing is making noise
+    // except a single bare oscillator.
+    auto setNorm = [&](const char* id, float denorm) {
+        if (auto* p = apvts.getParameter(id))
+            p->setValueNotifyingHost(p->convertTo0to1(denorm));
+    };
+
+    // Mod matrix — zero out all four amounts so the slots have no audible effect
+    setNorm("mod1_amt", 0.0f);
+    setNorm("mod2_amt", 0.0f);
+    setNorm("mod3_amt", 0.0f);
+    setNorm("mod4_amt", 0.0f);
+
+    // Arp off (defaults to ON in createParameterLayout)
+    setNorm("arp_on", 0.0f);
+
+    // Both LFOs off
+    setNorm("lfo1_on", 0.0f);
+    setNorm("lfo2_on", 0.0f);
+
+    // FX off
+    setNorm("fx_chorus_on", 0.0f);
+    setNorm("fx_delay_on",  0.0f);
+    setNorm("fx_reverb_on", 0.0f);
+
+    // Trance gate off (already default false, but make explicit)
+    setNorm("gate_on", 0.0f);
 
     currentPresetIdx_ = -1;
     presetDirty_      = false;

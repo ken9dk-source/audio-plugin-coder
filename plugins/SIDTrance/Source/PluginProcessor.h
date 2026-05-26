@@ -4,6 +4,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <vector>
 
 // ============================================================
 //  SIDOscillator — 6581-inspired phase-accumulator oscillator
@@ -291,6 +292,15 @@ struct SIDVoice {
     // Unison panning: -1 (full left) to +1 (full right), 0 = center
     float uniPan  = 0.0f;
 
+    // Per-oscillator output snapshot for the UI oscilloscopes (no envelope
+    // applied — raw post-volume oscillator signal so the display matches
+    // what each waveform actually looks like).  Written each sample in
+    // processMono(); read once per sample by processBlock for the first
+    // active voice.
+    float lastS1  = 0.0f;
+    float lastS2  = 0.0f;
+    float lastS3  = 0.0f;
+
     // Glide: pitch offset in semitones, converges to 0 each sample
     float glideOffsetSemis = 0.0f;
 
@@ -408,6 +418,13 @@ struct SIDVoice {
         const float s2 = osc2.process() * e2 * osc2.volume;
         const float s3 = s3vol;
 
+        // Expose per-osc samples for the UI scopes.  Plain stores — single-
+        // writer (audio thread) / single-reader (UI thread) means we don't
+        // need atomics; worst case the UI sees a slightly torn float.
+        lastS1 = s1;
+        lastS2 = s2;
+        lastS3 = s3;
+
         // Restore base PW so modulation doesn't accumulate across samples
         osc1.pw = savedPW1;
         osc2.pw = savedPW2;
@@ -475,11 +492,22 @@ struct LFOEngine {
 
     float process(float hostBPM) {
         // When sync is on, derive freq from BPM and the selected musical division.
-        // multiples of (BPM/60) = quarter-note: ×8=32nd, ×4=16th, ×2=8th, ×1=4th,
-        //                                        ×0.5=half, ×0.25=whole, etc.
-        static const float kDiv[8] = { 8.f, 4.f, 2.f, 1.f, 0.5f, 0.25f, 0.125f, 0.0625f };
+        // Multiplier = how many cycles per quarter-note.
+        // Indices 0-7 are the legacy straight divisions (preset compatibility).
+        // Indices 8-12 add triplets and dotted variants.
+        //   0=1/32, 1=1/16, 2=1/8, 3=1/4, 4=1/2, 5=1/1, 6=2/1, 7=4/1
+        //   8=1/4T (triplet quarter, 1.5× rate of 1/4)
+        //   9=1/8T (triplet eighth)
+        //  10=1/16T
+        //  11=1/4D (dotted quarter, 2/3 rate of 1/4)
+        //  12=1/8D
+        static const float kDiv[13] = {
+            8.f,   4.f,   2.f,   1.f,   0.5f,  0.25f, 0.125f, 0.0625f,
+            1.5f,  3.0f,  6.0f,                       // triplets
+            (2.f/3.f), (4.f/3.f)                       // dotted
+        };
         const float freq = syncOn
-            ? (hostBPM / 60.0f) * kDiv[std::clamp(syncDiv, 0, 7)]
+            ? (hostBPM / 60.0f) * kDiv[std::clamp(syncDiv, 0, 12)]
             : rate;
         const float inc  = freq / sr;
         phase += inc;
@@ -845,6 +873,16 @@ public:
     juce::AbstractFifo         scopeFifo  { 2048 };
     juce::AudioBuffer<float>   scopeBuf   { 2, 2048 };
 
+    // Per-oscillator scope ring buffers (mono, fed from the first active voice
+    // in processBlock).  Lock-free: audio thread only writes, UI only reads.
+    // Wrapped in a struct because juce::AbstractFifo has explicit ctor + non-
+    // copyable atomic members, so an array of them can't be brace-initialised.
+    struct OscScope {
+        juce::AbstractFifo       fifo { 2048 };
+        juce::AudioBuffer<float> buf  { 1, 2048 };
+    };
+    OscScope oscScope[3];
+
     // Set to true in setStateInformation so the editor reloads all widget values
     // on the next render tick (Visage controls are not APVTS listeners).
     std::atomic<bool> stateJustLoaded { false };
@@ -949,6 +987,10 @@ private:
     // Glide tracking: last played note for glide interval calculation
     int   lastPlayedNote_  = -1;
     float glideOffsetAccum_ = 0.0f;  // current glide offset in semitones (per-voice set at noteOn)
+
+    // Per-block scratch buffer for the per-osc scope feed.  Sized to the host's
+    // max block size in prepareToPlay(); avoids any audio-thread allocation.
+    std::vector<float> oscScopeScratch_[3];
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SIDTranceAudioProcessor)
 };
