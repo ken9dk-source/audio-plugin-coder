@@ -98,6 +98,39 @@ void SIDTranceAudioProcessorEditor::addAllFrames()
     v.addChild(&v.chipSwitch);            // top-level; sits over chip badges in PNG
     v.addChild(&v.presetBar);
 
+    // Shared popup overlay must be the LAST child added so it sits on top
+    // of every other frame in the z-order — that way mouseDown anywhere
+    // inside the editor goes to the overlay first while it's visible.
+    v.addChild(&v.popupOverlay);
+
+    // Hand the overlay pointer to every dropdown widget in the editor.
+    // Each dropdown's mouseDown/mouseUp routes through the overlay instead
+    // of visage::PopupMenu, so click-outside / click-again-to-close work
+    // reliably across the whole UI.
+    {
+        auto* p = &v.popupOverlay;
+        v.filterPanel.typeBtn.setPopupOverlay(p);
+        v.effectsPanel.delayTimeBtn.setPopupOverlay(p);
+        v.masterPanel.voiceCountBtn.setPopupOverlay(p);
+        v.voiceModPanel.uniVoicesBtn.setPopupOverlay(p);
+        v.voiceModPanel.glideModeBtn.setPopupOverlay(p);
+        v.voiceModPanel.driveTypeBtn.setPopupOverlay(p);
+        v.lfo1.shapeBtn.setPopupOverlay(p);
+        v.lfo1.syncDivBtn.setPopupOverlay(p);
+        v.lfo2.shapeBtn.setPopupOverlay(p);
+        v.lfo2.syncDivBtn.setPopupOverlay(p);
+        v.arpPanel.modeBtn.setPopupOverlay(p);
+        v.arpPanel.octaveBtn.setPopupOverlay(p);
+        v.arpPanel.gateBtn.setPopupOverlay(p);
+        v.arpPanel.swingBtn.setPopupOverlay(p);
+        v.arpPanel.tempoBtn.setPopupOverlay(p);
+        v.gatePanel.gateSwingBtn.setPopupOverlay(p);
+        for (int i = 0; i < 4; ++i) {
+            v.modMatrix.srcBtn[i].setPopupOverlay(p);
+            v.modMatrix.dstBtn[i].setPopupOverlay(p);
+        }
+    }
+
     // Debug overlay — translucent yellow rectangles around every field so
     // the layout-to-PNG mapping can be visually verified.  Set to false
     // (or remove the call) once the layout is confirmed correct.
@@ -729,192 +762,426 @@ void SIDTranceAudioProcessorEditor::onDestroy()
 
 // ============================================================
 //  Factory Preset Data
+//  30 trance-focused presets covering every major sound class
+//  (plucks, supersaws, basses, gated pads, arps, stabs, FX pads).
 //  Each preset is a list of (paramId, denormalized value) pairs
-//  applied on top of the Init (all-defaults) state.
+//  applied on top of the Init (all-defaults) state via
+//  applyFactoryPreset().  All IDs are validated against
+//  createParameterLayout(); the apvts will silently ignore an
+//  unknown ID, so every line below has been cross-checked.
 // ============================================================
 namespace {
     struct FP { const char* id; float v; };
 
-    static const FP kFP_ClassicLead[] = {
-        {"osc1_wave",0.f},{"osc1_volume",0.90f},
-        {"osc2_wave",0.f},{"osc2_fine",12.f},{"osc2_volume",0.70f},
+    // ═════════════════════════════ PLUCKS (6) ═════════════════════════════
+    static const FP kFP_PluckGlassSting[] = {
+        {"osc1_wave",0.f},{"osc1_volume",0.85f},
+        {"osc2_wave",1.f},{"osc2_fine",7.f},{"osc2_volume",0.40f},
         {"osc3_volume",0.f},
-        {"filter_cutoff",700.f},{"filter_res",0.75f},
-        {"filter_env_amount",0.85f},{"filter_env_decay",0.22f},{"filter_env_sustain",0.10f},
-        {"amp_attack",0.003f},{"amp_sustain",0.90f},{"amp_release",0.55f},
-        {"analog_glow",0.35f},{"trance_drift",0.15f},
-        {"fx_delay_mix",0.28f},{"fx_reverb_mix",0.20f},
-    };
-    static const FP kFP_Supersaw[] = {
-        {"osc1_wave",6.f},{"osc1_pw",0.80f},{"osc1_volume",0.95f},
-        {"osc2_volume",0.f},{"osc3_volume",0.f},
-        {"filter_cutoff",3500.f},{"filter_res",0.40f},
-        {"filter_env_amount",0.50f},{"filter_env_decay",0.35f},
-        {"amp_attack",0.010f},{"amp_sustain",0.85f},{"amp_release",0.70f},
-        {"analog_glow",0.45f},{"trance_drift",0.25f},
-        {"unison_voices",5.f},{"unison_detune",25.f},{"unison_spread",0.80f},
-        {"fx_chorus_mix",0.50f},{"fx_reverb_mix",0.35f},
-    };
-    static const FP kFP_TranceBass[] = {
-        {"osc1_wave",0.f},{"osc1_volume",0.95f},
-        {"osc2_wave",0.f},{"osc2_semi",-12.f},{"osc2_fine",-8.f},{"osc2_volume",0.60f},
-        {"osc3_volume",0.f},
-        {"filter_cutoff",350.f},{"filter_res",0.60f},
-        {"filter_env_amount",0.70f},{"filter_env_attack",0.003f},
-        {"filter_env_decay",0.18f},{"filter_env_sustain",0.05f},
-        {"amp_attack",0.002f},{"amp_decay",0.25f},{"amp_sustain",0.75f},{"amp_release",0.35f},
-        {"analog_glow",0.40f},
-        {"fx_delay_mix",0.15f},{"fx_reverb_mix",0.15f},
-    };
-    static const FP kFP_AcidBass[] = {
-        {"osc1_wave",0.f},{"osc1_volume",0.95f},
-        {"osc2_volume",0.f},{"osc3_volume",0.f},
-        {"filter_cutoff",200.f},{"filter_res",0.93f},
-        {"filter_env_amount",0.95f},{"filter_env_attack",0.001f},
-        {"filter_env_decay",0.15f},{"filter_env_sustain",0.0f},
-        {"amp_attack",0.001f},{"amp_decay",0.35f},{"amp_sustain",0.60f},{"amp_release",0.30f},
-        {"analog_glow",0.55f},
-        {"arp_on",1.f},{"arp_gate",0.50f},
-        {"fx_delay_mix",0.20f},{"fx_reverb_mix",0.10f},
-    };
-    static const FP kFP_Hoover[] = {
-        {"osc1_wave",0.f},{"osc1_semi",12.f},{"osc1_volume",0.85f},
-        {"osc2_wave",0.f},{"osc2_fine",-5.f},{"osc2_volume",0.80f},
-        {"osc3_volume",0.f},
-        {"osc_fm_amt",0.30f},
-        {"filter_cutoff",2500.f},{"filter_res",0.55f},
-        {"filter_env_amount",-0.50f},{"filter_env_decay",0.40f},
-        {"amp_attack",0.020f},{"amp_sustain",0.85f},{"amp_release",0.60f},
-        {"analog_glow",0.30f},{"trance_drift",0.20f},
-        {"fx_chorus_depth",0.60f},{"fx_reverb_mix",0.25f},
-    };
-    static const FP kFP_ElectroPluck[] = {
-        {"osc1_wave",2.f},{"osc1_pw",0.30f},{"osc1_volume",0.90f},
-        {"osc2_wave",1.f},{"osc2_fine",-3.f},{"osc2_volume",0.50f},
-        {"osc3_volume",0.f},
-        {"filter_cutoff",4000.f},{"filter_res",0.65f},
-        {"filter_env_amount",0.75f},{"filter_env_attack",0.001f},
-        {"filter_env_decay",0.12f},{"filter_env_sustain",0.0f},
-        {"amp_attack",0.001f},{"amp_decay",0.20f},{"amp_sustain",0.0f},{"amp_release",0.20f},
-        {"analog_glow",0.25f},
-        {"fx_reverb_mix",0.30f},
-    };
-    static const FP kFP_EuphoricPad[] = {
-        {"osc1_wave",0.f},{"osc1_volume",0.75f},
-        {"osc2_wave",1.f},{"osc2_fine",7.f},{"osc2_volume",0.75f},
-        {"osc3_wave",4.f},{"osc3_fine",-5.f},{"osc3_volume",0.50f},
-        {"filter_cutoff",1800.f},{"filter_res",0.35f},
-        {"filter_env_amount",0.40f},{"filter_env_attack",1.50f},
-        {"amp_attack",0.90f},{"amp_sustain",0.90f},{"amp_release",1.50f},
-        {"lfo1_shape",0.f},{"lfo1_rate",0.30f},
-        {"trance_drift",0.30f},
-        {"unison_voices",3.f},{"unison_detune",15.f},{"unison_spread",0.65f},
-        {"fx_chorus_mix",0.50f},{"fx_reverb_size",0.75f},{"fx_reverb_mix",0.55f},
-    };
-    static const FP kFP_TranceStab[] = {
-        {"osc1_wave",0.f},{"osc1_volume",0.90f},
-        {"osc2_wave",0.f},{"osc2_fine",-7.f},{"osc2_volume",0.70f},
-        {"osc3_volume",0.f},
-        {"filter_cutoff",1500.f},{"filter_res",0.80f},
+        {"filter_cutoff",4500.f},{"filter_res",0.70f},
         {"filter_env_amount",0.90f},{"filter_env_attack",0.001f},
-        {"filter_env_decay",0.08f},{"filter_env_sustain",0.0f},
-        {"amp_attack",0.001f},{"amp_decay",0.15f},{"amp_sustain",0.0f},{"amp_release",0.15f},
-        {"analog_glow",0.35f},
-        {"arp_on",1.f},{"arp_mode",0.f},{"arp_octave",2.f},
-        {"fx_delay_time",2.f},{"fx_delay_feedback",0.45f},{"fx_delay_mix",0.35f},
+        {"filter_env_decay",0.10f},{"filter_env_sustain",0.0f},
+        {"amp_attack",0.001f},{"amp_decay",0.15f},{"amp_sustain",0.0f},{"amp_release",0.30f},
+        {"chip_model",1.f},{"analog_glow",0.20f},
+        {"fx_delay_mix",0.18f},{"fx_reverb_mix",0.30f},
     };
-    static const FP kFP_SIDClassic[] = {
-        {"osc1_wave",2.f},{"osc1_pw",0.45f},{"osc1_volume",0.85f},
-        {"osc2_wave",2.f},{"osc2_semi",7.f},{"osc2_pw",0.35f},{"osc2_volume",0.60f},
-        {"osc3_wave",3.f},{"osc3_volume",0.20f},
-        {"filter_cutoff",900.f},{"filter_res",0.65f},
-        {"filter_env_amount",0.70f},
-        {"amp_sustain",0.85f},
-        {"chip_model",0.f},{"digital_age",0.30f},{"analog_glow",0.20f},  // 6581 for SID Classic
+    static const FP kFP_PluckCrystalBell[] = {
+        {"osc1_wave",1.f},{"osc1_volume",0.85f},
+        {"osc2_wave",0.f},{"osc2_fine",12.f},{"osc2_volume",0.45f},
+        {"osc3_volume",0.f},
+        {"filter_cutoff",3500.f},{"filter_res",0.55f},
+        {"filter_env_amount",0.75f},{"filter_env_decay",0.18f},{"filter_env_sustain",0.05f},
+        {"amp_attack",0.001f},{"amp_decay",0.20f},{"amp_sustain",0.0f},{"amp_release",0.40f},
+        {"chip_model",1.f},
+        {"fx_chorus_mix",0.30f},{"fx_reverb_mix",0.40f},
     };
-    static const FP kFP_ArpPhrase[] = {
-        {"osc1_wave",0.f},{"osc1_volume",0.90f},
-        {"osc2_wave",1.f},{"osc2_fine",5.f},{"osc2_volume",0.50f},
-        {"osc3_wave",3.f},{"osc3_volume",0.25f},
-        {"filter_cutoff",1100.f},{"filter_res",0.65f},
-        {"filter_env_amount",0.65f},{"filter_env_decay",0.20f},{"filter_env_sustain",0.10f},
-        {"amp_attack",0.003f},{"amp_decay",0.25f},{"amp_sustain",0.75f},
-        {"arp_on",1.f},{"arp_mode",0.f},{"arp_octave",2.f},{"arp_gate",0.70f},
-        {"lfo1_shape",2.f},{"lfo1_rate",2.0f},
-        {"fx_delay_mix",0.30f},{"fx_reverb_mix",0.20f},
-    };
-    static const FP kFP_DigitalCrunch[] = {
-        {"osc1_wave",0.f},{"osc1_volume",0.90f},
-        {"osc2_wave",2.f},{"osc2_fine",-15.f},{"osc2_volume",0.60f},
-        {"filter_cutoff",2000.f},{"filter_res",0.50f},
-        {"amp_sustain",0.80f},{"amp_release",0.30f},
-        {"digital_age",0.45f},
-        {"drive_type",2.f},{"drive_amount",0.55f},
-        {"fx_delay_mix",0.20f},{"fx_reverb_mix",0.10f},
-    };
-    static const FP kFP_UnisonLead[] = {
-        {"osc1_wave",0.f},{"osc1_volume",0.95f},
-        {"osc2_volume",0.f},{"osc3_volume",0.f},
-        {"filter_cutoff",5000.f},{"filter_res",0.45f},
-        {"filter_env_amount",0.60f},{"filter_env_decay",0.30f},
-        {"amp_attack",0.005f},{"amp_sustain",0.90f},{"amp_release",0.80f},
-        {"analog_glow",0.40f},{"trance_drift",0.20f},
-        {"unison_voices",7.f},{"unison_detune",35.f},{"unison_spread",0.85f},
-        {"fx_chorus_mix",0.30f},{"fx_reverb_mix",0.25f},
-    };
-    static const FP kFP_DreamPad[] = {
-        {"osc1_wave",1.f},{"osc1_volume",0.70f},
-        {"osc2_wave",4.f},{"osc2_fine",12.f},{"osc2_volume",0.60f},
-        {"osc3_wave",0.f},{"osc3_fine",-7.f},{"osc3_volume",0.40f},
-        {"filter_cutoff",1400.f},{"filter_res",0.30f},
-        {"filter_env_amount",0.30f},{"filter_env_attack",2.0f},
-        {"amp_attack",2.0f},{"amp_sustain",0.95f},{"amp_release",3.0f},
-        {"lfo1_shape",0.f},{"lfo1_rate",0.20f},
-        {"trance_drift",0.35f},
-        {"unison_voices",3.f},{"unison_detune",20.f},{"unison_spread",0.70f},
-        {"fx_chorus_mix",0.60f},{"fx_reverb_size",0.85f},{"fx_reverb_mix",0.65f},
-        {"fx_delay_mix",0.10f},
-    };
-    static const FP kFP_TranceGate[] = {
-        {"osc1_wave",0.f},{"osc1_volume",0.90f},
-        {"osc2_wave",0.f},{"osc2_fine",7.f},{"osc2_volume",0.70f},
-        {"filter_cutoff",2500.f},{"filter_res",0.55f},
-        {"filter_env_amount",0.65f},{"filter_env_decay",0.25f},
-        {"amp_attack",0.003f},{"amp_sustain",0.85f},{"amp_release",0.40f},
-        {"gate_on",1.f},
-        {"analog_glow",0.30f},
-        {"fx_delay_time",1.f},{"fx_delay_feedback",0.40f},{"fx_delay_mix",0.40f},
+    static const FP kFP_PluckHammer[] = {
+        {"osc1_wave",2.f},{"osc1_pw",0.25f},{"osc1_volume",0.90f},
+        {"osc2_wave",0.f},{"osc2_fine",-5.f},{"osc2_volume",0.55f},
+        {"osc3_volume",0.f},
+        {"filter_cutoff",2200.f},{"filter_res",0.75f},
+        {"filter_env_amount",0.85f},{"filter_env_decay",0.12f},{"filter_env_sustain",0.0f},
+        {"amp_attack",0.001f},{"amp_decay",0.18f},{"amp_sustain",0.0f},{"amp_release",0.25f},
+        {"drive_type",0.f},{"drive_amount",0.20f},
+        {"chip_model",1.f},
         {"fx_reverb_mix",0.25f},
     };
-    static const FP kFP_RingMod[] = {
-        {"osc1_wave",5.f},{"osc1_volume",0.90f},
-        {"osc2_wave",1.f},{"osc2_semi",7.f},{"osc2_volume",0.70f},
+    static const FP kFP_PluckIceBell[] = {
+        {"osc1_wave",5.f},{"osc1_volume",0.85f},                    // ring mod
+        {"osc2_wave",1.f},{"osc2_semi",12.f},{"osc2_volume",0.55f},
+        {"osc3_wave",0.f},{"osc3_semi",-12.f},{"osc3_volume",0.50f},
+        {"filter_cutoff",5000.f},{"filter_res",0.45f},
+        {"filter_env_amount",0.70f},{"filter_env_decay",0.20f},{"filter_env_sustain",0.0f},
+        {"amp_attack",0.001f},{"amp_decay",0.30f},{"amp_sustain",0.0f},{"amp_release",0.60f},
+        {"chip_model",1.f},
+        {"fx_reverb_size",0.70f},{"fx_reverb_mix",0.50f},
+    };
+    static const FP kFP_PluckSID6581[] = {
+        {"osc1_wave",2.f},{"osc1_pw",0.40f},{"osc1_volume",0.90f},
+        {"osc2_wave",0.f},{"osc2_fine",4.f},{"osc2_volume",0.55f},
+        {"osc3_wave",3.f},{"osc3_volume",0.18f},                    // noise sprinkle
+        {"filter_cutoff",1800.f},{"filter_res",0.78f},
+        {"filter_env_amount",0.95f},{"filter_env_decay",0.10f},{"filter_env_sustain",0.0f},
+        {"amp_attack",0.001f},{"amp_decay",0.18f},{"amp_sustain",0.0f},{"amp_release",0.20f},
+        {"chip_model",0.f},                                          // 6581 — aliased grit
+        {"digital_age",0.25f},{"analog_glow",0.30f},
+        {"fx_reverb_mix",0.20f},
+    };
+    static const FP kFP_PluckSubKnock[] = {
+        {"osc1_wave",1.f},{"osc1_semi",-12.f},{"osc1_volume",0.95f},
+        {"osc2_wave",0.f},{"osc2_semi",-24.f},{"osc2_volume",0.45f},
         {"osc3_volume",0.f},
-        {"filter_cutoff",3000.f},{"filter_res",0.50f},
-        {"filter_env_amount",0.50f},{"filter_env_decay",0.30f},
-        {"amp_sustain",0.85f},{"amp_release",0.50f},
-        {"analog_glow",0.20f},{"fx_reverb_mix",0.35f},
+        {"filter_cutoff",700.f},{"filter_res",0.60f},
+        {"filter_env_amount",0.85f},{"filter_env_decay",0.10f},{"filter_env_sustain",0.0f},
+        {"amp_attack",0.001f},{"amp_decay",0.12f},{"amp_sustain",0.0f},{"amp_release",0.18f},
+        {"drive_type",0.f},{"drive_amount",0.30f},
+        {"chip_model",1.f},
+    };
+
+    // ══════════════════════ SUPERSAW / DETUNED LEADS (5) ═══════════════════
+    static const FP kFP_LeadHypersaw7[] = {
+        {"osc1_wave",6.f},{"osc1_pw",0.85f},{"osc1_volume",0.95f},
+        {"osc2_volume",0.f},{"osc3_volume",0.f},
+        {"filter_cutoff",4500.f},{"filter_res",0.40f},
+        {"filter_env_amount",0.50f},{"filter_env_decay",0.40f},{"filter_env_sustain",0.15f},
+        {"amp_attack",0.008f},{"amp_sustain",0.85f},{"amp_release",0.70f},
+        {"trance_drift",0.25f},{"analog_glow",0.30f},
+        {"unison_voices",5.f},{"unison_detune",28.f},{"unison_spread",0.85f},
+        {"chip_model",1.f},
+        {"fx_chorus_mix",0.40f},{"fx_reverb_mix",0.30f},{"fx_delay_mix",0.15f},
+    };
+    static const FP kFP_LeadStackedSaws[] = {
+        {"osc1_wave",0.f},{"osc1_volume",0.85f},
+        {"osc2_wave",0.f},{"osc2_fine",-9.f},{"osc2_volume",0.80f},
+        {"osc3_wave",0.f},{"osc3_fine",11.f},{"osc3_volume",0.55f},
+        {"filter_cutoff",3000.f},{"filter_res",0.45f},
+        {"filter_env_amount",0.55f},{"filter_env_decay",0.30f},
+        {"amp_attack",0.005f},{"amp_sustain",0.88f},{"amp_release",0.60f},
+        {"unison_voices",3.f},{"unison_detune",18.f},{"unison_spread",0.70f},
+        {"chip_model",1.f},{"trance_drift",0.18f},
+        {"fx_chorus_mix",0.35f},{"fx_reverb_mix",0.25f},
+    };
+    static const FP kFP_LeadWideDetune[] = {
+        {"osc1_wave",0.f},{"osc1_volume",0.90f},
+        {"osc2_wave",2.f},{"osc2_pw",0.45f},{"osc2_fine",6.f},{"osc2_volume",0.60f},
+        {"osc3_volume",0.f},
+        {"filter_cutoff",3800.f},{"filter_res",0.50f},
+        {"filter_env_amount",0.55f},{"filter_env_decay",0.28f},
+        {"amp_attack",0.004f},{"amp_sustain",0.85f},{"amp_release",0.65f},
+        {"unison_voices",8.f},{"unison_detune",40.f},{"unison_spread",1.0f},
+        {"sid_width",0.85f},{"chip_model",1.f},
+        {"fx_chorus_mix",0.45f},{"fx_reverb_mix",0.30f},
+    };
+    static const FP kFP_LeadAnthem[] = {
+        {"osc1_wave",6.f},{"osc1_pw",0.75f},{"osc1_volume",0.85f},
+        {"osc2_wave",0.f},{"osc2_semi",-12.f},{"osc2_volume",0.55f},
+        {"osc3_volume",0.f},
+        {"filter_cutoff",2800.f},{"filter_res",0.55f},
+        {"filter_env_amount",0.65f},{"filter_env_decay",0.45f},{"filter_env_sustain",0.20f},
+        {"amp_attack",0.010f},{"amp_sustain",0.90f},{"amp_release",1.20f},
+        {"unison_voices",4.f},{"unison_detune",22.f},{"unison_spread",0.75f},
+        {"trance_drift",0.20f},{"chip_model",1.f},
+        {"fx_delay_time",3.f},{"fx_delay_feedback",0.40f},{"fx_delay_mix",0.30f},
+        {"fx_reverb_size",0.70f},{"fx_reverb_mix",0.40f},
+    };
+    static const FP kFP_LeadHoover[] = {
+        {"osc1_wave",0.f},{"osc1_semi",12.f},{"osc1_volume",0.85f},
+        {"osc2_wave",0.f},{"osc2_fine",-5.f},{"osc2_volume",0.80f},
+        {"osc3_wave",2.f},{"osc3_pw",0.30f},{"osc3_volume",0.50f},
+        {"osc_fm_amt",0.35f},
+        {"filter_cutoff",2400.f},{"filter_res",0.55f},
+        {"filter_env_amount",-0.40f},{"filter_env_decay",0.40f},
+        {"amp_attack",0.020f},{"amp_sustain",0.85f},{"amp_release",0.60f},
+        {"trance_drift",0.30f},{"chip_model",0.f},                  // 6581 grit
+        {"fx_chorus_depth",0.65f},{"fx_chorus_mix",0.40f},
+        {"fx_reverb_mix",0.30f},
+    };
+
+    // ════════════════════ ROLLING / OFFBEAT BASSES (5) ═════════════════════
+    static const FP kFP_BassRollingOffbeat[] = {
+        {"osc1_wave",0.f},{"osc1_volume",0.95f},
+        {"osc2_wave",2.f},{"osc2_pw",0.30f},{"osc2_semi",-12.f},{"osc2_volume",0.55f},
+        {"osc3_volume",0.f},
+        {"filter_cutoff",450.f},{"filter_res",0.65f},
+        {"filter_env_amount",0.75f},{"filter_env_attack",0.001f},
+        {"filter_env_decay",0.14f},{"filter_env_sustain",0.10f},
+        {"amp_attack",0.001f},{"amp_decay",0.18f},{"amp_sustain",0.0f},{"amp_release",0.20f},
+        {"arp_on",1.f},{"arp_mode",4.f},{"arp_octave",1.f},{"arp_gate",0.40f},
+        {"analog_glow",0.35f},{"chip_model",0.f},
+    };
+    static const FP kFP_BassReese[] = {
+        {"osc1_wave",0.f},{"osc1_semi",-12.f},{"osc1_volume",0.85f},
+        {"osc2_wave",0.f},{"osc2_semi",-12.f},{"osc2_fine",-12.f},{"osc2_volume",0.80f},
+        {"osc3_wave",0.f},{"osc3_semi",-12.f},{"osc3_fine",10.f},{"osc3_volume",0.55f},
+        {"filter_cutoff",380.f},{"filter_res",0.50f},
+        {"filter_env_amount",0.55f},{"filter_env_decay",0.30f},{"filter_env_sustain",0.25f},
+        {"amp_attack",0.005f},{"amp_sustain",0.80f},{"amp_release",0.30f},
+        {"drive_type",0.f},{"drive_amount",0.35f},
+        {"sid_width",0.40f},{"chip_model",1.f},
+        {"fx_chorus_mix",0.20f},
+    };
+    static const FP kFP_BassAcidSquelch[] = {
+        {"osc1_wave",0.f},{"osc1_volume",0.95f},
+        {"osc2_volume",0.f},{"osc3_volume",0.f},
+        {"filter_cutoff",220.f},{"filter_res",0.95f},
+        {"filter_env_amount",0.95f},{"filter_env_attack",0.001f},
+        {"filter_env_decay",0.18f},{"filter_env_sustain",0.05f},
+        {"amp_attack",0.001f},{"amp_decay",0.30f},{"amp_sustain",0.55f},{"amp_release",0.25f},
+        {"arp_on",1.f},{"arp_mode",0.f},{"arp_gate",0.55f},
+        {"analog_glow",0.50f},{"chip_model",0.f},
+        {"fx_delay_mix",0.20f},
+    };
+    static const FP kFP_BassSubDrone[] = {
+        {"osc1_wave",1.f},{"osc1_semi",-12.f},{"osc1_volume",0.95f},
+        {"osc2_wave",0.f},{"osc2_semi",-24.f},{"osc2_volume",0.55f},
+        {"osc3_volume",0.f},
+        {"filter_cutoff",600.f},{"filter_res",0.35f},
+        {"filter_env_amount",0.20f},{"filter_env_decay",0.50f},
+        {"amp_attack",0.005f},{"amp_sustain",0.90f},{"amp_release",0.60f},
+        {"chip_model",1.f},
+        {"fx_reverb_mix",0.15f},
+    };
+    static const FP kFP_BassTechPulse[] = {
+        {"osc1_wave",2.f},{"osc1_pw",0.35f},{"osc1_volume",0.90f},
+        {"osc2_wave",0.f},{"osc2_semi",-12.f},{"osc2_volume",0.55f},
+        {"osc3_wave",1.f},{"osc3_volume",0.30f},
+        {"osc_fm_amt",0.20f},
+        {"filter_cutoff",550.f},{"filter_res",0.70f},
+        {"filter_env_amount",0.80f},{"filter_env_decay",0.16f},{"filter_env_sustain",0.05f},
+        {"amp_attack",0.002f},{"amp_decay",0.20f},{"amp_sustain",0.40f},{"amp_release",0.25f},
+        {"lfo1_on",1.f},{"lfo1_shape",4.f},{"lfo1_sync",1.f},{"lfo1_div",1.f},
+        {"mod1_src",0.f},{"mod1_amt",0.30f},{"mod1_dst",1.f},        // LFO1 → PW1
+        {"chip_model",1.f},
+    };
+
+    // ══════════════════════════ GATED PADS (4) ═════════════════════════════
+    static const FP kFP_GatedPad8thPump[] = {
+        {"osc1_wave",0.f},{"osc1_volume",0.85f},
+        {"osc2_wave",0.f},{"osc2_fine",7.f},{"osc2_volume",0.70f},
+        {"osc3_wave",4.f},{"osc3_fine",-5.f},{"osc3_volume",0.45f},
+        {"filter_cutoff",2200.f},{"filter_res",0.45f},
+        {"filter_env_amount",0.40f},{"filter_env_decay",0.45f},
+        {"amp_attack",0.020f},{"amp_sustain",0.90f},{"amp_release",0.50f},
+        {"gate_on",1.f},{"gate_swing",0.05f},
+        {"chip_model",1.f},
+        {"fx_delay_mix",0.20f},{"fx_reverb_mix",0.30f},
+    };
+    static const FP kFP_GatedPad16thStutter[] = {
+        {"osc1_wave",0.f},{"osc1_volume",0.85f},
+        {"osc2_wave",2.f},{"osc2_pw",0.40f},{"osc2_fine",12.f},{"osc2_volume",0.65f},
+        {"osc3_volume",0.f},
+        {"filter_cutoff",2800.f},{"filter_res",0.55f},
+        {"filter_env_amount",0.50f},{"filter_env_decay",0.35f},
+        {"amp_attack",0.010f},{"amp_sustain",0.85f},{"amp_release",0.40f},
+        {"gate_on",1.f},
+        {"gate_step_01",1.f},{"gate_step_02",0.f},{"gate_step_03",1.f},{"gate_step_04",0.f},
+        {"gate_step_05",1.f},{"gate_step_06",0.f},{"gate_step_07",1.f},{"gate_step_08",0.f},
+        {"gate_step_09",1.f},{"gate_step_10",0.f},{"gate_step_11",1.f},{"gate_step_12",0.f},
+        {"gate_step_13",1.f},{"gate_step_14",0.f},{"gate_step_15",1.f},{"gate_step_16",0.f},
+        {"chip_model",1.f},
+        {"fx_reverb_mix",0.35f},
+    };
+    static const FP kFP_GatedPadTranceChoir[] = {
+        {"osc1_wave",1.f},{"osc1_volume",0.80f},
+        {"osc2_wave",4.f},{"osc2_fine",7.f},{"osc2_volume",0.70f},
+        {"osc3_wave",0.f},{"osc3_fine",-7.f},{"osc3_volume",0.55f},
+        {"filter_cutoff",1800.f},{"filter_res",0.30f},
+        {"filter_env_amount",0.25f},{"filter_env_attack",0.50f},
+        {"amp_attack",0.50f},{"amp_sustain",0.90f},{"amp_release",1.20f},
+        {"unison_voices",3.f},{"unison_detune",18.f},{"unison_spread",0.70f},
+        {"gate_on",1.f},
+        {"chip_model",1.f},{"trance_drift",0.25f},
+        {"fx_chorus_mix",0.45f},{"fx_reverb_size",0.75f},{"fx_reverb_mix",0.45f},
+    };
+    static const FP kFP_GatedPadSoftSweep[] = {
+        {"osc1_wave",4.f},{"osc1_volume",0.80f},
+        {"osc2_wave",0.f},{"osc2_fine",11.f},{"osc2_volume",0.55f},
+        {"osc3_volume",0.f},
+        {"filter_cutoff",1500.f},{"filter_res",0.40f},
+        {"filter_env_amount",0.30f},{"filter_env_attack",1.50f},
+        {"amp_attack",0.80f},{"amp_sustain",0.90f},{"amp_release",1.50f},
+        {"lfo1_on",1.f},{"lfo1_shape",0.f},{"lfo1_rate",0.30f},
+        {"mod1_src",0.f},{"mod1_amt",0.35f},{"mod1_dst",0.f},        // LFO1 → cutoff
+        {"gate_on",1.f},
+        {"chip_model",1.f},
+        {"fx_reverb_size",0.80f},{"fx_reverb_mix",0.55f},
+    };
+
+    // ═══════════════════════ ARP / SEQUENCER (4) ═══════════════════════════
+    static const FP kFP_ArpClassicTrance[] = {
+        {"osc1_wave",0.f},{"osc1_volume",0.90f},
+        {"osc2_wave",1.f},{"osc2_fine",5.f},{"osc2_volume",0.55f},
+        {"osc3_volume",0.f},
+        {"filter_cutoff",1400.f},{"filter_res",0.65f},
+        {"filter_env_amount",0.65f},{"filter_env_decay",0.18f},{"filter_env_sustain",0.10f},
+        {"amp_attack",0.002f},{"amp_decay",0.20f},{"amp_sustain",0.55f},{"amp_release",0.25f},
+        {"arp_on",1.f},{"arp_mode",0.f},{"arp_octave",2.f},{"arp_gate",0.65f},
+        {"chip_model",1.f},
+        {"fx_delay_time",3.f},{"fx_delay_feedback",0.40f},{"fx_delay_mix",0.30f},
+        {"fx_reverb_mix",0.25f},
+    };
+    static const FP kFP_ArpPluckyPattern[] = {
+        {"osc1_wave",2.f},{"osc1_pw",0.30f},{"osc1_volume",0.90f},
+        {"osc2_wave",0.f},{"osc2_fine",-7.f},{"osc2_volume",0.50f},
+        {"osc3_volume",0.f},
+        {"filter_cutoff",2400.f},{"filter_res",0.70f},
+        {"filter_env_amount",0.80f},{"filter_env_decay",0.12f},{"filter_env_sustain",0.0f},
+        {"amp_attack",0.001f},{"amp_decay",0.18f},{"amp_sustain",0.0f},{"amp_release",0.20f},
+        {"arp_on",1.f},{"arp_mode",2.f},{"arp_octave",2.f},{"arp_gate",0.55f},
+        // Off some seq steps so the pattern isn't perfectly regular
+        {"seq_step_03",0.f},{"seq_step_07",0.f},{"seq_step_11",0.f},{"seq_step_15",0.f},
+        {"chip_model",1.f},
+        {"fx_delay_time",2.f},{"fx_delay_mix",0.25f},
+        {"fx_reverb_mix",0.30f},
+    };
+    static const FP kFP_ArpOctaveClimber[] = {
+        {"osc1_wave",0.f},{"osc1_volume",0.90f},
+        {"osc2_wave",0.f},{"osc2_fine",12.f},{"osc2_volume",0.50f},
+        {"osc3_volume",0.f},
+        {"filter_cutoff",2000.f},{"filter_res",0.55f},
+        {"filter_env_amount",0.55f},{"filter_env_decay",0.20f},{"filter_env_sustain",0.10f},
+        {"amp_attack",0.002f},{"amp_decay",0.20f},{"amp_sustain",0.40f},{"amp_release",0.30f},
+        {"arp_on",1.f},{"arp_mode",0.f},{"arp_octave",4.f},{"arp_gate",0.60f},
+        {"chip_model",1.f},
+        {"fx_delay_time",2.f},{"fx_delay_feedback",0.45f},{"fx_delay_mix",0.35f},
+        {"fx_reverb_mix",0.30f},
+    };
+    static const FP kFP_ArpRandomGlitch[] = {
+        {"osc1_wave",2.f},{"osc1_pw",0.50f},{"osc1_volume",0.85f},
+        {"osc2_wave",3.f},{"osc2_volume",0.30f},                   // noise sprinkle
+        {"osc3_volume",0.f},
+        {"filter_cutoff",3000.f},{"filter_res",0.65f},
+        {"filter_env_amount",0.75f},{"filter_env_decay",0.12f},{"filter_env_sustain",0.0f},
+        {"amp_attack",0.001f},{"amp_decay",0.15f},{"amp_sustain",0.0f},{"amp_release",0.20f},
+        {"arp_on",1.f},{"arp_mode",3.f},{"arp_octave",3.f},{"arp_gate",0.50f},
+        {"digital_age",0.30f},{"chip_model",0.f},                  // 6581 + crunch
+        {"drive_type",2.f},{"drive_amount",0.40f},
+        {"fx_delay_mix",0.20f},{"fx_reverb_mix",0.25f},
+    };
+
+    // ════════════════════════ STABS / CHORDS (3) ═══════════════════════════
+    static const FP kFP_StabBigRoom[] = {
+        {"osc1_wave",0.f},{"osc1_volume",0.90f},
+        {"osc2_wave",0.f},{"osc2_fine",7.f},{"osc2_volume",0.75f},
+        {"osc3_wave",0.f},{"osc3_fine",-5.f},{"osc3_volume",0.60f},
+        {"filter_cutoff",2000.f},{"filter_res",0.65f},
+        {"filter_env_amount",0.85f},{"filter_env_attack",0.001f},
+        {"filter_env_decay",0.10f},{"filter_env_sustain",0.0f},
+        {"amp_attack",0.001f},{"amp_decay",0.20f},{"amp_sustain",0.0f},{"amp_release",0.30f},
+        {"unison_voices",2.f},{"unison_detune",10.f},{"unison_spread",0.50f},
+        {"chip_model",1.f},
+        {"fx_delay_time",3.f},{"fx_delay_feedback",0.50f},{"fx_delay_mix",0.35f},
+        {"fx_reverb_size",0.80f},{"fx_reverb_mix",0.50f},
+    };
+    static const FP kFP_StabFiltered[] = {
+        {"osc1_wave",2.f},{"osc1_pw",0.50f},{"osc1_volume",0.90f},
+        {"osc2_wave",0.f},{"osc2_fine",-7.f},{"osc2_volume",0.70f},
+        {"osc3_wave",1.f},{"osc3_fine",12.f},{"osc3_volume",0.55f},
+        {"filter_cutoff",1200.f},{"filter_res",0.80f},
+        {"filter_env_amount",0.95f},{"filter_env_attack",0.001f},
+        {"filter_env_decay",0.12f},{"filter_env_sustain",0.0f},
+        {"amp_attack",0.001f},{"amp_decay",0.20f},{"amp_sustain",0.0f},{"amp_release",0.25f},
+        {"chip_model",0.f},                                         // 6581 stab character
+        {"fx_delay_mix",0.25f},{"fx_reverb_mix",0.30f},
+    };
+    static const FP kFP_StabDetunedHit[] = {
+        {"osc1_wave",0.f},{"osc1_volume",0.85f},
+        {"osc2_wave",6.f},{"osc2_pw",0.60f},{"osc2_volume",0.70f},
+        {"osc3_volume",0.f},
+        {"filter_cutoff",2500.f},{"filter_res",0.50f},
+        {"filter_env_amount",0.70f},{"filter_env_decay",0.15f},{"filter_env_sustain",0.0f},
+        {"amp_attack",0.001f},{"amp_decay",0.20f},{"amp_sustain",0.0f},{"amp_release",0.30f},
+        {"unison_voices",4.f},{"unison_detune",20.f},{"unison_spread",0.85f},
+        {"chip_model",1.f},
+        {"fx_reverb_size",0.65f},{"fx_reverb_mix",0.40f},
+    };
+
+    // ════════════════════ ATMOSPHERIC PADS / FX (3) ════════════════════════
+    static const FP kFP_PadCosmic[] = {
+        {"osc1_wave",4.f},{"osc1_volume",0.75f},
+        {"osc2_wave",1.f},{"osc2_fine",12.f},{"osc2_volume",0.60f},
+        {"osc3_wave",0.f},{"osc3_fine",-12.f},{"osc3_volume",0.50f},
+        {"filter_cutoff",1300.f},{"filter_res",0.25f},
+        {"filter_env_amount",0.30f},{"filter_env_attack",2.5f},
+        {"amp_attack",1.50f},{"amp_sustain",0.90f},{"amp_release",3.5f},
+        {"lfo1_on",1.f},{"lfo1_shape",0.f},{"lfo1_rate",0.15f},
+        {"mod1_src",0.f},{"mod1_amt",0.20f},{"mod1_dst",0.f},        // LFO1 → cutoff
+        {"unison_voices",3.f},{"unison_detune",16.f},{"unison_spread",0.80f},
+        {"trance_drift",0.40f},{"chip_model",1.f},
+        {"fx_chorus_mix",0.55f},
+        {"fx_delay_time",4.f},{"fx_delay_feedback",0.55f},{"fx_delay_mix",0.20f},
+        {"fx_reverb_size",0.90f},{"fx_reverb_mix",0.70f},
+    };
+    static const FP kFP_PadAtmosphere[] = {
+        {"osc1_wave",1.f},{"osc1_volume",0.70f},
+        {"osc2_wave",3.f},{"osc2_volume",0.18f},                    // noise wash
+        {"osc3_wave",0.f},{"osc3_fine",-5.f},{"osc3_volume",0.55f},
+        {"filter_cutoff",950.f},{"filter_res",0.40f},
+        {"filter_env_amount",0.25f},{"filter_env_attack",2.0f},
+        {"amp_attack",2.0f},{"amp_sustain",0.95f},{"amp_release",3.0f},
+        {"lfo1_on",1.f},{"lfo1_shape",0.f},{"lfo1_rate",0.10f},
+        {"mod1_src",0.f},{"mod1_amt",0.30f},{"mod1_dst",0.f},
+        {"trance_drift",0.45f},{"chip_model",1.f},
+        {"fx_chorus_mix",0.50f},
+        {"fx_reverb_size",0.95f},{"fx_reverb_damp",0.30f},{"fx_reverb_mix",0.70f},
+    };
+    static const FP kFP_FxRiser[] = {
+        {"osc1_wave",3.f},{"osc1_volume",0.60f},                    // noise base
+        {"osc2_wave",0.f},{"osc2_semi",-12.f},{"osc2_volume",0.55f},
+        {"osc3_volume",0.f},
+        {"filter_cutoff",300.f},{"filter_res",0.65f},
+        {"filter_env_amount",0.95f},{"filter_env_attack",4.0f},     // slow open = riser
+        {"filter_env_decay",4.0f},
+        {"amp_attack",2.0f},{"amp_sustain",0.95f},{"amp_release",0.50f},
+        {"lfo1_on",1.f},{"lfo1_shape",2.f},{"lfo1_rate",4.0f},      // saw LFO
+        {"mod1_src",0.f},{"mod1_amt",0.50f},{"mod1_dst",0.f},
+        {"trance_drift",0.50f},{"chip_model",1.f},
+        {"fx_chorus_mix",0.30f},
+        {"fx_reverb_size",0.85f},{"fx_reverb_mix",0.60f},
     };
 
     struct FactoryPresetEntry { const char* name; const FP* data; int count; };
     static const FactoryPresetEntry kFactoryPresets[] = {
-        { "Classic Trance Lead", kFP_ClassicLead,   (int)std::size(kFP_ClassicLead)   },
-        { "Supersaw",            kFP_Supersaw,       (int)std::size(kFP_Supersaw)       },
-        { "Trance Bass",         kFP_TranceBass,     (int)std::size(kFP_TranceBass)     },
-        { "Acid Bass",           kFP_AcidBass,       (int)std::size(kFP_AcidBass)       },
-        { "Hoover",              kFP_Hoover,         (int)std::size(kFP_Hoover)         },
-        { "Electro Pluck",       kFP_ElectroPluck,   (int)std::size(kFP_ElectroPluck)   },
-        { "Euphoric Pad",        kFP_EuphoricPad,    (int)std::size(kFP_EuphoricPad)    },
-        { "Trance Stab",         kFP_TranceStab,     (int)std::size(kFP_TranceStab)     },
-        { "SID Classic",         kFP_SIDClassic,     (int)std::size(kFP_SIDClassic)     },
-        { "Arp Phrase",          kFP_ArpPhrase,      (int)std::size(kFP_ArpPhrase)      },
-        { "Digital Crunch",      kFP_DigitalCrunch,  (int)std::size(kFP_DigitalCrunch)  },
-        { "Unison Lead",         kFP_UnisonLead,     (int)std::size(kFP_UnisonLead)     },
-        { "Dream Pad",           kFP_DreamPad,       (int)std::size(kFP_DreamPad)       },
-        { "Trance Gate",         kFP_TranceGate,     (int)std::size(kFP_TranceGate)     },
-        { "Ring Modulator",      kFP_RingMod,        (int)std::size(kFP_RingMod)        },
+        // ── Plucks ──
+        { "Pluck — Glass Sting",       kFP_PluckGlassSting,    (int)std::size(kFP_PluckGlassSting)    },
+        { "Pluck — Crystal Bell",      kFP_PluckCrystalBell,   (int)std::size(kFP_PluckCrystalBell)   },
+        { "Pluck — Hammer",            kFP_PluckHammer,        (int)std::size(kFP_PluckHammer)        },
+        { "Pluck — Ice Bell",          kFP_PluckIceBell,       (int)std::size(kFP_PluckIceBell)       },
+        { "Pluck — SID 6581",          kFP_PluckSID6581,       (int)std::size(kFP_PluckSID6581)       },
+        { "Pluck — Sub Knock",         kFP_PluckSubKnock,      (int)std::size(kFP_PluckSubKnock)      },
+        // ── Supersaw / detuned leads ──
+        { "Lead — Hypersaw 7",         kFP_LeadHypersaw7,      (int)std::size(kFP_LeadHypersaw7)      },
+        { "Lead — Stacked Saws",       kFP_LeadStackedSaws,    (int)std::size(kFP_LeadStackedSaws)    },
+        { "Lead — Wide Detune",        kFP_LeadWideDetune,     (int)std::size(kFP_LeadWideDetune)     },
+        { "Lead — Anthem",             kFP_LeadAnthem,         (int)std::size(kFP_LeadAnthem)         },
+        { "Lead — Hoover",             kFP_LeadHoover,         (int)std::size(kFP_LeadHoover)         },
+        // ── Rolling / offbeat basses ──
+        { "Bass — Rolling Offbeat",    kFP_BassRollingOffbeat, (int)std::size(kFP_BassRollingOffbeat) },
+        { "Bass — Reese",              kFP_BassReese,          (int)std::size(kFP_BassReese)          },
+        { "Bass — Acid Squelch",       kFP_BassAcidSquelch,    (int)std::size(kFP_BassAcidSquelch)    },
+        { "Bass — Sub Drone",          kFP_BassSubDrone,       (int)std::size(kFP_BassSubDrone)       },
+        { "Bass — Tech Pulse",         kFP_BassTechPulse,      (int)std::size(kFP_BassTechPulse)      },
+        // ── Gated pads ──
+        { "Gated Pad — 1/8 Pump",      kFP_GatedPad8thPump,    (int)std::size(kFP_GatedPad8thPump)    },
+        { "Gated Pad — 16th Stutter",  kFP_GatedPad16thStutter,(int)std::size(kFP_GatedPad16thStutter)},
+        { "Gated Pad — Trance Choir",  kFP_GatedPadTranceChoir,(int)std::size(kFP_GatedPadTranceChoir)},
+        { "Gated Pad — Soft Sweep",    kFP_GatedPadSoftSweep,  (int)std::size(kFP_GatedPadSoftSweep)  },
+        // ── Arp / sequencer ──
+        { "Arp — Classic Trance",      kFP_ArpClassicTrance,   (int)std::size(kFP_ArpClassicTrance)   },
+        { "Arp — Plucky Pattern",      kFP_ArpPluckyPattern,   (int)std::size(kFP_ArpPluckyPattern)   },
+        { "Arp — Octave Climber",      kFP_ArpOctaveClimber,   (int)std::size(kFP_ArpOctaveClimber)   },
+        { "Arp — Random Glitch",       kFP_ArpRandomGlitch,    (int)std::size(kFP_ArpRandomGlitch)    },
+        // ── Stabs / chords ──
+        { "Stab — Big Room",           kFP_StabBigRoom,        (int)std::size(kFP_StabBigRoom)        },
+        { "Stab — Filtered",           kFP_StabFiltered,       (int)std::size(kFP_StabFiltered)       },
+        { "Stab — Detuned Hit",        kFP_StabDetunedHit,     (int)std::size(kFP_StabDetunedHit)     },
+        // ── Atmospheric pads / FX ──
+        { "Pad — Cosmic",              kFP_PadCosmic,          (int)std::size(kFP_PadCosmic)          },
+        { "Pad — Atmosphere",          kFP_PadAtmosphere,      (int)std::size(kFP_PadAtmosphere)      },
+        { "FX — Riser",                kFP_FxRiser,            (int)std::size(kFP_FxRiser)            },
     };
     static constexpr int kNumFactoryPresets = (int)std::size(kFactoryPresets);
+    static_assert(kNumFactoryPresets == 30, "Expected exactly 30 factory presets");
 } // namespace
 
 // ============================================================

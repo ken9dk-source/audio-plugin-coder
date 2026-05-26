@@ -792,11 +792,145 @@ private:
 };
 
 // ============================================================
+//  SIDPopupOverlay — single full-canvas popup that every dropdown
+//  widget goes through.  Replaces visage::PopupMenu (whose internal
+//  PopupMenuFrame has no mouseDown/mouseUp of its own, so clicks
+//  outside the list silently vanish instead of dismissing the popup).
+//
+//  One instance lives on SIDMainView at the top of the z-order.  When
+//  shown it intercepts every click in the editor and either picks an
+//  option or hides itself — so click-on-button-again, click-outside,
+//  and pick-option all reliably close the popup.
+// ============================================================
+class SIDPopupOverlay : public visage::Frame {
+public:
+    // Lightweight font setter — overlay only needs one label font, so we
+    // store a visage::Font by value (no SIDFonts dependency).  Called from
+    // SIDMainView::updateFonts() with the same Lato 13 face used for labels.
+    void setFont(visage::Font f) { font_ = std::move(f); }
+
+    void init() override { setVisible(false); }
+
+    // Open the popup with `opts`, the current selected index, and a
+    // callback for the picked index.  `anchorWindowX/Y` is the source
+    // button's top-left in window-relative coords (call
+    // source->positionInWindow() and pass that in); we draw the list
+    // box directly below the button.
+    void open(std::vector<std::string> opts, int currentIdx,
+              int anchorWindowX, int anchorWindowY, int anchorH, int anchorW,
+              std::function<void(int)> onPicked) {
+        options_   = std::move(opts);
+        current_   = currentIdx;
+        hover_     = -1;
+        onPicked_  = std::move(onPicked);
+
+        const int rows = int(options_.size());
+        const int W = std::max(anchorW, 110);
+        const int H = std::max(1, rows) * kRowH + 6;
+        // Default: below the button.  If it would overflow the bottom of
+        // the editor, flip above.
+        int x = anchorWindowX;
+        int y = anchorWindowY + anchorH + 2;
+        if (y + H > height()) y = anchorWindowY - H - 2;
+        if (x + W > width())  x = width() - W - 4;
+        if (x < 4) x = 4;
+        if (y < 4) y = 4;
+        boxX_ = x; boxY_ = y; boxW_ = W; boxH_ = H;
+
+        setVisible(true);
+        setOnTop(true);
+        redraw();
+    }
+
+    void close() {
+        if (!isVisible()) return;
+        setVisible(false);
+        options_.clear();
+        onPicked_ = nullptr;
+        current_ = -1;
+        hover_ = -1;
+        redraw();
+    }
+
+    bool isOpen() const { return isVisible(); }
+
+    void draw(visage::Canvas& canvas) override {
+        if (!isVisible() || options_.empty()) return;
+
+        // Translucent backdrop dims the editor so the popup pops out.
+        canvas.setColor(0x55000000);
+        canvas.fill(0, 0, width(), height());
+
+        // Box
+        canvas.setColor(SIDColors::BG_PANEL_DARK);
+        canvas.roundedRectangle(boxX_, boxY_, boxW_, boxH_, 4.0f);
+        canvas.setColor(SIDColors::BORDER_PANEL);
+        canvas.roundedRectangleBorder(boxX_, boxY_, boxW_, boxH_, 4.0f, 1.0f);
+
+        // Rows
+        for (int i = 0; i < (int)options_.size(); ++i) {
+            const int ry = boxY_ + 3 + i * kRowH;
+            if (i == hover_) {
+                canvas.setColor(SIDColors::BTN_ON_BG);
+                canvas.roundedRectangle(boxX_ + 2, ry, boxW_ - 4, kRowH, 2.0f);
+            } else if (i == current_) {
+                canvas.setColor((SIDColors::ACCENT_CYAN_BRIGHT & 0x00FFFFFFu) | 0x22000000u);
+                canvas.roundedRectangle(boxX_ + 2, ry, boxW_ - 4, kRowH, 2.0f);
+            }
+            if (font_.size() > 0) {
+                canvas.setColor(i == current_ ? SIDColors::TEXT_ACCENT : SIDColors::TEXT_PRIMARY);
+                canvas.text(options_[i], font_, visage::Font::kLeft,
+                            boxX_ + 8, ry, boxW_ - 16, kRowH);
+            }
+        }
+    }
+
+    void mouseDown(const visage::MouseEvent& e) override {
+        if (!isVisible() || options_.empty()) { close(); return; }
+        const int x = int(e.position.x), y = int(e.position.y);
+        if (x >= boxX_ && x < boxX_ + boxW_ && y >= boxY_ + 3 && y < boxY_ + boxH_ - 3) {
+            const int idx = (y - boxY_ - 3) / kRowH;
+            if (idx >= 0 && idx < (int)options_.size()) {
+                auto cb = onPicked_;          // copy: close() resets it
+                const int picked = idx;
+                close();
+                if (cb) cb(picked);
+                return;
+            }
+        }
+        // Click anywhere else: cancel
+        close();
+    }
+
+    void mouseMove(const visage::MouseEvent& e) override {
+        if (!isVisible() || options_.empty()) return;
+        const int x = int(e.position.x), y = int(e.position.y);
+        int h = -1;
+        if (x >= boxX_ && x < boxX_ + boxW_ && y >= boxY_ + 3 && y < boxY_ + boxH_ - 3)
+            h = (y - boxY_ - 3) / kRowH;
+        if (h >= (int)options_.size()) h = -1;
+        if (h != hover_) { hover_ = h; redraw(); }
+    }
+
+private:
+    static constexpr int kRowH = 22;
+    std::vector<std::string> options_;
+    int current_ = -1;
+    int hover_   = -1;
+    int boxX_ = 0, boxY_ = 0, boxW_ = 0, boxH_ = 0;
+    std::function<void(int)> onPicked_;
+    visage::Font font_;
+};
+
+// ============================================================
 //  SIDCycleButton — click to step through labeled options
 // ============================================================
 class SIDCycleButton : public visage::Frame {
 public:
     std::function<void(int)> onChanged;
+
+    // Pointer to the shared popup overlay (set externally by SIDMainView).
+    void setPopupOverlay(SIDPopupOverlay* p) { popupOverlay_ = p; }
 
     void setOptions(std::vector<std::string> opts) {
         options_ = std::move(opts);
@@ -868,27 +1002,25 @@ public:
         }
     }
     void mouseUp(const visage::MouseEvent&) override {
-        if (!dragged_ && !options_.empty()) {
-            // Plain click with no drag: open popup (or toggle-close if already open)
-            if (popupOpen_) {
-                // Visage's focus loss will close the popup; suppress reopening.
-                popupOpen_ = false;
+        if (!dragged_ && !options_.empty() && popupOverlay_ != nullptr) {
+            // If the overlay is already open, treat this click as a
+            // toggle-close — the overlay itself will hide on its next
+            // mouseDown anyway, but closing here keeps the click feel
+            // consistent (single click toggles).
+            if (popupOverlay_->isOpen()) {
+                popupOverlay_->close();
                 return;
             }
-            visage::PopupMenu menu;
-            for (int i = 0; i < (int)options_.size(); ++i)
-                menu.addOption(i, options_[i]).select(i == index_);
-            menu.onSelection() += [this](int id) {
-                popupOpen_ = false;
-                if (id >= 0 && id < (int)options_.size() && id != index_) {
-                    index_ = id;
-                    redraw();
-                    if (onChanged) onChanged(index_);
-                }
-            };
-            menu.onCancel() += [this]() { popupOpen_ = false; };
-            popupOpen_ = true;
-            menu.show(this);
+            const auto pos = positionInWindow();
+            popupOverlay_->open(options_, index_,
+                                int(pos.x), int(pos.y), height(), width(),
+                                [this](int picked) {
+                                    if (picked >= 0 && picked < (int)options_.size() && picked != index_) {
+                                        index_ = picked;
+                                        redraw();
+                                        if (onChanged) onChanged(index_);
+                                    }
+                                });
         }
         dragged_ = false;
     }
@@ -915,8 +1047,8 @@ private:
     float     dragStartY_ = 0.0f;
     int       dragStartIdx_ = 0;
     bool      dragged_    = false;
-    bool      popupOpen_  = false;   // toggle-close support
     SIDFonts* fonts_      = nullptr;
+    SIDPopupOverlay* popupOverlay_ = nullptr;
 };
 
 // ============================================================
@@ -973,28 +1105,27 @@ public:
         canvas.segment(ax,        ay + 4.0f, ax + 3.5f, ay,        1.3f, false);
     }
 
-    // Click → open popup menu.  Click again while open → toggle-close
-    // (Visage's focus loss closes the open popup; we just suppress reopening).
+    // Click → open the shared SIDPopupOverlay (set via setPopupOverlay).
+    // Click again while open → toggle-close.  The overlay handles
+    // click-outside dismissal reliably (visage::PopupMenu does not).
+    void setPopupOverlay(SIDPopupOverlay* p) { popupOverlay_ = p; }
+
     void mouseDown(const visage::MouseEvent&) override {
-        if (options_.empty()) return;
-        if (popupOpen_) {
-            popupOpen_ = false;
+        if (options_.empty() || popupOverlay_ == nullptr) return;
+        if (popupOverlay_->isOpen()) {
+            popupOverlay_->close();
             return;
         }
-        visage::PopupMenu menu;
-        for (int i = 0; i < (int)options_.size(); ++i)
-            menu.addOption(i, options_[i]).select(i == index_);
-        menu.onSelection() += [this](int id) {
-            popupOpen_ = false;
-            if (id >= 0 && id < (int)options_.size() && id != index_) {
-                index_ = id;
-                redraw();
-                if (onChanged) onChanged(index_);
-            }
-        };
-        menu.onCancel() += [this]() { popupOpen_ = false; };
-        popupOpen_ = true;
-        menu.show(this);
+        const auto pos = positionInWindow();
+        popupOverlay_->open(options_, index_,
+                            int(pos.x), int(pos.y), height(), width(),
+                            [this](int picked) {
+                                if (picked >= 0 && picked < (int)options_.size() && picked != index_) {
+                                    index_ = picked;
+                                    redraw();
+                                    if (onChanged) onChanged(index_);
+                                }
+                            });
     }
 
     void mouseEnter(const visage::MouseEvent&) override { hovered_ = true;  redraw(); }
@@ -1017,8 +1148,8 @@ private:
     std::vector<std::string> options_;
     int       index_      = 0;
     bool      hovered_    = false;
-    bool      popupOpen_  = false;   // toggle-close support
     SIDFonts* fonts_      = nullptr;
+    SIDPopupOverlay* popupOverlay_ = nullptr;
 };
 
 // ============================================================
@@ -2525,6 +2656,11 @@ public:
     // Preset bar
     SIDPresetBar         presetBar;
 
+    // Shared popup overlay — every dropdown widget routes through this so
+    // click-outside / click-again-on-button reliably dismiss the popup.
+    // Added as a top-level onTop child so it intercepts all clicks while open.
+    SIDPopupOverlay      popupOverlay;
+
     // Toggle for the debug overlay (light yellow field rectangles).  Set
     // from PluginEditor — when true the layout map is drawn on top of
     // the PNG so you can verify each module sits inside its field.
@@ -2556,8 +2692,19 @@ public:
         const auto* png = reinterpret_cast<const unsigned char*>(
             BinaryData::TranceSID_Gui_Design_png);
         const int pngSize = BinaryData::TranceSID_Gui_Design_pngSize;
-        if (png != nullptr && pngSize > 0)
+        if (png != nullptr && pngSize > 0) {
+            // First pass: normal blit at full opacity (the PNG's dark navy
+            // void + neon edges).
+            canvas.setColor(0xFFFFFFFF);
             canvas.image(png, pngSize, 0, 0, W, H);
+            // Second pass at reduced alpha — acts as a lighten/screen-style
+            // accent so the neon glow on the SID chips and chassis ribs
+            // reads as bright as the modules drawn on top of it.  The very
+            // dark void stays dark because adding alpha to ~black is still
+            // very dark, while the bright neon edges gain extra brilliance.
+            canvas.setColor(0x55FFFFFF);
+            canvas.image(png, pngSize, 0, 0, W, H);
+        }
         else {
             // Fallback if the binary symbol wasn't generated (build issue)
             canvas.setColor(SIDColors::BG_VOID);
@@ -2590,6 +2737,7 @@ private:
             font_title_      = visage::Font(26.0f, fd, fs, dpi);  // C= logo
             font_label_      = visage::Font(13.0f, fd, fs, dpi);  // TRANCE MACHINE
             font_label_small_= visage::Font(9.0f,  fd, fs, dpi);  // G-MOS / commodore
+            popupOverlay.setFont(visage::Font(12.0f, fd, fs, dpi));
         }
     }
 
@@ -2635,6 +2783,12 @@ private:
         };
 
         currentFields_.clear();
+
+        // Popup overlay covers the whole editor — must sit on top so it
+        // intercepts every click while a dropdown is open.  Visibility is
+        // managed by open() / close(); don't toggle here so a host resize
+        // mid-popup doesn't snatch it away.
+        popupOverlay.setBounds(0, 0, W, H);
 
         // Top of editor — chip switch over the two badges, preset bar at bottom.
         place(chipSwitch, kPngChipSwitch, /*margin=*/6);
