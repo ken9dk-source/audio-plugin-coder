@@ -1427,24 +1427,27 @@ public:
         canvas.roundedRectangleBorder(0, 0, W, H, 3.0f, 1.0f);
     }
 
+    // Visage MouseEvent semantics (from visage_app/window_event_handler.cpp):
+    //   e.position          = local coords relative to the frame that received
+    //                         mouseDown, continuously updated during drag.
+    //   e.relative_position = MOVEMENT DELTA since the last mouse event (≈0 at
+    //                         mouseDown, small per-frame deltas during drag).
+    //                         NOT a position — using it as one always selects
+    //                         bar 0 on click, which was the original bug.
+    //   e.window_position   = absolute window coordinates.
+    // Therefore: use e.position everywhere for step-editor hit testing.
     void mouseDown(const visage::MouseEvent& e) override {
         if (!enabled_) return;
-        // Compute offset from continuously-updated e.position to local coords.
-        // e.relative_position is correct at click time; e.position is always live.
-        offsetX_ = e.position.x - e.relative_position.x;
-        offsetY_ = e.position.y - e.relative_position.y;
-        dragStep_ = getStepAt(float(e.relative_position.x));
-        setValueFromY(dragStep_, float(e.relative_position.y));
+        dragStep_ = getStepAt(float(e.position.x));
+        setValueFromY(dragStep_, float(e.position.y));
     }
 
     void mouseDrag(const visage::MouseEvent& e) override {
         if (!enabled_ || dragStep_ < 0) return;
-        // e.position is continuously updated during drag; convert to local coords.
-        // Allows painting across bars and adjusting bar height by dragging.
-        const float localX = e.position.x - offsetX_;
-        const float localY = e.position.y - offsetY_;
-        dragStep_ = getStepAt(localX);
-        setValueFromY(dragStep_, localY);
+        // Continuously hit-test the current local position so dragging across
+        // bars paints them, and dragging vertically adjusts the height.
+        dragStep_ = getStepAt(float(e.position.x));
+        setValueFromY(dragStep_, float(e.position.y));
     }
 
     void mouseUp(const visage::MouseEvent&) override { dragStep_ = -1; }
@@ -1453,8 +1456,6 @@ private:
     float values_[kSteps] = {};
     bool  enabled_        = false;
     int   dragStep_       = -1;
-    float offsetX_        = 0.0f;  // e.position - e.relative_position at mouseDown
-    float offsetY_        = 0.0f;
 
     int getStepAt(float x) const {
         const float barW = float(width()) / float(kSteps);

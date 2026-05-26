@@ -17,6 +17,17 @@ APVTS::ParameterLayout SIDTranceAudioProcessor::createParameterLayout()
             juce::ParameterID{id, 1}, name,
             juce::NormalisableRange<float>(lo, hi), def));
     };
+    // Time-based parameters (attack / decay / release / glide) use a
+    // logarithmic skew so that the trance "click" sweet spot (≈ 50-200 ms)
+    // sits near the middle of the knob travel instead of in the bottom 5 %.
+    //   skew = 0.3 → ¼ knob ≈ 4 % of range, ½ knob ≈ 10 % of range,
+    //                ¾ knob ≈ 40 % of range.  Matches analog hardware curves.
+    auto addFloatLog = [&](const char* id, const char* name,
+                           float lo, float hi, float def, float skew = 0.3f) {
+        params.push_back(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{id, 1}, name,
+            juce::NormalisableRange<float>(lo, hi, 0.0f, skew), def));
+    };
     auto addInt = [&](const char* id, const char* name, int lo, int hi, int def) {
         params.push_back(std::make_unique<juce::AudioParameterInt>(
             juce::ParameterID{id, 1}, name, lo, hi, def));
@@ -31,10 +42,10 @@ APVTS::ParameterLayout SIDTranceAudioProcessor::createParameterLayout()
     addInt  ("osc1_semi",    "OSC1 Semi",  -24, 24,     0);
     addFloat("osc1_fine",    "OSC1 Fine", -100.0f, 100.0f, 0.0f);
     addFloat("osc1_pw",      "OSC1 PW",     0.05f, 0.95f, 0.5f);
-    addFloat("osc1_attack",  "OSC1 A",      0.001f, 10.0f, 0.01f);
-    addFloat("osc1_decay",   "OSC1 D",      0.001f, 10.0f, 0.3f);
-    addFloat("osc1_sustain", "OSC1 S",      0.0f, 1.0f, 0.7f);
-    addFloat("osc1_release", "OSC1 R",      0.001f, 20.0f, 0.5f);
+    addFloatLog("osc1_attack",  "OSC1 A",   0.001f, 10.0f, 0.01f);
+    addFloatLog("osc1_decay",   "OSC1 D",   0.001f, 10.0f, 0.3f);
+    addFloat   ("osc1_sustain", "OSC1 S",   0.0f, 1.0f, 0.7f);
+    addFloatLog("osc1_release", "OSC1 R",   0.001f, 20.0f, 0.5f);
     addFloat("osc1_volume",  "OSC1 Vol",    0.0f, 1.0f, 0.8f);
 
     // ── OSC 2 ───────────────────────────────────────────────
@@ -42,10 +53,10 @@ APVTS::ParameterLayout SIDTranceAudioProcessor::createParameterLayout()
     addInt  ("osc2_semi",    "OSC2 Semi", -24, 24,      0);
     addFloat("osc2_fine",    "OSC2 Fine", -100.0f, 100.0f, -7.0f);
     addFloat("osc2_pw",      "OSC2 PW",    0.05f, 0.95f, 0.5f);
-    addFloat("osc2_attack",  "OSC2 A",     0.001f, 10.0f, 0.01f);
-    addFloat("osc2_decay",   "OSC2 D",     0.001f, 10.0f, 0.3f);
-    addFloat("osc2_sustain", "OSC2 S",     0.0f, 1.0f, 0.7f);
-    addFloat("osc2_release", "OSC2 R",     0.001f, 20.0f, 0.5f);
+    addFloatLog("osc2_attack",  "OSC2 A",  0.001f, 10.0f, 0.01f);
+    addFloatLog("osc2_decay",   "OSC2 D",  0.001f, 10.0f, 0.3f);
+    addFloat   ("osc2_sustain", "OSC2 S",  0.0f, 1.0f, 0.7f);
+    addFloatLog("osc2_release", "OSC2 R",  0.001f, 20.0f, 0.5f);
     addFloat("osc2_volume",  "OSC2 Vol",   0.0f, 1.0f, 0.6f);
 
     // ── OSC 3 ───────────────────────────────────────────────
@@ -53,10 +64,10 @@ APVTS::ParameterLayout SIDTranceAudioProcessor::createParameterLayout()
     addInt  ("osc3_semi",    "OSC3 Semi", -24, 24,      0);
     addFloat("osc3_fine",    "OSC3 Fine", -100.0f, 100.0f, 0.0f);
     addFloat("osc3_pw",      "OSC3 PW",    0.05f, 0.95f, 0.5f);
-    addFloat("osc3_attack",  "OSC3 A",     0.001f, 10.0f, 0.001f);
-    addFloat("osc3_decay",   "OSC3 D",     0.001f, 10.0f, 0.1f);
-    addFloat("osc3_sustain", "OSC3 S",     0.0f, 1.0f, 0.0f);
-    addFloat("osc3_release", "OSC3 R",     0.001f, 20.0f, 0.1f);
+    addFloatLog("osc3_attack",  "OSC3 A",  0.001f, 10.0f, 0.001f);
+    addFloatLog("osc3_decay",   "OSC3 D",  0.001f, 10.0f, 0.1f);
+    addFloat   ("osc3_sustain", "OSC3 S",  0.0f, 1.0f, 0.0f);
+    addFloatLog("osc3_release", "OSC3 R",  0.001f, 20.0f, 0.1f);
     addFloat("osc3_volume",  "OSC3 Vol",   0.0f, 1.0f, 0.3f);
 
     // ── Filter ──────────────────────────────────────────────
@@ -66,17 +77,17 @@ APVTS::ParameterLayout SIDTranceAudioProcessor::createParameterLayout()
     addBool ("filter_slope",     "Slope 24dB",                  true);
     addBool ("filter_keytrack",  "Key Track",                   false);
     addBool ("filter_velocity",  "Vel Sens",                    false);
-    addFloat("filter_env_attack",  "Filt Env A", 0.001f, 4.0f,  0.005f); // 5ms: faster click
-    addFloat("filter_env_decay",   "Filt Env D", 0.001f, 4.0f,  0.35f);  // shorter decay
-    addFloat("filter_env_sustain", "Filt Env S", 0.0f,   1.0f,  0.1f);   // lower sustain
-    addFloat("filter_env_release", "Filt Env R", 0.001f, 4.0f,  0.4f);
-    addFloat("filter_env_amount",  "Filt Env Amt",-1.0f, 1.0f,  0.6f);   // higher default
+    addFloatLog("filter_env_attack",  "Filt Env A", 0.001f, 4.0f,  0.005f); // 5ms: faster click
+    addFloatLog("filter_env_decay",   "Filt Env D", 0.001f, 4.0f,  0.15f);  // snappier default
+    addFloat   ("filter_env_sustain", "Filt Env S", 0.0f,   1.0f,  0.1f);   // lower sustain
+    addFloatLog("filter_env_release", "Filt Env R", 0.001f, 4.0f,  0.4f);
+    addFloat   ("filter_env_amount",  "Filt Env Amt",-1.0f, 1.0f,  0.7f);   // stronger click out of the box
 
     // ── Amplifier ───────────────────────────────────────────
-    addFloat("amp_attack",  "Amp A",  0.001f, 10.0f, 0.005f);
-    addFloat("amp_decay",   "Amp D",  0.001f, 10.0f, 0.3f);
-    addFloat("amp_sustain", "Amp S",  0.0f, 1.0f,   0.8f);
-    addFloat("amp_release", "Amp R",  0.001f, 20.0f, 0.4f);
+    addFloatLog("amp_attack",  "Amp A", 0.001f, 10.0f, 0.005f);
+    addFloatLog("amp_decay",   "Amp D", 0.001f, 10.0f, 0.3f);
+    addFloat   ("amp_sustain", "Amp S", 0.0f, 1.0f,    0.8f);
+    addFloatLog("amp_release", "Amp R", 0.001f, 20.0f, 0.4f);
     addFloat("amp_volume",  "Amp Vol",0.0f, 1.0f,   0.85f);
 
     // ── LFO 1 ───────────────────────────────────────────────
@@ -173,8 +184,8 @@ APVTS::ParameterLayout SIDTranceAudioProcessor::createParameterLayout()
     addFloat("unison_spread",  "Stereo Spread", 0.0f, 1.0f,   0.7f);
 
     // ── Glide / Portamento ──────────────────────────────────
-    addInt  ("glide_mode",   "Glide Mode",  0, 2,    0);  // 0=Off, 1=Auto, 2=Always
-    addFloat("glide_time",   "Glide Time",  0.001f, 4.0f, 0.15f);
+    addInt     ("glide_mode",   "Glide Mode",  0, 2,    0);  // 0=Off, 1=Auto, 2=Always
+    addFloatLog("glide_time",   "Glide Time",  0.001f, 4.0f, 0.15f);
 
     // ── OSC Sync & FM ───────────────────────────────────────
     addBool ("osc_sync",     "OSC Sync",   false);  // OSC3 hard-syncs OSC1+2
