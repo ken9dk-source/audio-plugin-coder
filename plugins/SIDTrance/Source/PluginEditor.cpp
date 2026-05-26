@@ -100,6 +100,7 @@ void SIDTranceAudioProcessorEditor::addAllFrames()
     v.addChild(&v.chip6581Area);
     v.addChild(&v.chip8580Area);
     v.addChild(&v.masterVolKnob);   // top-header rotary, bound to master_volume
+    v.addChild(&v.outputMeter);     // VU meter right of the master rotary
     v.addChild(&v.presetBar);
 
     // Shared popup overlay must be the LAST child added so it sits on top
@@ -222,30 +223,30 @@ void SIDTranceAudioProcessorEditor::bindAllParameters()
     bindKnob(v.osc1.fineKnob,      "osc1_fine");
     bindKnob(v.osc1.pwKnob,        "osc1_pw");
     bindKnob(v.osc1.volumeKnob,    "osc1_volume");
-    bindFader(v.osc1.attackFader,  "osc1_attack");
-    bindFader(v.osc1.decayFader,   "osc1_decay");
-    bindFader(v.osc1.sustainFader, "osc1_sustain");
-    bindFader(v.osc1.releaseFader, "osc1_release");
+    bindKnob(v.osc1.attackKnob,  "osc1_attack");
+    bindKnob(v.osc1.decayKnob,   "osc1_decay");
+    bindKnob(v.osc1.sustainKnob, "osc1_sustain");
+    bindKnob(v.osc1.releaseKnob, "osc1_release");
 
     // ── OSC 2 ───────────────────────────────────────────────
     bindKnob(v.osc2.semiKnob,      "osc2_semi");
     bindKnob(v.osc2.fineKnob,      "osc2_fine");
     bindKnob(v.osc2.pwKnob,        "osc2_pw");
     bindKnob(v.osc2.volumeKnob,    "osc2_volume");
-    bindFader(v.osc2.attackFader,  "osc2_attack");
-    bindFader(v.osc2.decayFader,   "osc2_decay");
-    bindFader(v.osc2.sustainFader, "osc2_sustain");
-    bindFader(v.osc2.releaseFader, "osc2_release");
+    bindKnob(v.osc2.attackKnob,  "osc2_attack");
+    bindKnob(v.osc2.decayKnob,   "osc2_decay");
+    bindKnob(v.osc2.sustainKnob, "osc2_sustain");
+    bindKnob(v.osc2.releaseKnob, "osc2_release");
 
     // ── OSC 3 ───────────────────────────────────────────────
     bindKnob(v.osc3.semiKnob,      "osc3_semi");
     bindKnob(v.osc3.fineKnob,      "osc3_fine");
     bindKnob(v.osc3.pwKnob,        "osc3_pw");
     bindKnob(v.osc3.volumeKnob,    "osc3_volume");
-    bindFader(v.osc3.attackFader,  "osc3_attack");
-    bindFader(v.osc3.decayFader,   "osc3_decay");
-    bindFader(v.osc3.sustainFader, "osc3_sustain");
-    bindFader(v.osc3.releaseFader, "osc3_release");
+    bindKnob(v.osc3.attackKnob,  "osc3_attack");
+    bindKnob(v.osc3.decayKnob,   "osc3_decay");
+    bindKnob(v.osc3.sustainKnob, "osc3_sustain");
+    bindKnob(v.osc3.releaseKnob, "osc3_release");
 
     // ── Filter ───────────────────────────────────────────────
     bindKnob(v.filterPanel.cutoffKnob,    "filter_cutoff");
@@ -279,11 +280,8 @@ void SIDTranceAudioProcessorEditor::bindAllParameters()
     bindKnob(v.ampPanel.volumeKnob,  "amp_volume");
 
     // ── Master ───────────────────────────────────────────────
-    bindFader(v.masterPanel.outputFader,     "master_volume");
-    // Mirror the same parameter on the top-header rotary knob — both
-    // controls drive the same master_volume APVTS parameter, and the
-    // stateJustLoaded → bindAllParameters refresh keeps them in sync on
-    // preset load and host automation.
+    // The previous output fader was removed; master_volume is now driven
+    // exclusively by the top-header rotary next to the TranceSID logo.
     bindKnob (v.masterVolKnob,               "master_volume");
     bindToggle(v.masterPanel.limiterBtn,     "master_limiter");
     bindToggle(v.masterPanel.polyModeBtn,    "master_poly");
@@ -762,6 +760,13 @@ void SIDTranceAudioProcessorEditor::onRender()
     }
 
     // filterScope is now SIDFilterInfoView — driven by setFilterState() above, not audio data
+
+    // Output VU meter — pull the processor's atomic peak values (updated
+    // each block in processBlock) and push them into the widget.  Cheap
+    // and lock-free; the meter only redraws when the values actually change.
+    mainView->outputMeter.setLevels(
+        audioProcessor.outPeakL.load(std::memory_order_relaxed),
+        audioProcessor.outPeakR.load(std::memory_order_relaxed));
 }
 
 void SIDTranceAudioProcessorEditor::onDestroy()

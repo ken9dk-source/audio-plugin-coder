@@ -1108,6 +1108,23 @@ void SIDTranceAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         outR[samp] = R;
     }
 
+    // ── Output peak meter (top-header VU) ──────────────────────────
+    // Block-level peak with exponential decay toward whatever's in the
+    // atomic now.  Cheap and gives natural VU ballistics — fast attack,
+    // slow release.  Editor reads atomically at ~60 fps.
+    {
+        float pkL = 0.0f, pkR = 0.0f;
+        for (int s = 0; s < numSamples; ++s) {
+            pkL = std::max(pkL, std::abs(outL[s]));
+            pkR = std::max(pkR, std::abs(outR[s]));
+        }
+        const float prevL = outPeakL.load(std::memory_order_relaxed);
+        const float prevR = outPeakR.load(std::memory_order_relaxed);
+        // ~250 ms release at typical block size (decay 0.92 per block).
+        outPeakL.store(std::max(pkL, prevL * 0.92f), std::memory_order_relaxed);
+        outPeakR.store(std::max(pkR, prevR * 0.92f), std::memory_order_relaxed);
+    }
+
     // ── Push to scope FIFO (for oscilloscope display) ────────
     {
         const int toWrite = std::min(numSamples, scopeFifo.getFreeSpace());

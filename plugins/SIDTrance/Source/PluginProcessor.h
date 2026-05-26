@@ -895,6 +895,13 @@ public:
     // on the next render tick (Visage controls are not APVTS listeners).
     std::atomic<bool> stateJustLoaded { false };
 
+    // Output peak levels for the top-header VU meter.  Updated at the end
+    // of every processBlock with a peak-hold + slow exponential decay so
+    // the UI sees natural-looking ballistics.  Atomic for lock-free read
+    // from the editor's render thread.
+    std::atomic<float> outPeakL { 0.0f };
+    std::atomic<float> outPeakR { 0.0f };
+
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 

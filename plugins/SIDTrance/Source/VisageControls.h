@@ -174,6 +174,14 @@ public:
     void setLabel(const std::string& l) { label_ = l; }
     void setFonts(SIDFonts* f)    { fonts_ = f; }
 
+    // Custom value→string formatter for the hover readout.  Default is
+    // "<pct> %"; callers (PluginEditor binding helpers) can install a
+    // format that prints Hz, dB, semitones, etc. based on the parameter
+    // this knob is bound to.
+    void setValueFormatter(std::function<std::string(float)> f) {
+        formatter_ = std::move(f);
+    }
+
     void draw(visage::Canvas& canvas) override {
         const float cx = width()  * 0.5f;
         const float cy = height() * 0.5f - (label_.empty() ? 0.0f : 7.0f);
@@ -273,12 +281,28 @@ public:
         canvas.setColor(0xFF1A3050);
         canvas.circle(cx - dotR * 0.6f, cy - dotR * 0.6f, dotR * 1.1f);
 
-        // ── Label ──────────────────────────────────────────────
-        if (!label_.empty() && fonts_) {
-            canvas.setColor(SIDColors::TEXT_LABEL);
-            canvas.text(label_, fonts_->label, visage::Font::kCenter,
-                        0, static_cast<int>(height()) - 14, width(), 12);
+        // ── Label / value readout ──────────────────────────────
+        // Normal: show the parameter name (label_).  While hovered, swap
+        // to the formatted value so the user can read the precise setting
+        // before letting go.  Optional setValueFormatter() lets callers
+        // print Hz / dB / semitones etc. instead of the default percent.
+        if (fonts_) {
+            std::string text = label_;
+            if (hovered_) {
+                text = formatter_ ? formatter_(value_) : defaultFormat(value_);
+            }
+            if (!text.empty()) {
+                canvas.setColor(hovered_ ? SIDColors::TEXT_ACCENT : SIDColors::TEXT_LABEL);
+                canvas.text(text, fonts_->label, visage::Font::kCenter,
+                            0, static_cast<int>(height()) - 14, width(), 12);
+            }
         }
+    }
+
+    static std::string defaultFormat(float v) {
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%.0f%%", v * 100.0f);
+        return std::string(buf);
     }
 
     void mouseDown(const visage::MouseEvent& e) override {
@@ -354,6 +378,7 @@ private:
 
     float       value_          = 0.5f;
     uint32_t    ringColor_      = SIDColors::ACCENT_CYAN;
+    std::function<std::string(float)> formatter_;
     bool        large_          = false;
     bool        hovered_        = false;
     std::string label_;
@@ -800,6 +825,79 @@ private:
 //  around the chip so the user can see which model is selected;
 //  when inactive we draw nothing and the PNG art shows through.
 // ============================================================
+// ============================================================
+//  SIDOutputMeter — peak/VU meter for the top-header master area.
+//  Two vertical bars (L/R) with a neon gradient.  Driven by the
+//  editor calling setLevels() each render frame from the
+//  processor's outPeakL / outPeakR atomics.
+// ============================================================
+class SIDOutputMeter : public visage::Frame {
+public:
+    void setLevels(float l, float r) {
+        if (std::abs(l - levelL_) > 1e-4f || std::abs(r - levelR_) > 1e-4f) {
+            levelL_ = std::clamp(l, 0.0f, 1.5f);
+            levelR_ = std::clamp(r, 0.0f, 1.5f);
+            redraw();
+        }
+    }
+
+    void draw(visage::Canvas& canvas) override {
+        const int W = width(), H = height();
+        if (W < 4 || H < 8) return;
+
+        const int barGap = 2;
+        const int barW   = std::max(3, (W - 3 * barGap) / 2);
+        const int barH   = H - 4;
+        const int barY   = 2;
+        const int xL     = (W - 2 * barW - barGap) / 2;
+        const int xR     = xL + barW + barGap;
+
+        auto drawBar = [&](int x, float lvl) {
+            // Track background
+            canvas.setColor(SIDColors::BG_PANEL_DARK);
+            canvas.roundedRectangle(x, barY, barW, barH, 2.0f);
+            canvas.setColor(SIDColors::BORDER_INNER);
+            canvas.roundedRectangleBorder(x, barY, barW, barH, 2.0f, 1.0f);
+
+            // Active fill — bottom-up, blue → purple → magenta (clip warn)
+            const float clamped = std::clamp(lvl, 0.0f, 1.2f);
+            const int fillH = int(std::round(clamped / 1.2f * barH));
+            if (fillH < 1) return;
+            const int fy0 = barY + barH - fillH;
+
+            // Split fill into 3 colour zones so the user can read the level:
+            //   bottom 60% : cyan
+            //   60–95%     : purple
+            //   95%+       : magenta (clip warning)
+            const int seg1 = int(barH * 0.6f);     // up to 0.6 = "comfortable"
+            const int seg2 = int(barH * 0.95f);    // up to 0.95 = "hot"
+
+            auto paintSegment = [&](int y0, int y1, uint32_t col) {
+                if (y1 <= y0) return;
+                canvas.setColor(col);
+                canvas.fill(x + 1, y0, barW - 2, y1 - y0);
+            };
+
+            const int topY = barY + barH;          // bar bottom
+            const int yA = std::max(fy0, topY - seg1);
+            const int yB = std::max(fy0, topY - seg2);
+            paintSegment(yA, topY, SIDColors::ACCENT_CYAN_BRIGHT);
+            paintSegment(yB, yA,   SIDColors::ACCENT_PURPLE);
+            // Clip zone
+            if (clamped > 0.95f) {
+                paintSegment(fy0, yB, SIDColors::LED_ON);   // magenta
+            }
+        };
+
+        drawBar(xL, levelL_);
+        drawBar(xR, levelR_);
+    }
+
+private:
+    float levelL_ = 0.0f;
+    float levelR_ = 0.0f;
+};
+
 class SIDChipClickArea : public visage::Frame {
 public:
     std::function<void()> onClicked;
@@ -1392,7 +1490,10 @@ private:
 class SIDOscillatorPanel : public SIDPanelBase {
 public:
     SIDKnob  semiKnob, fineKnob, pwKnob, volumeKnob;
-    SIDFader attackFader, decayFader, sustainFader, releaseFader;
+    // ADSR — knobs (matched style across OSC / Amp / Filter Env after the
+    // uniform-style rework).  Used to be SIDFader; the per-knob hover
+    // value readout works the same way and the rest of the synth uses knobs.
+    SIDKnob  attackKnob, decayKnob, sustainKnob, releaseKnob;
     SIDOscilloscopeView envelopeDisplay;
 
     // Waveform selector buttons (7 types: SAW TRI SQR NOI S+T RNG HSW)
@@ -1422,10 +1523,10 @@ public:
         addChild(&fineKnob);
         addChild(&pwKnob);
         addChild(&volumeKnob);
-        addChild(&attackFader);
-        addChild(&decayFader);
-        addChild(&sustainFader);
-        addChild(&releaseFader);
+        addChild(&attackKnob);
+        addChild(&decayKnob);
+        addChild(&sustainKnob);
+        addChild(&releaseKnob);
         addChild(&envelopeDisplay);
         updateFontsAndLayout();
 
@@ -1466,12 +1567,18 @@ public:
         fineKnob.setBounds(kx + ks + 8, ky, ks, ks);
         pwKnob.setBounds(kx + 2*(ks+8), ky, ks, ks);
 
-        // ADSR faders
-        const int fx = 10, fy = 116, fw = 28, fh = 80, fgap = 42;
-        attackFader.setBounds(fx,            fy, fw, fh);
-        decayFader.setBounds(fx + fgap,      fy, fw, fh);
-        sustainFader.setBounds(fx + 2*fgap,  fy, fw, fh);
-        releaseFader.setBounds(fx + 3*fgap,  fy, fw, fh);
+        // ADSR knobs — match the style used by Amp + Filter Env.  4 knobs
+        // centred in the panel; size scales with the panel width so they
+        // stay readable even on narrower OSC fields.
+        const int ek   = std::clamp((w - 32) / 4, 38, 48);
+        const int egap = 4;
+        const int totEnv = 4 * ek + 3 * egap;
+        const int eX = std::max(4, (w - totEnv) / 2);
+        const int eY = 116;
+        attackKnob.setBounds (eX,                       eY, ek, ek);
+        decayKnob.setBounds  (eX + (ek + egap),         eY, ek, ek);
+        sustainKnob.setBounds(eX + 2 * (ek + egap),     eY, ek, ek);
+        releaseKnob.setBounds(eX + 3 * (ek + egap),     eY, ek, ek);
 
         // Envelope display + volume knob
         envelopeDisplay.setBounds(4, 206, w - 62, 50);
@@ -1498,14 +1605,14 @@ private:
         fineKnob.setFonts(&fonts_);    fineKnob.setLabel("FINE");
         pwKnob.setFonts(&fonts_);      pwKnob.setLabel("PW");
         volumeKnob.setFonts(&fonts_);  volumeKnob.setLabel("VOL");
-        attackFader.setFonts(&fonts_);   attackFader.setLabel("A");
-        attackFader.setActiveColor(SIDColors::ENV_ATTACK);
-        decayFader.setFonts(&fonts_);    decayFader.setLabel("D");
-        decayFader.setActiveColor(SIDColors::ENV_DECAY);
-        sustainFader.setFonts(&fonts_);  sustainFader.setLabel("S");
-        sustainFader.setActiveColor(SIDColors::ENV_SUSTAIN);
-        releaseFader.setFonts(&fonts_);  releaseFader.setLabel("R");
-        releaseFader.setActiveColor(SIDColors::ENV_RELEASE);
+        attackKnob.setFonts(&fonts_);    attackKnob.setLabel("A");
+        attackKnob.setRingColor(SIDColors::ENV_ATTACK);
+        decayKnob.setFonts(&fonts_);     decayKnob.setLabel("D");
+        decayKnob.setRingColor(SIDColors::ENV_DECAY);
+        sustainKnob.setFonts(&fonts_);   sustainKnob.setLabel("S");
+        sustainKnob.setRingColor(SIDColors::ENV_SUSTAIN);
+        releaseKnob.setFonts(&fonts_);   releaseKnob.setLabel("R");
+        releaseKnob.setRingColor(SIDColors::ENV_RELEASE);
         envelopeDisplay.setFonts(&fonts_);
 
         for (int i = 0; i < kNumWaveforms; ++i)
@@ -1573,14 +1680,17 @@ public:
         slopeBtn.setBounds(112, 92, 72,  20);
 
         // ── Row 3: Filter ENV knobs ───────────────────────────
-        const int ek = 36;
+        // Bumped 36 → 44 (much more readable), still fits the ~188-px
+        // effective field width: 4 × 44 + 3 × 4 = 188.  Centred for safety
+        // in case host scaling drifts the panel width slightly.
+        const int ek = 44;
         const int egap = 4;
-        const int totEnv = 4 * ek + 3 * egap;            // 156
-        int ex = (W - totEnv) / 2;                       // centred
-        envAttackKnob.setBounds(ex, 118, ek, ek);   ex += ek + egap;
-        envDecayKnob.setBounds(ex, 118, ek, ek);    ex += ek + egap;
-        envSustainKnob.setBounds(ex, 118, ek, ek);  ex += ek + egap;
-        envReleaseKnob.setBounds(ex, 118, ek, ek);
+        const int totEnv = 4 * ek + 3 * egap;            // 188
+        int ex = std::max(2, (W - totEnv) / 2);
+        envAttackKnob.setBounds (ex, 122, ek, ek);  ex += ek + egap;
+        envDecayKnob.setBounds  (ex, 122, ek, ek);  ex += ek + egap;
+        envSustainKnob.setBounds(ex, 122, ek, ek);  ex += ek + egap;
+        envReleaseKnob.setBounds(ex, 122, ek, ek);
 
         // ── Row 4: Key track + Velocity ──────────────────────
         const int bw = 84;
@@ -1652,20 +1762,29 @@ public:
     void dpiChanged() override { updateFonts(); }
 
     void resized() override {
-        // The Amp field is ~199 effective px in the PNG-mapped layout.
-        // 5 knobs × 40 + 4 gaps was 216 px — VOL ran off the right edge.
-        // Centre the row inside the panel so every knob sits fully inside
-        // its field with a margin on both sides.
+        // Amp field is ~199 effective px wide and is now ~150 tall (the
+        // master strip that used to share this column is now ≈56 tall).
+        // Bump knob size from 36 → 40 — fits with gap=2.  Vertically
+        // centre the row inside the available height so labels have
+        // breathing room.
         const int W   = width();
-        const int ks  = 36;
-        const int gap = 3;
-        const int total = 5 * ks + 4 * gap;              // 192
+        const int H   = height();
+        const int ks  = 40;
+        const int gap = 2;
+        const int total = 5 * ks + 4 * gap;                  // 208 — barely over
         int x = std::max(2, (W - total) / 2);
-        attackKnob.setBounds (x, 24, ks, ks); x += ks + gap;
-        decayKnob.setBounds  (x, 24, ks, ks); x += ks + gap;
-        sustainKnob.setBounds(x, 24, ks, ks); x += ks + gap;
-        releaseKnob.setBounds(x, 24, ks, ks); x += ks + gap;
-        volumeKnob.setBounds (x, 24, ks, ks);
+        // If even tight gap doesn't fit, fall back to 38 + gap 2.
+        int useKs = ks;
+        if (total > W - 4) { useKs = 38; }
+        const int useTotal = 5 * useKs + 4 * gap;
+        x = std::max(2, (W - useTotal) / 2);
+        // Knobs include a label below — leave ~18 px of label space.
+        const int y = std::max(22, (H - useKs - 18) / 2 + 6);
+        attackKnob.setBounds (x, y, useKs, useKs); x += useKs + gap;
+        decayKnob.setBounds  (x, y, useKs, useKs); x += useKs + gap;
+        sustainKnob.setBounds(x, y, useKs, useKs); x += useKs + gap;
+        releaseKnob.setBounds(x, y, useKs, useKs); x += useKs + gap;
+        volumeKnob.setBounds (x, y, useKs, useKs);
     }
 
     void draw(visage::Canvas& canvas) override {
@@ -2243,9 +2362,13 @@ private:
 // ============================================================
 //  SIDMasterPanel — output + limiter + poly + voices
 // ============================================================
+// SIDMasterPanel — slim horizontal strip with limiter / poly / voice-count.
+// The output fader was removed; master volume is now the rotary at the
+// top-right (next to the TranceSID logo).  This panel is rendered below
+// the amplifier panel and is intentionally short so the amp can use the
+// reclaimed vertical space for bigger ADSR knobs.
 class SIDMasterPanel : public SIDPanelBase {
 public:
-    SIDFader        outputFader;
     SIDToggleButton limiterBtn;
     SIDToggleButton polyModeBtn;    // POLY / MONO toggle
     SIDCycleButton  voiceCountBtn;  // Voice count selector
@@ -2253,7 +2376,6 @@ public:
     SIDMasterPanel() : SIDPanelBase("MASTER") {}
 
     void init() override {
-        addChild(&outputFader);
         addChild(&limiterBtn);
         addChild(&polyModeBtn);
         addChild(&voiceCountBtn);
@@ -2262,36 +2384,37 @@ public:
     void dpiChanged() override { updateFonts(); }
 
     void resized() override {
-        outputFader.setBounds(60, 20, 28, 180);
-        limiterBtn.setBounds(100, 208, 44, 18);
-        polyModeBtn.setBounds(4, 248, width() - 8, 20);
-        voiceCountBtn.setBounds(4, 293, width() - 8, 20);
+        // Three controls in a single horizontal row.  Labels are drawn
+        // in draw() above each control.  Layout adapts to the panel
+        // width so the controls share the space evenly.
+        const int W = width();
+        const int rowY = 28;
+        const int rowH = 18;
+        const int gap  = 6;
+        const int colW = (W - 2 * 4 - 2 * gap) / 3;
+        const int x0 = 4;
+        const int x1 = x0 + colW + gap;
+        const int x2 = x1 + colW + gap;
+        limiterBtn.setBounds  (x0, rowY, colW, rowH);
+        polyModeBtn.setBounds (x1, rowY, colW, rowH);
+        voiceCountBtn.setBounds(x2, rowY, colW, rowH);
     }
 
     void draw(visage::Canvas& canvas) override {
         drawPanelBase(canvas);
 
-        // dB scale markings
         if (fonts_.label.size() > 0) {
-            const std::array<std::string, 7> marks = {"+6","0","-6","-12","-18","-24","-inf"};
-            const float y0 = 24.0f, h = 176.0f;
-            for (int i = 0; i < 7; ++i) {
-                const float y = y0 + h * (float(i) / 6.0f);
-                canvas.setColor(SIDColors::TEXT_DIM);
-                canvas.text(marks[i], fonts_.label, visage::Font::kRight,
-                            4, static_cast<int>(y) - 6, 50, 12);
-                // Tick mark
-                canvas.setColor(SIDColors::SEPARATOR);
-                canvas.segment(56, y, 60, y, 0.5f, false);
-            }
-
-            // Labels below fader
+            const int W = width();
+            const int gap  = 6;
+            const int colW = (W - 2 * 4 - 2 * gap) / 3;
+            const int labelY = 14;
             canvas.setColor(SIDColors::TEXT_LABEL);
-            canvas.text("LIMITER",    fonts_.label, visage::Font::kLeft, 4, 208, 90, 14);
-            canvas.text("MONO / POLY",fonts_.label, visage::Font::kLeft, 4, 232, width() - 8, 14);
-            // (polyModeBtn drawn by child — sits at y=248)
-            canvas.text("VOICE COUNT",fonts_.label, visage::Font::kLeft, 4, 276, width() - 8, 14);
-            // (voiceCountBtn child drawn at y=293)
+            canvas.text("LIMITER", fonts_.label, visage::Font::kCenter,
+                        4,                    labelY, colW, 12);
+            canvas.text("MONO/POLY", fonts_.label, visage::Font::kCenter,
+                        4 + colW + gap,       labelY, colW, 12);
+            canvas.text("VOICES",  fonts_.label, visage::Font::kCenter,
+                        4 + 2*(colW + gap),   labelY, colW, 12);
         }
     }
 
@@ -2304,7 +2427,6 @@ private:
                 BinaryData::LatoRegular_ttfSize);
         }
         setFonts(&fonts_);
-        outputFader.setFonts(&fonts_);
         limiterBtn.setFonts(&fonts_);      limiterBtn.setLabel("ON");
         polyModeBtn.setFonts(&fonts_);     polyModeBtn.setLabels("POLY", "MONO");
         voiceCountBtn.setFonts(&fonts_);
@@ -2745,8 +2867,13 @@ public:
 
     // Master Volume — rotary knob placed in the square empty field next to
     // the TranceSID logo in the header.  Bound to master_volume in
-    // PluginEditor (same parameter the SIDMasterPanel output fader uses).
+    // PluginEditor (master fader was removed from SIDMasterPanel; this is
+    // now the only master-volume control).
     SIDKnob              masterVolKnob;
+
+    // Output VU meter — sits to the right of the master rotary so the user
+    // can see the post-limiter output level without scanning the screen.
+    SIDOutputMeter       outputMeter;
 
     // Preset bar
     SIDPresetBar         presetBar;
@@ -2913,14 +3040,23 @@ private:
         // TranceSID logo, and the preset bar at the bottom.
         place(chip6581Area, kPngChip6581, /*margin=*/0);
         place(chip8580Area, kPngChip8580, /*margin=*/0);
-        // Master volume — centre a square rotary inside its field with
-        // generous internal padding so the label fits cleanly under the dial.
+        // Master volume — square rotary on the left + slim VU meter on the
+        // right, both inside the master-vol field.  Meter is ≈ 22 % of the
+        // field width so it's small but legible (matches the rest of the
+        // neon styling).
         {
             const auto r = map(kPngMasterVol, /*margin=*/6);
-            const int side = std::min(r.w, r.h) - 8;   // leave room for label
-            const int cx = r.x + (r.w - side) / 2;
-            const int cy = r.y + (r.h - side) / 2;
-            masterVolKnob.setBounds(cx, cy, side, side);
+            const int meterW = std::max(16, r.w / 4);
+            const int gap    = 4;
+            const int knobAreaW = r.w - meterW - gap;
+            const int side = std::max(24, std::min(knobAreaW, r.h - 14));
+            const int kx = r.x + (knobAreaW - side) / 2;
+            const int ky = r.y + (r.h - side) / 2 - 4;
+            masterVolKnob.setBounds(kx, ky, side, side);
+            outputMeter.setBounds(r.x + knobAreaW + gap,
+                                  r.y + 4,
+                                  meterW,
+                                  r.h - 8);
             currentFields_.push_back(r);
         }
         place(presetBar,    kPngPresetBar, /*margin=*/0);
@@ -2971,13 +3107,17 @@ private:
             currentFields_.push_back(r);
         }
 
-        // Amp + Master share the upper right field B (amp on top, master below).
+        // Amp + Master share the upper right field B.  Master is now a slim
+        // horizontal strip (the output fader moved to the top-right rotary),
+        // so amp gets the majority of the vertical space and can use bigger
+        // ADSR knobs.
         {
             const auto r = map(kPngAmpMaster);
-            const int ampH = int(r.h * 0.55f);
             const int gap  = 4;
-            ampPanel.setBounds(r.x,    r.y,                r.w, ampH);
-            masterPanel.setBounds(r.x, r.y + ampH + gap,   r.w, r.h - ampH - gap);
+            const int masterH = 56;   // just enough for one row of controls + label
+            const int ampH = r.h - masterH - gap;
+            ampPanel.setBounds   (r.x, r.y,               r.w, ampH);
+            masterPanel.setBounds(r.x, r.y + ampH + gap,  r.w, masterH);
             currentFields_.push_back(r);
         }
 
