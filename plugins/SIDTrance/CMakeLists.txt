@@ -19,11 +19,13 @@ juce_add_plugin(SIDTrance
 
 juce_generate_juce_header(SIDTrance)
 
-# ── Binary assets (Lato font + GUI background for Visage) ──
+# ── Binary assets (Lato font + GUI skeleton for Visage) ──
+# TranSID GUI.jpg is the new (current) skeleton; the previous PNG is
+# kept embedded only because removing it would force a clean rebuild.
 juce_add_binary_data(SIDTrance_Assets
     SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/../../_tools/visage/visage_graphics/fonts/Lato-Regular.ttf
-        "${CMAKE_CURRENT_SOURCE_DIR}/Resources/TranceSID Gui Design.png"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Resources/TranSID GUI.jpg"
     NAMESPACE BinaryData
 )
 

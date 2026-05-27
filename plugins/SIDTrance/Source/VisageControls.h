@@ -3114,29 +3114,21 @@ public:
     void draw(visage::Canvas& canvas) override {
         const int W = width(), H = height();
 
-        // ── PNG background — fills the whole editor with the design chrome.
-        //    BinaryData symbol comes from juce_add_binary_data in CMakeLists;
-        //    "TranceSID Gui Design.png" → TranceSID_Gui_Design_png (JUCE
-        //    converts spaces to underscores).  Data is `const char*` —
-        //    cast to unsigned for visage::Canvas::image().
-        const auto* png = reinterpret_cast<const unsigned char*>(
-            BinaryData::TranceSID_Gui_Design_png);
-        const int pngSize = BinaryData::TranceSID_Gui_Design_pngSize;
-        if (png != nullptr && pngSize > 0) {
-            // First pass: normal blit at full opacity (the PNG's dark navy
-            // void + neon edges).
+        // ── Background skeleton — TranSID GUI.jpg, 1672×941 (same aspect as
+        //    the editor's 1280×720).  Embedded via juce_add_binary_data and
+        //    decoded by Visage's stb_image-based canvas.image() at draw
+        //    time.  Two passes at full + half alpha give a screen-style
+        //    "lighten" so the neon edges glow as brightly as the
+        //    foreground module controls.
+        const auto* img = reinterpret_cast<const unsigned char*>(
+            BinaryData::TranSID_GUI_jpg);
+        const int imgSize = BinaryData::TranSID_GUI_jpgSize;
+        if (img != nullptr && imgSize > 0) {
             canvas.setColor(0xFFFFFFFF);
-            canvas.image(png, pngSize, 0, 0, W, H);
-            // Second pass at reduced alpha — acts as a lighten/screen-style
-            // accent so the neon glow on the SID chips and chassis ribs
-            // reads as bright as the modules drawn on top of it.  The very
-            // dark void stays dark because adding alpha to ~black is still
-            // very dark, while the bright neon edges gain extra brilliance.
+            canvas.image(img, imgSize, 0, 0, W, H);
             canvas.setColor(0x55FFFFFF);
-            canvas.image(png, pngSize, 0, 0, W, H);
-        }
-        else {
-            // Fallback if the binary symbol wasn't generated (build issue)
+            canvas.image(img, imgSize, 0, 0, W, H);
+        } else {
             canvas.setColor(SIDColors::BG_VOID);
             canvas.fill(0, 0, W, H);
         }
@@ -3178,44 +3170,43 @@ private:
         }
     }
 
-    // Field rectangles measured directly off the 1672×941 background PNG
-    // (from a pixel-scan of dark-fill regions in TranceSID Gui Design.png).
-    // resized() scales them to the current editor size so the layout
-    // stays glued to the artwork even if the host resizes the window.
+    // Field rectangles measured against the new TranSID GUI.jpg skeleton
+    // (1672 × 941).  resized() scales them to the current editor size so
+    // the layout stays glued to the artwork at any host scaling.
+    //
+    // Several panels in the previous design no longer have a place in this
+    // skeleton (AMP, MASTER as panel, voiceMod, LFO1/2, noise).  Their
+    // parameters still exist in APVTS; the UI just doesn't expose them
+    // here.  Those panels get hidden bounds in layoutAll().
     struct FieldRect { int x, y, w, h; };
     static constexpr int kPngW = 1672;
     static constexpr int kPngH = 941;
 
-    static constexpr FieldRect kPngHeader      { 0,    0,    kPngW, 200 };
-    // ── Top header: two CHIP badges painted in the PNG.  Positions found
-    //    by scanning the PNG for the bright neon outlines (the chip housing
-    //    spans x=653..1017, with the two inner badges at roughly 720..840
-    //    and 842..960).  Click areas now sit exactly on top of each badge.
-    static constexpr FieldRect kPngChip6581    { 720,  44,  120,  88  };
-    static constexpr FieldRect kPngChip8580    { 842,  44,  120,  88  };
-    // ── Master Volume — square empty field next to the TranceSID logo
-    //    (detected by the rect scan: x=1116, y=52, w=116, h=128).
-    static constexpr FieldRect kPngMasterVol   { 1116, 52,  116, 128  };
-    // ── Top-left: two macro fields (Macros moved here from the left
-    //    vertical strip).  Spans the empty header area left of the chips
-    //    so the 4 macro knobs get plenty of size.
-    static constexpr FieldRect kPngMacrosTopA  { 36,   28,  244,  152 };
-    static constexpr FieldRect kPngMacrosTopB  { 288,  28,  244,  152 };
-    // ── Left vertical strip — FX (Chorus / Delay / Reverb) lives here now
-    //    (was Macros).  effectsPanel stacks the three FX sections vertically.
-    static constexpr FieldRect kPngFx          { 32,   220, 156,  436 };
-    static constexpr FieldRect kPngOsc1        { 208,  220, 272,  436 };
-    static constexpr FieldRect kPngOsc2        { 484,  220, 296,  436 };
-    static constexpr FieldRect kPngOsc3        { 752,  220, 312,  436 };
-    static constexpr FieldRect kPngFilter      { 1092, 220, 256,  296 };
-    static constexpr FieldRect kPngAmpMaster   { 1368, 220, 270,  296 };
-    static constexpr FieldRect kPngVoiceMod    { 1092, 528, 540,  132 };
-    static constexpr FieldRect kPngModMatrix   { 32,   680, 440,  168 };
-    static constexpr FieldRect kPngLfo1        { 484,  680, 292,  168 };
-    static constexpr FieldRect kPngLfo2        { 788,  680, 296,  168 };
-    // FX moved out of this slot; bottom-right is now Arp + Gate split in half.
-    static constexpr FieldRect kPngArpGate     { 1092, 680, 540,  168 };
-    static constexpr FieldRect kPngPresetBar   { 0,    876, kPngW, 60  };
+    // ── HEADER (top row, y ≈ 10-110) ────────────────────────────────
+    // MACROS column moved from the previous top-of-header position to the
+    // LEFT VERTICAL STRIP — 8 slots stacked.  Only the first 4 macros are
+    // backed by params (macro1..4); the lower 4 are visual placeholders
+    // drawn into the background.
+    static constexpr FieldRect kSklMacros      {  20,   10,  210, 555 };
+    static constexpr FieldRect kSklChip6581    { 244,   16,  198,  98 };
+    static constexpr FieldRect kSklChip8580    { 458,   16,  198,  98 };
+    static constexpr FieldRect kSklPreset      { 678,   16,  490,  90 };
+    static constexpr FieldRect kSklMaster      {1184,   16,  286,  90 };
+    // ── OSC row + FX RACK (y ≈ 120-395) ────────────────────────────
+    static constexpr FieldRect kSklOsc1        { 244,  124,  320, 280 };
+    static constexpr FieldRect kSklOsc2        { 568,  124,  330, 280 };
+    static constexpr FieldRect kSklOsc3        { 904,  124,  274, 280 };
+    static constexpr FieldRect kSklFxRack      {1186,  124,  470, 280 };
+    // ── FILTER + HYPERSAW row (y ≈ 415-560) ────────────────────────
+    static constexpr FieldRect kSklFilter      { 244,  414,  704, 174 };
+    static constexpr FieldRect kSklHypersaw    { 968,  414,  696, 174 };
+    // ── MOD MATRIX / CHORDS / ARP row (y ≈ 580-770) ────────────────
+    static constexpr FieldRect kSklModMatrix   { 244,  584,  300, 188 };
+    static constexpr FieldRect kSklChordEng    { 552,  584,  306, 188 };
+    static constexpr FieldRect kSklArp         { 866,  584,  800, 188 };
+    // ── TRANCE GATE strip (y ≈ 790-935) ────────────────────────────
+    static constexpr FieldRect kSklTranceGate  {  20,  784, 1490, 154 };
+    static constexpr FieldRect kSklGateControls{1516,  784,  148, 154 };
 
     void layoutAll() {
         const int W = width(), H = height();
@@ -3238,118 +3229,106 @@ private:
         currentFields_.clear();
 
         // Popup overlay covers the whole editor — must sit on top so it
-        // intercepts every click while a dropdown is open.  Visibility is
-        // managed by open() / close(); don't toggle here so a host resize
-        // mid-popup doesn't snatch it away.
+        // intercepts every click while a dropdown is open.
         popupOverlay.setBounds(0, 0, W, H);
 
-        // Top header — invisible click areas over the painted SID 6581 / 8580
-        // chip badges, master-volume knob in the square slot next to the
-        // TranceSID logo, and the preset bar at the bottom.
-        place(chip6581Area, kPngChip6581, /*margin=*/0);
-        place(chip8580Area, kPngChip8580, /*margin=*/0);
-        // Master volume — square rotary on the left + slim VU meter on the
-        // right, both inside the master-vol field.  Meter is ≈ 22 % of the
-        // field width so it's small but legible (matches the rest of the
-        // neon styling).
+        // ── HIDDEN PANELS — no equivalent in the new skeleton ──────────
+        // The following panels have backing parameters that are still in
+        // APVTS, but the new skeleton doesn't show their controls.  Place
+        // them off-screen so they don't intercept clicks and don't draw
+        // any panel chrome on top of the JPG.  When future skeleton
+        // revisions expose them, just give them real bounds.
+        const FieldRect off { -1000, -1000, 1, 1 };
+        ampPanel.setBounds   (off.x, off.y, off.w, off.h);
+        masterPanel.setBounds(off.x, off.y, off.w, off.h);
+        voiceModPanel.setBounds(off.x, off.y, off.w, off.h);
+        lfo1.setBounds(off.x, off.y, off.w, off.h);
+        lfo2.setBounds(off.x, off.y, off.w, off.h);
+        noisePanel.setBounds(off.x, off.y, off.w, off.h);
+        filterScope.setBounds(off.x, off.y, off.w, off.h);
+        scope1.setBounds(off.x, off.y, off.w, off.h);
+        scope2.setBounds(off.x, off.y, off.w, off.h);
+        scope3.setBounds(off.x, off.y, off.w, off.h);
+
+        // ── HEADER (top row) ────────────────────────────────────────────
+        // Two chip click-areas overlaying the painted SID 6581 / 8580
+        // badges in the skeleton.
+        place(chip6581Area, kSklChip6581, /*margin=*/0);
+        place(chip8580Area, kSklChip8580, /*margin=*/0);
+        // Preset browser sits in the wide rounded slot at the top.
+        place(presetBar,    kSklPreset,   /*margin=*/0);
+        // Master volume + slim VU meter in the right header slot.
         {
-            const auto r = map(kPngMasterVol, /*margin=*/6);
-            const int meterW = std::max(16, r.w / 4);
-            const int gap    = 4;
+            const auto r = map(kSklMaster, /*margin=*/6);
+            const int meterW = std::max(18, r.w / 5);
+            const int gap    = 6;
             const int knobAreaW = r.w - meterW - gap;
-            const int side = std::max(24, std::min(knobAreaW, r.h - 14));
+            const int side = std::max(24, std::min(knobAreaW, r.h));
             const int kx = r.x + (knobAreaW - side) / 2;
-            const int ky = r.y + (r.h - side) / 2 - 4;
+            const int ky = r.y + (r.h - side) / 2;
             masterVolKnob.setBounds(kx, ky, side, side);
-            outputMeter.setBounds(r.x + knobAreaW + gap,
-                                  r.y + 4,
-                                  meterW,
-                                  r.h - 8);
+            outputMeter.setBounds(r.x + knobAreaW + gap, r.y + 2,
+                                  meterW, r.h - 4);
             currentFields_.push_back(r);
         }
-        place(presetBar,    kPngPresetBar, /*margin=*/0);
 
-        // Macros — moved from the left vertical strip to the empty area in
-        // the top header (left of the chip badges).  The two header fields
-        // share one wide macroPanel so its 4 knobs end up evenly distributed
-        // across both with bigger sizes than the cramped vertical layout.
+        // ── MACROS LEFT VERTICAL COLUMN ────────────────────────────────
+        // Skeleton shows 8 macro slots; macro1..4 are functional, the
+        // rest are placeholder positions left for future DSP.  Place the
+        // existing 4-knob macroPanel inside the TOP HALF of the column
+        // so the bottom-half placeholder slots in the skeleton remain
+        // visible (the panel chrome doesn't cover them).
         {
-            const auto a = map(kPngMacrosTopA);
-            const auto b = map(kPngMacrosTopB);
-            const int x = a.x;
-            const int y = a.y;
-            const int w = (b.x + b.w) - a.x;
-            const int h = a.h;
-            macroPanel.setBounds(x, y, w, h);
-            currentFields_.push_back({x, y, w, h});
+            const auto r = map(kSklMacros);
+            const int topH = (r.h * 4) / 8;            // top 4 of 8 slots
+            macroPanel.setBounds(r.x, r.y, r.w, topH);
+            currentFields_.push_back({r.x, r.y, r.w, topH});
         }
 
-        // FX (Chorus / Delay / Reverb) — placed in the left vertical strip
-        // that used to hold Macros.
-        place(effectsPanel, kPngFx);
-
-        // Three OSC fields — each holds a small scope at the top and the
-        // oscillator-panel content underneath.  Splitting inside the field
-        // keeps the existing modules unchanged but slots them into the
-        // PNG-defined column layout.
-        auto placeOscField = [&](SIDOscillatorPanel& panel, SIDOscilloscopeView& scope,
-                                  const FieldRect& field) {
+        // ── OSC 1/2/3 ──────────────────────────────────────────────────
+        // Each OSC panel placed inside its skeleton field.  The scope and
+        // filter-info displays from the previous design are hidden (the
+        // skeleton doesn't carve out room for them).
+        auto placeOscField = [&](SIDOscillatorPanel& panel, const FieldRect& field) {
             const auto r = map(field);
-            const int scopeH = std::max(48, r.h / 7);
-            const int gap    = 4;
-            scope.setBounds(r.x, r.y, r.w, scopeH);
-            panel.setBounds(r.x, r.y + scopeH + gap, r.w, r.h - scopeH - gap);
+            panel.setBounds(r.x, r.y, r.w, r.h);
             currentFields_.push_back(r);
         };
-        placeOscField(osc1, scope1, kPngOsc1);
-        placeOscField(osc2, scope2, kPngOsc2);
-        placeOscField(osc3, scope3, kPngOsc3);
+        placeOscField(osc1, kSklOsc1);
+        placeOscField(osc2, kSklOsc2);
+        placeOscField(osc3, kSklOsc3);
 
-        // Filter (upper right field A) + small filter-state display at top.
+        // ── FILTER / DRIVE ─────────────────────────────────────────────
+        // Filter panel takes the entire FILTER/DRIVE field (no separate
+        // filter-info display in this skeleton).
+        place(filterPanel, kSklFilter);
+
+        // ── FX RACK ────────────────────────────────────────────────────
+        // The skeleton's FX rack shows 6 effect rows (Chorus/Delay/Reverb
+        // + Phaser/Dimension/Compressor).  Only the first three have
+        // backing parameters; effectsPanel renders them in its existing
+        // 3-row vertical layout inside the rack's column.
+        place(effectsPanel, kSklFxRack);
+
+        // ── MOD MATRIX ─────────────────────────────────────────────────
+        // Existing modMatrix has 4 rows; the skeleton shows 8.  Place
+        // modMatrix inside the upper half of the field; the lower 4 rows
+        // in the skeleton remain visible as placeholders.
         {
-            const auto r = map(kPngFilter);
-            const int infoH = std::max(36, r.h / 9);
-            const int gap   = 4;
-            filterScope.setBounds(r.x, r.y, r.w, infoH);
-            filterPanel.setBounds(r.x, r.y + infoH + gap, r.w, r.h - infoH - gap);
-            currentFields_.push_back(r);
+            const auto r = map(kSklModMatrix);
+            const int topH = r.h / 2 + r.h / 4;        // ~75 % of field
+            modMatrix.setBounds(r.x, r.y, r.w, topH);
+            currentFields_.push_back({r.x, r.y, r.w, topH});
         }
 
-        // Amp + Master share the upper right field B.  Master is now a slim
-        // horizontal strip (the output fader moved to the top-right rotary),
-        // so amp gets the majority of the vertical space and can use bigger
-        // ADSR knobs.
-        {
-            const auto r = map(kPngAmpMaster);
-            const int gap  = 4;
-            const int masterH = 56;   // just enough for one row of controls + label
-            const int ampH = r.h - masterH - gap;
-            ampPanel.setBounds   (r.x, r.y,               r.w, ampH);
-            masterPanel.setBounds(r.x, r.y + ampH + gap,  r.w, masterH);
-            currentFields_.push_back(r);
-        }
+        // ── ARP ────────────────────────────────────────────────────────
+        place(arpPanel, kSklArp);
 
-        // Right horizontal strip — voice mod (unison / glide / drive).
-        place(voiceModPanel, kPngVoiceMod);
-
-        // Bottom row left to right: ModMatrix, LFO1, LFO2, then (Arp + Gate + FX).
-        place(modMatrix, kPngModMatrix);
-        place(lfo1,      kPngLfo1);
-        place(lfo2,      kPngLfo2);
-
-        // Bottom-right field now holds Arp + Gate + Noise — three thirds.
-        // The noise generator gets its own column on the right; Arp and
-        // Gate keep their full vertical height in the remaining space.
-        {
-            const auto r = map(kPngArpGate);
-            const int gap = 4;
-            const int third = (r.w - 2 * gap) / 3;
-            arpPanel.setBounds  (r.x,                              r.y, third, r.h);
-            gatePanel.setBounds (r.x + third + gap,                r.y, third, r.h);
-            noisePanel.setBounds(r.x + 2 * (third + gap),          r.y,
-                                  r.w - 2 * (third + gap),         r.h);
-            currentFields_.push_back(r);
-        }
+        // ── TRANCE GATE ────────────────────────────────────────────────
+        // Existing gatePanel takes the wide bottom strip.  The Velocity
+        // / Probability / Swing sub-rows in the skeleton are placeholders
+        // (no per-step velocity / probability params exist yet).
+        place(gatePanel, kSklTranceGate);
     }
 
     visage::Font font_large_;
