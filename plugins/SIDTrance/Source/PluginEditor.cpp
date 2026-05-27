@@ -143,10 +143,28 @@ void SIDTranceAudioProcessorEditor::addAllFrames()
         }
     }
 
-    // Debug overlay — translucent yellow rectangles around every field so
-    // the layout-to-PNG mapping can be visually verified.  Set to false
-    // (or remove the call) once the layout is confirmed correct.
-    v.setDebugOverlay(true);
+    // Debug overlay disabled — the skeleton JPG now drives every label
+    // and outline.  Re-enable with v.setDebugOverlay(true) only when
+    // iterating field-rect positions.
+    v.setDebugOverlay(false);
+
+    // ── Chromeless mode for the new skeleton ──────────────────────────
+    // The TranSID GUI.jpg already prints every panel border, header
+    // bar, sub-section name and parameter label.  Tell every visible
+    // panel to skip drawing its own chrome so we don't end up with
+    // duplicated labels and double borders on top of the artwork.
+    v.macroPanel.setChromeless(true);
+    v.osc1.setChromeless(true);
+    v.osc2.setChromeless(true);
+    v.osc3.setChromeless(true);
+    v.filterPanel.setChromeless(true);
+    v.effectsPanel.setChromeless(true);
+    v.modMatrix.setChromeless(true);
+    v.arpPanel.setChromeless(true);
+    v.gatePanel.setChromeless(true);
+    v.presetBar.setChromeless(true);
+    // Hidden panels keep chromeless OFF — they're off-screen anyway
+    // and we want their previous behaviour preserved for the future.
 
     // Arp — default state matching reference (steps 1-6, 8-11, 13-14, 16 active)
     const std::array<bool, 16> defaultSteps = {

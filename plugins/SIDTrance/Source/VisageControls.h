@@ -116,8 +116,23 @@ public:
     void setHeaderText(const std::string& t) { headerText_ = t; redraw(); }
     void setFonts(SIDFonts* f)               { fonts_ = f; }
 
+    // Chromeless mode — the panel doesn't draw its own background fill,
+    // border, header bar or title text.  Used when the editor's
+    // background image already prints all of that, so layering the
+    // code-drawn version on top would produce the doubled-chrome look.
+    // Subclasses must check chromeless_ in their own draw() override
+    // and skip their internal section labels / dividers too.
+    void setChromeless(bool on) { chromeless_ = on; redraw(); }
+    bool chromeless() const     { return chromeless_; }
+
 protected:
     void drawPanelBase(visage::Canvas& canvas) {
+        // When the editor is rendering on top of the new skeleton JPG,
+        // all panel chrome (background, border, header text, separators)
+        // is part of the printed background — drawing it again here
+        // produces a doubled-frame look.  Skip in chromeless mode.
+        if (chromeless_) return;
+
         const float W = float(width());
         const float H = float(height());
 
@@ -151,6 +166,7 @@ protected:
 
     std::string headerText_;
     SIDFonts*   fonts_ = nullptr;
+    bool        chromeless_ = false;
 };
 
 // ============================================================
@@ -173,6 +189,10 @@ public:
     void setLarge(bool b)         { large_ = b; }
     void setLabel(const std::string& l) { label_ = l; }
     void setFonts(SIDFonts* f)    { fonts_ = f; }
+    // When false, the parameter name is never drawn (still shown as the
+    // hover-value readout).  Used in the new skeleton layout where the
+    // JPG already prints every knob's label underneath the knob slot.
+    void setShowLabel(bool s)     { showLabel_ = s; }
 
     // Custom value→string formatter for the hover readout.  Default is
     // "<pct> %"; callers (PluginEditor binding helpers) can install a
@@ -282,14 +302,17 @@ public:
         canvas.circle(cx - dotR * 0.6f, cy - dotR * 0.6f, dotR * 1.1f);
 
         // ── Label / value readout ──────────────────────────────
-        // Normal: show the parameter name (label_).  While hovered, swap
-        // to the formatted value so the user can read the precise setting
-        // before letting go.  Optional setValueFormatter() lets callers
-        // print Hz / dB / semitones etc. instead of the default percent.
+        // Hover always shows the value (so the user can read precise
+        // settings).  The non-hover label is only drawn when
+        // showLabel_ is true — in the new skeleton layout the JPG
+        // already prints every parameter name under its knob slot, so
+        // we leave it false to avoid doubled labels.
         if (fonts_) {
-            std::string text = label_;
+            std::string text;
             if (hovered_) {
                 text = formatter_ ? formatter_(value_) : defaultFormat(value_);
+            } else if (showLabel_) {
+                text = label_;
             }
             if (!text.empty()) {
                 canvas.setColor(hovered_ ? SIDColors::TEXT_ACCENT : SIDColors::TEXT_LABEL);
@@ -378,6 +401,10 @@ private:
 
     float       value_          = 0.5f;
     uint32_t    ringColor_      = SIDColors::ACCENT_CYAN;
+    // Default OFF — the new skeleton JPG prints every knob's name into
+    // the background.  Callers that want a code-drawn label (e.g. for a
+    // standalone knob outside the skeleton) call setShowLabel(true).
+    bool        showLabel_      = false;
     std::function<std::string(float)> formatter_;
     bool        large_          = false;
     bool        hovered_        = false;
@@ -1740,9 +1767,10 @@ public:
 
     void draw(visage::Canvas& canvas) override {
         drawPanelBase(canvas);
-
-        // "FILTER ENV" section label
-        if (fonts_) {
+        // "FILTER ENV" section label only when this panel is drawing its
+        // own chrome — in chromeless mode (the new skeleton) the JPG
+        // already prints every label.
+        if (!chromeless_ && fonts_) {
             canvas.setColor(SIDColors::TEXT_LABEL);
             canvas.text("FILTER ENV",
                         fonts_->label, visage::Font::kLeft, 8, 110, width() - 16, 10);
@@ -2144,9 +2172,9 @@ public:
 
     void draw(visage::Canvas& canvas) override {
         drawPanelBase(canvas);
-
-        // Small labels above the control buttons
-        if (fonts_) {
+        // ARP section labels — only when drawing own chrome.  In
+        // chromeless mode the JPG already prints them.
+        if (!chromeless_ && fonts_) {
             struct { int x; int w; const char* txt; } lbls[] = {
                 {4,   38, "ON"},
                 {46,  38, "SYNC"},
@@ -2278,9 +2306,9 @@ public:
     void draw(visage::Canvas& canvas) override {
         drawPanelBase(canvas);
 
-        // Per-section name labels next to the LED squares + divider lines
-        // between sections.  Geometry mirrors resized()'s sectionH math.
-        if (fonts_.label.size() > 0) {
+        // Per-section name labels + dividers — only when drawing own
+        // chrome.  In chromeless mode the JPG already prints them.
+        if (!chromeless_ && fonts_.label.size() > 0) {
             const int W = width(), H = height();
             const int titleArea = 22;
             const int sectionH  = (H - titleArea) / 3;
@@ -2363,8 +2391,8 @@ public:
 
     void draw(visage::Canvas& canvas) override {
         drawPanelBase(canvas);
-        // Column header labels (drawn once, above row 0)
-        if (fonts_.label.size() > 0) {
+        // Column header labels — only when own chrome is drawn.
+        if (!chromeless_ && fonts_.label.size() > 0) {
             canvas.setColor(SIDColors::TEXT_LABEL);
             canvas.text("SOURCE", fonts_.label, visage::Font::kCenter,  4,  8,  80, 12);
             canvas.text("AMT",    fonts_.label, visage::Font::kCenter,  86, 8,  28, 12);
@@ -2442,8 +2470,8 @@ public:
 
     void draw(visage::Canvas& canvas) override {
         drawPanelBase(canvas);
-
-        if (fonts_.label.size() > 0) {
+        // Master section labels — only when own chrome is drawn.
+        if (!chromeless_ && fonts_.label.size() > 0) {
             const int W = width();
             const int gap  = 6;
             const int colW = (W - 2 * 4 - 2 * gap) / 3;
@@ -2526,22 +2554,43 @@ public:
         }
     }
 
+    // Chromeless mode — when the editor's skeleton background already
+    // prints the PRESET slot, label, and < / > arrows, draw NOTHING here
+    // except the actual preset name text inside the slot.  setChromeless()
+    // is invoked from SIDMainView::init() in the new layout.
+    void setChromeless(bool on) { chromeless_ = on; redraw(); }
+
     void draw(visage::Canvas& canvas) override {
-        // Background strip
+        if (!fonts_) return;
+
+        if (chromeless_) {
+            // Skeleton draws everything (background, label, slot border,
+            // arrows, bank text).  We only paint the preset name inside
+            // the printed slot — centred horizontally so it fits.
+            const bool isInit = presetName_.empty();
+            const std::string displayName = isInit ? "-- Init Patch --"
+                                                   : presetName_ + (dirty_ ? " *" : "");
+            canvas.setColor(isInit ? SIDColors::TEXT_DIM : SIDColors::TEXT_PRIMARY);
+            // Name slot in the JPG is roughly the centre 60 % of the bar's
+            // width; align there so the text reads inside the printed box.
+            const int margin = std::max(40, int(width()) / 6);
+            canvas.text(displayName, fonts_->label, visage::Font::kCenter,
+                        margin, 0, int(width()) - 2 * margin, int(height()));
+            return;
+        }
+
+        // Legacy chrome-drawing path (kept for the fallback when no
+        // skeleton image is loaded).
         canvas.setColor(SIDColors::BG_PANEL_DARK);
         canvas.fill(0, 0, width(), height());
-        // Top border line
         canvas.setColor(SIDColors::BORDER_INNER);
         canvas.fill(0, 0, width(), 1);
 
-        if (!fonts_) return;
         const int bH = height() - 8, bY = 4;
 
-        // "PRESET:" label
         canvas.setColor(SIDColors::TEXT_LABEL);
         canvas.text("PRESET:", fonts_->label, visage::Font::kLeft, 8, 0, 54, height());
 
-        // Preset name box — shows current preset name + dirty (*) marker
         const int nameX = 66, nameW = 260;
         canvas.setColor(SIDColors::BTN_OFF_BG);
         canvas.roundedRectangle(nameX, bY, nameW, bH, 3.0f);
@@ -2555,7 +2604,6 @@ public:
         canvas.text(displayName, fonts_->label, visage::Font::kLeft,
                     nameX + 6, bY, nameW - 12, bH);
 
-        // Prev (<) / Next (>) navigation arrows
         const int arrowX = nameX + nameW + 4;
         auto drawArrow = [&](int x, const char* lbl) {
             canvas.setColor(SIDColors::BTN_OFF_BG);
@@ -2567,29 +2615,6 @@ public:
         };
         drawArrow(arrowX,             "<");
         drawArrow(arrowX + bH + 3,    ">");
-
-        // "BANK:" label + dropdown (cosmetic — future feature)
-        const int bankLabelX = arrowX + bH * 2 + 12;
-        canvas.setColor(SIDColors::TEXT_LABEL);
-        canvas.text("BANK:", fonts_->label, visage::Font::kLeft, bankLabelX, 0, 44, height());
-
-        const int bankX = bankLabelX + 48, bankW = 148;
-        canvas.setColor(SIDColors::BTN_OFF_BG);
-        canvas.roundedRectangle(bankX, bY, bankW, bH, 3.0f);
-        canvas.setColor(SIDColors::BTN_OFF_BORDER);
-        canvas.roundedRectangleBorder(bankX, bY, bankW, bH, 3.0f, 1.0f);
-        canvas.setColor(SIDColors::TEXT_DIM);
-        canvas.text("Factory", fonts_->label, visage::Font::kLeft, bankX + 6, bY, bankW - 24, bH);
-        canvas.setColor(SIDColors::TEXT_LABEL);
-        canvas.text("v", fonts_->label, visage::Font::kRight, bankX, bY, bankW - 4, bH);
-
-        // Right side: MOS chip logo (chipSwitch is at the TOP of the editor now)
-        canvas.setColor(SIDColors::ACCENT_CYAN);
-        canvas.text("MOS", fonts_->section, visage::Font::kLeft,
-                    width() - 196, 0, 40, height());
-        canvas.setColor(SIDColors::TEXT_DIM);
-        canvas.text("CHIP INSIDE", fonts_->label, visage::Font::kLeft,
-                    width() - 196, height() / 2, 40, height() / 2);
     }
 
 private:
@@ -2610,6 +2635,7 @@ private:
     SIDFonts    fonts_storage_;
     std::string presetName_;        // empty = Init state
     bool        dirty_     = false; // true = unsaved changes
+    bool        chromeless_ = false;
 };
 
 // ============================================================
@@ -2990,9 +3016,8 @@ public:
 
     void draw(visage::Canvas& canvas) override {
         drawPanelBase(canvas);
-        if (!fonts_) return;
-
-        // Section labels
+        if (!fonts_ || chromeless_) return;
+        // Section labels + divider — only when own chrome is drawn.
         struct { int x; int w; const char* t; } lbls[] = {
             {4,  44, "ON"},
             {52, 72, "SWING"},
@@ -3001,7 +3026,6 @@ public:
         for (auto& l : lbls)
             canvas.text(l.t, fonts_->label, visage::Font::kCenter, l.x, 20, l.w, 10);
 
-        // Visual bar separating controls from steps
         canvas.setColor(SIDColors::BORDER_INNER);
         canvas.fill(4, 56, float(width()) - 8, 1);
     }
