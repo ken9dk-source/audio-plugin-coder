@@ -499,10 +499,16 @@ struct SIDVoice {
     // applied — raw post-volume oscillator signal so the display matches
     // what each waveform actually looks like).  Written each sample in
     // processMono(); read once per sample by processBlock for the first
-    // active voice.
+    // active voice.  Also re-used by the stereo engine to compute per-osc
+    // pan/Haas offsets without doubling the filter.
     float lastS1  = 0.0f;
     float lastS2  = 0.0f;
     float lastS3  = 0.0f;
+    // Current amp-envelope × velocity × modAmp — the same multiplier
+    // applied to the filtered output before it leaves processMono.  The
+    // stereo engine scales the per-osc dry samples by this so the stereo
+    // additions track the main signal's amp curve.
+    float lastEnvScale = 0.0f;
 
     // Glide: pitch offset in semitones, converges to 0 each sample
     float glideOffsetSemis = 0.0f;
@@ -679,7 +685,11 @@ struct SIDVoice {
 
         // Amp: envelope × velocity × mod
         const float ampMod = 1.0f + std::clamp(modAmp, -0.9f, 1.0f);
-        return filtered * eA * velocity * ampMod;
+        // Record the same envelope multiplier the mono output uses, so the
+        // stereo engine in processBlock can scale its per-osc offsets to
+        // match the main signal's amp curve.
+        lastEnvScale = eA * velocity * ampMod;
+        return filtered * lastEnvScale;
     }
 };
 
@@ -1193,6 +1203,20 @@ private:
     std::atomic<float>* noiseSusParam_     = {};
     std::atomic<float>* noiseRelParam_     = {};
     std::atomic<float>* noiseLevelParam_   = {};
+
+    // Stereo engine — per-OSC pan/Haas + the global "random phase per note"
+    // toggle that randomises each oscillator's starting phase on note-on.
+    std::atomic<float>* oscPanParam_[3]   = {};
+    std::atomic<float>* oscHaasParam_[3]  = {};
+    std::atomic<float>* randPhaseParam_   = {};
+
+    // Global per-OSC Haas delay buffers.  Records the summed dry per-osc
+    // signal across all voices each sample and provides a delayed copy
+    // for the opposite-channel widening trick.  ~25 ms at 96 kHz is
+    // enough headroom for the 0-20 ms parameter range.
+    static constexpr int kOscHaasMax = 2400;
+    std::array<std::array<float, kOscHaasMax>, 3> oscHaasBuf {};
+    int                  oscHaasWritePos = 0;
 
     // Per-oscillator cached pointers (index 0=osc1, 1=osc2, 2=osc3).
     // Eliminates juce::String heap allocation + HashMap lookup per note-on.

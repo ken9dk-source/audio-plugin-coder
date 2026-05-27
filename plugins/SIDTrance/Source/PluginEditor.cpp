@@ -606,6 +606,15 @@ void SIDTranceAudioProcessorEditor::bindAllParameters()
     }
     bindKnob(v.voiceModPanel.driveAmtKnob, "drive_amount");
 
+    // ── Stereo engine (voice mod's new STEREO column) ────────
+    bindToggle(v.voiceModPanel.randPhaseBtn, "voice_rand_phase");
+    bindKnob(v.voiceModPanel.oscPanKnob[0],  "osc1_pan");
+    bindKnob(v.voiceModPanel.oscPanKnob[1],  "osc2_pan");
+    bindKnob(v.voiceModPanel.oscPanKnob[2],  "osc3_pan");
+    bindKnob(v.voiceModPanel.oscHaasKnob[0], "osc1_haas");
+    bindKnob(v.voiceModPanel.oscHaasKnob[1], "osc2_haas");
+    bindKnob(v.voiceModPanel.oscHaasKnob[2], "osc3_haas");
+
     // ── Macro Panel ─────────────────────────────────────────
     bindKnob(v.macroPanel.macro1, "macro1");
     bindKnob(v.macroPanel.macro2, "macro2");

@@ -2617,7 +2617,7 @@ private:
 // ============================================================
 class SIDVoiceModPanel : public SIDPanelBase {
 public:
-    SIDCycleButton  uniVoicesBtn;   // 1..7
+    SIDCycleButton  uniVoicesBtn;   // 1..16
     SIDKnob         uniDetuneKnob;
     SIDKnob         uniSpreadKnob;
 
@@ -2629,6 +2629,12 @@ public:
 
     SIDCycleButton  driveTypeBtn;   // Tube / Digital / Crush / SIDGrit
     SIDKnob         driveAmtKnob;
+
+    // STEREO ENGINE — new section: random-phase toggle + per-OSC pan knobs
+    // + per-OSC Haas knobs.  All 7 controls share the new STEREO column.
+    SIDToggleButton randPhaseBtn;
+    SIDKnob         oscPanKnob[3];
+    SIDKnob         oscHaasKnob[3];
 
     SIDVoiceModPanel() : SIDPanelBase("VOICE MOD") {}
 
@@ -2642,52 +2648,108 @@ public:
         addChild(&fmAmtKnob);
         addChild(&driveTypeBtn);
         addChild(&driveAmtKnob);
+        addChild(&randPhaseBtn);
+        for (auto& k : oscPanKnob)  addChild(&k);
+        for (auto& k : oscHaasKnob) addChild(&k);
         updateFonts();
     }
     void dpiChanged() override { updateFonts(); }
 
     void resized() override {
-        const int W = width();
-        // Group layout: 2 rows of knobs + mode buttons
-        // Each group: label(10) + button+knobs(~70px)
+        // The Voice Mod field is a SHORT WIDE strip (~414 × 101 effective).
+        // The previous vertical layout (controls down to y=308) was getting
+        // clipped — most users only ever saw the UNISON row.  Rebuild as
+        // five horizontal sections side-by-side: every control is now
+        // visible within the field's actual bounds.
+        const int W = width(), H = height();
+        const int labelH = 14;            // top row reserved for section names
+        const int rowY   = labelH + 6;    // controls start here
+        const int rowH   = H - rowY - 4;  // remaining vertical space
 
-        // ── UNISON (y=22..100) ─────────────────────────────
-        uniVoicesBtn.setBounds(4,  34, 86, 20);
-        uniDetuneKnob.setBounds(94, 22, W/2 - 97, 72);
-        uniSpreadKnob.setBounds(W/2 + 1, 22, W/2 - 5, 72);
+        // Section x-divisions — relative weights so we adapt to host scaling.
+        // UNISON (110) | GLIDE (62) | OSC MOD (62) | DRIVE (62) | STEREO (118)
+        const int wUni    = std::max(96,  W * 110 / 414);
+        const int wGlide  = std::max(54,  W *  62 / 414);
+        const int wOscMod = std::max(54,  W *  62 / 414);
+        const int wDrive  = std::max(54,  W *  62 / 414);
+        const int wStereo = W - wUni - wGlide - wOscMod - wDrive - 16;  // remainder
 
-        // ── GLIDE (y=104..176) ────────────────────────────
-        glideModeBtn.setBounds(4,  116, 86, 20);
-        glideTimeKnob.setBounds(94, 104, W - 98, 72);
+        const int xUni    = 4;
+        const int xGlide  = xUni    + wUni    + 4;
+        const int xOscMod = xGlide  + wGlide  + 4;
+        const int xDrive  = xOscMod + wOscMod + 4;
+        const int xStereo = xDrive  + wDrive  + 4;
 
-        // ── OSC MOD (y=182..254) ──────────────────────────
-        oscSyncBtn.setBounds(4,  194, 86, 20);
-        fmAmtKnob.setBounds(94, 182, W - 98, 72);
+        // UNISON — voices cycle + Detune + Spread knobs (2 small).
+        const int kU = std::min(rowH, (wUni - 38) / 2);
+        uniVoicesBtn.setBounds(xUni,           rowY,      32,        18);
+        uniDetuneKnob.setBounds(xUni + 36,     rowY,      kU,        kU);
+        uniSpreadKnob.setBounds(xUni + 36 + kU + 2, rowY, kU,        kU);
 
-        // ── DRIVE (y=260..308) ────────────────────────────
-        driveTypeBtn.setBounds(4,  272, 86, 20);
-        driveAmtKnob.setBounds(94, 258, W - 98, 44);
+        // GLIDE — mode cycle + time knob.
+        const int kG = std::min(rowH, wGlide - 4);
+        glideModeBtn.setBounds(xGlide,                    rowY + rowH - 18, wGlide, 18);
+        glideTimeKnob.setBounds(xGlide + (wGlide - kG) / 2, rowY,            kG, rowH - 22);
+
+        // OSC MOD — sync toggle + FM amount knob.
+        const int kM = std::min(rowH, wOscMod - 4);
+        oscSyncBtn.setBounds(xOscMod,                       rowY + rowH - 18, wOscMod, 18);
+        fmAmtKnob.setBounds(xOscMod + (wOscMod - kM) / 2,   rowY,             kM, rowH - 22);
+
+        // DRIVE — type cycle + amount knob.
+        const int kD = std::min(rowH, wDrive - 4);
+        driveTypeBtn.setBounds(xDrive,                     rowY + rowH - 18, wDrive, 18);
+        driveAmtKnob.setBounds(xDrive + (wDrive - kD) / 2, rowY,             kD, rowH - 22);
+
+        // STEREO — RND PHASE toggle on top, then 3 PAN + 3 HAAS knobs in
+        // two rows of three.  Knobs are small (20-26 px) but legible.
+        const int sToggleH = 16;
+        randPhaseBtn.setBounds(xStereo, rowY, wStereo, sToggleH);
+        const int sRowAY  = rowY + sToggleH + 2;
+        const int sRemH   = rowH - sToggleH - 2;
+        const int sRowH   = sRemH / 2;
+        const int kS      = std::max(18, std::min(sRowH, (wStereo - 8) / 3));
+        const int sGap    = std::max(2, (wStereo - 3 * kS) / 4);
+        for (int i = 0; i < 3; ++i) {
+            const int sx = xStereo + sGap + i * (kS + sGap);
+            oscPanKnob[i].setBounds(sx, sRowAY,                  kS, kS);
+            oscHaasKnob[i].setBounds(sx, sRowAY + sRowH,         kS, kS);
+        }
     }
 
     void draw(visage::Canvas& canvas) override {
         drawPanelBase(canvas);
         if (!fonts_) return;
-        const float W = float(width());
+        const int W = width();
 
-        // Section labels
-        auto lbl = [&](const char* t, int y) {
+        // Recompute section x positions for the labels (same math as resized()).
+        const int wUni    = std::max(96,  W * 110 / 414);
+        const int wGlide  = std::max(54,  W *  62 / 414);
+        const int wOscMod = std::max(54,  W *  62 / 414);
+        const int wDrive  = std::max(54,  W *  62 / 414);
+        const int wStereo = W - wUni - wGlide - wOscMod - wDrive - 16;
+
+        const int xUni    = 4;
+        const int xGlide  = xUni    + wUni    + 4;
+        const int xOscMod = xGlide  + wGlide  + 4;
+        const int xDrive  = xOscMod + wOscMod + 4;
+        const int xStereo = xDrive  + wDrive  + 4;
+
+        auto sectionLbl = [&](const char* t, int x, int w) {
             canvas.setColor(SIDColors::TEXT_LABEL);
-            canvas.text(t, fonts_->label, visage::Font::kLeft, 4, y, 90, 10);
+            canvas.text(t, fonts_->label, visage::Font::kLeft, x, 2, w, 12);
         };
-        lbl("UNISON",  22);
-        lbl("GLIDE",   104);
-        lbl("OSC MOD", 182);
-        lbl("DRIVE",   260);
+        sectionLbl("UNISON",  xUni,    wUni);
+        sectionLbl("GLIDE",   xGlide,  wGlide);
+        sectionLbl("OSC MOD", xOscMod, wOscMod);
+        sectionLbl("DRIVE",   xDrive,  wDrive);
+        sectionLbl("STEREO",  xStereo, wStereo);
 
-        // Horizontal dividers between groups
+        // Vertical dividers between sections
         canvas.setColor(SIDColors::BORDER_INNER);
-        for (int dy : {100, 178, 256}) {
-            canvas.fill(4, dy, W - 8, 1);
+        for (int dx : { xUni + wUni + 2, xGlide + wGlide + 2,
+                        xOscMod + wOscMod + 2, xDrive + wDrive + 2 }) {
+            canvas.fill(dx, 4, 1, height() - 8);
         }
     }
 
@@ -2730,6 +2792,19 @@ private:
         fmAmtKnob.setRingColor(0xFF00FF7F);
         driveAmtKnob.setFonts(fonts_);  driveAmtKnob.setLabel("AMOUNT");
         driveAmtKnob.setRingColor(0xFFFF4400);
+
+        // STEREO section
+        randPhaseBtn.setFonts(fonts_);  randPhaseBtn.setLabel("RND PH");
+        static const char* kPanLabels [3] = { "P1", "P2", "P3" };
+        static const char* kHaasLabels[3] = { "H1", "H2", "H3" };
+        for (int i = 0; i < 3; ++i) {
+            oscPanKnob[i].setFonts(fonts_);
+            oscPanKnob[i].setLabel(kPanLabels[i]);
+            oscPanKnob[i].setRingColor(SIDColors::ACCENT_CYAN_BRIGHT);
+            oscHaasKnob[i].setFonts(fonts_);
+            oscHaasKnob[i].setLabel(kHaasLabels[i]);
+            oscHaasKnob[i].setRingColor(SIDColors::ACCENT_PURPLE);
+        }
     }
 };
 

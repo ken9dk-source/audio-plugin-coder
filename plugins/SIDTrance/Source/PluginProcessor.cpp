@@ -49,6 +49,8 @@ APVTS::ParameterLayout SIDTranceAudioProcessor::createParameterLayout()
     addFloat   ("osc1_sustain", "OSC1 S",   0.0f, 1.0f, 0.7f);
     addFloatLog("osc1_release", "OSC1 R",   0.001f, 20.0f, 0.5f);
     addFloat("osc1_volume",  "OSC1 Vol",    0.0f, 1.0f, 0.8f);
+    addFloat("osc1_pan",     "OSC1 Pan",   -1.0f, 1.0f, 0.0f);
+    addFloat("osc1_haas",    "OSC1 Haas",   0.0f, 20.0f, 0.0f);   // ms
     // OSC1 SUPERSAW mode (JP-8000-style multi-saw, off by default)
     addBool ("osc1_super_on",      "OSC1 Super",  false);
     addInt  ("osc1_super_voices",  "OSC1 SVoices", 0, 2, 0);  // 0=7, 1=9, 2=11
@@ -65,6 +67,8 @@ APVTS::ParameterLayout SIDTranceAudioProcessor::createParameterLayout()
     addFloat   ("osc2_sustain", "OSC2 S",  0.0f, 1.0f, 0.7f);
     addFloatLog("osc2_release", "OSC2 R",  0.001f, 20.0f, 0.5f);
     addFloat("osc2_volume",  "OSC2 Vol",   0.0f, 1.0f, 0.6f);
+    addFloat("osc2_pan",     "OSC2 Pan",  -1.0f, 1.0f, 0.0f);
+    addFloat("osc2_haas",    "OSC2 Haas",  0.0f, 20.0f, 0.0f);
     // OSC2 SUPERSAW mode (JP-8000-style multi-saw, off by default)
     addBool ("osc2_super_on",      "OSC2 Super",  false);
     addInt  ("osc2_super_voices",  "OSC2 SVoices", 0, 2, 0);  // 0=7, 1=9, 2=11
@@ -81,6 +85,8 @@ APVTS::ParameterLayout SIDTranceAudioProcessor::createParameterLayout()
     addFloat   ("osc3_sustain", "OSC3 S",  0.0f, 1.0f, 0.0f);
     addFloatLog("osc3_release", "OSC3 R",  0.001f, 20.0f, 0.1f);
     addFloat("osc3_volume",  "OSC3 Vol",   0.0f, 1.0f, 0.3f);
+    addFloat("osc3_pan",     "OSC3 Pan",  -1.0f, 1.0f, 0.0f);
+    addFloat("osc3_haas",    "OSC3 Haas",  0.0f, 20.0f, 0.0f);
     // OSC3 SUPERSAW mode (JP-8000-style multi-saw, off by default)
     addBool ("osc3_super_on",      "OSC3 Super",  false);
     addInt  ("osc3_super_voices",  "OSC3 SVoices", 0, 2, 0);  // 0=7, 1=9, 2=11
@@ -215,6 +221,11 @@ APVTS::ParameterLayout SIDTranceAudioProcessor::createParameterLayout()
     addInt  ("unison_voices",  "Unison Voices", 1, 16,     1);
     addFloat("unison_detune",  "Unison Detune", 0.0f, 100.0f, 0.0f);
     addFloat("unison_spread",  "Stereo Spread", 0.0f, 1.0f,   0.7f);
+
+    // Random phase per note — when on, every note-on randomises each
+    // oscillator's starting phase so consecutive notes don't sound
+    // identical at the attack transient.
+    addBool ("voice_rand_phase", "Rand Phase",  true);
 
     // ── Glide / Portamento ──────────────────────────────────
     addInt     ("glide_mode",   "Glide Mode",  0, 2,    0);  // 0=Off, 1=Auto, 2=Always
@@ -377,6 +388,22 @@ void SIDTranceAudioProcessor::prepareToPlay(double sampleRate_, int samplesPerBl
     noiseSusParam_     = apvts.getRawParameterValue("noise_sustain");
     noiseRelParam_     = apvts.getRawParameterValue("noise_release");
     noiseLevelParam_   = apvts.getRawParameterValue("noise_level");
+
+    // Stereo engine
+    randPhaseParam_    = apvts.getRawParameterValue("voice_rand_phase");
+    {
+        char buf[20];
+        for (int n = 0; n < 3; ++n) {
+            snprintf(buf, sizeof(buf), "osc%d_pan",  n + 1);
+            oscPanParam_[n]  = apvts.getRawParameterValue(buf);
+            snprintf(buf, sizeof(buf), "osc%d_haas", n + 1);
+            oscHaasParam_[n] = apvts.getRawParameterValue(buf);
+        }
+    }
+    // Zero the global per-OSC Haas delay buffers on every prepareToPlay so
+    // we never play back garbage from a stale buffer after sample-rate change.
+    for (auto& buf : oscHaasBuf) std::fill(buf.begin(), buf.end(), 0.0f);
+    oscHaasWritePos = 0;
 
     // Reset gate, glide, and sustain state
     gate.reset();
@@ -572,6 +599,23 @@ void SIDTranceAudioProcessor::handleNoteOn(int, int note, float vel)
         v.glideOffsetSemis = glideInterval;
 
         v.noteOn(note, vel, float(sr));
+
+        // Random phase per note — when enabled, scramble each oscillator's
+        // starting phase using its own LFSR so consecutive notes don't
+        // start identically (kills the robotic "same attack every time"
+        // feel).  Skipped if the user has disabled it.
+        const bool randPhase = (randPhaseParam_ != nullptr)
+                             ? (randPhaseParam_->load() > 0.5f)
+                             : true;
+        if (randPhase) {
+            for (auto* osc : { &v.osc1, &v.osc2, &v.osc3 }) {
+                osc->lfsr ^= (osc->lfsr << 13);
+                osc->lfsr ^= (osc->lfsr >> 17);
+                osc->lfsr ^= (osc->lfsr << 5);
+                osc->phase = float(osc->lfsr & 0xFFFFu) / 65535.0f;
+            }
+        }
+
         v.age = ++voiceCounter;
     }
 
@@ -835,6 +879,28 @@ void SIDTranceAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     const int   driveType  = int(apvts.getRawParameterValue("drive_type")->load());
     const float driveAmt   = apvts.getRawParameterValue("drive_amount")->load();
 
+    // Per-OSC stereo engine block-cache.  Pan converted to equal-power
+    // L/R weights; Haas converted from milliseconds to integer sample
+    // counts.  At zero ms the Haas read collapses to "current sample"
+    // (i.e. the mix is silent on the offset path) so it costs nothing.
+    float oscPanL[3] = { 0.707f, 0.707f, 0.707f };
+    float oscPanR[3] = { 0.707f, 0.707f, 0.707f };
+    int   oscHaasSamples[3] = { 0, 0, 0 };
+    float oscHaasMix[3]     = { 0.0f, 0.0f, 0.0f };
+    if (oscPanParam_[0] != nullptr) {
+        for (int o = 0; o < 3; ++o) {
+            const float p = std::clamp(oscPanParam_[o]->load(), -1.0f, 1.0f);
+            oscPanL[o] = std::sqrt(std::max(0.0f, 0.5f - p * 0.5f));
+            oscPanR[o] = std::sqrt(std::max(0.0f, 0.5f + p * 0.5f));
+            const float ms = std::clamp(oscHaasParam_[o]->load(), 0.0f, 20.0f);
+            oscHaasSamples[o] = std::min(kOscHaasMax - 1,
+                                         int(std::round(ms * float(sr) * 0.001f)));
+            // Mix scales 0..1 across the 0..20 ms range so a 0-ms Haas
+            // adds nothing at all (the offset path is silent).
+            oscHaasMix[o] = ms / 20.0f;
+        }
+    }
+
     // Gate config
     gate.enabled = apvts.getRawParameterValue("gate_on")->load() > 0.5f;
     gate.swing   = apvts.getRawParameterValue("gate_swing")->load();
@@ -1052,6 +1118,12 @@ void SIDTranceAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         // every playing note (chord, unison stack, etc.) — not just one voice.
         float sumL = 0.0f, sumR = 0.0f;
         float scopeSum1 = 0.0f, scopeSum2 = 0.0f, scopeSum3 = 0.0f;
+        // Per-osc dry signal summed across voices, with each voice's amp
+        // envelope already baked in (lastEnvScale).  Feeds the per-osc
+        // stereo pan + Haas offset after the loop.  Tracking it here costs
+        // 3 extra adds per voice — much cheaper than per-voice stereo
+        // filters.
+        float stereoDry[3] = { 0.0f, 0.0f, 0.0f };
         int   activeCount = 0;
         for (auto& v : voices) {
             if (!v.active) continue;
@@ -1071,6 +1143,15 @@ void SIDTranceAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             scopeSum2 += v.lastS2;
             scopeSum3 += v.lastS3;
 
+            // Stereo engine: same per-osc samples but scaled by the voice's
+            // amp envelope so the stereo additions track the main signal's
+            // dynamics (otherwise they'd be loudest while filter is closed
+            // and the main mix is quiet).
+            const float envScale = v.lastEnvScale;
+            stereoDry[0] += v.lastS1 * envScale;
+            stereoDry[1] += v.lastS2 * envScale;
+            stereoDry[2] += v.lastS3 * envScale;
+
             // Unison panning: equal-power constant-gain
             const float pan  = v.uniPan;   // -1..+1
             const float panL = std::sqrt(std::max(0.0f, 0.5f - pan * 0.5f));
@@ -1078,6 +1159,49 @@ void SIDTranceAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             sumL += mono * panL;
             sumR += mono * panR;
             ++activeCount;
+        }
+
+        // ── Per-OSC stereo engine — pan + Haas applied to the dry per-osc
+        //    sums (scaled by amp envelope above) and ADDED to the mono
+        //    voice-sum as a stereo "offset".  This gives independent stereo
+        //    positioning per oscillator without doubling the filter stage.
+        if (activeCount > 0) {
+            float stereoOffL = 0.0f, stereoOffR = 0.0f;
+            for (int o = 0; o < 3; ++o) {
+                // Write the current per-osc dry sum into the global Haas
+                // buffer, then read the delayed sample.  At Haas=0 ms the
+                // delayed sample is the same as the current sample, but
+                // oscHaasMix=0 silences the offset path so it adds nothing.
+                oscHaasBuf[o][oscHaasWritePos] = stereoDry[o];
+                const int readPos = (oscHaasWritePos - oscHaasSamples[o]
+                                     + kOscHaasMax) % kOscHaasMax;
+                const float delayed = oscHaasBuf[o][readPos];
+
+                // Per-OSC pan offset: how this oscillator's stereo position
+                // pulls the L/R balance away from centre (0.707·dry on each).
+                stereoOffL += stereoDry[o] * (oscPanL[o] - 0.707f);
+                stereoOffR += stereoDry[o] * (oscPanR[o] - 0.707f);
+
+                // Haas spread: a delayed copy added to the OPPOSITE channel
+                // of the dry pan side, scaled by the Haas mix.  Creates the
+                // characteristic precedence-effect widening.
+                stereoOffL += delayed * oscPanR[o] * oscHaasMix[o];
+                stereoOffR += delayed * oscPanL[o] * oscHaasMix[o];
+            }
+            oscHaasWritePos = (oscHaasWritePos + 1) % kOscHaasMax;
+
+            // Voice-sum normalisation already runs below; apply the same
+            // 1/√N scaling to the stereo offset so it doesn't blow up with
+            // chord polyphony.  Then add to sumL/R before the master path.
+            const float stereoNorm = 1.0f / std::sqrt(float(activeCount));
+            sumL += stereoOffL * stereoNorm;
+            sumR += stereoOffR * stereoNorm;
+        } else {
+            // No voices: still advance the write head so the buffer ages
+            // naturally and there are no stale clicks on the next note-on.
+            for (int o = 0; o < 3; ++o)
+                oscHaasBuf[o][oscHaasWritePos] = 0.0f;
+            oscHaasWritePos = (oscHaasWritePos + 1) % kOscHaasMax;
         }
 
         // Capture per-osc voice-sums for the scopes.  Match the audio path's
