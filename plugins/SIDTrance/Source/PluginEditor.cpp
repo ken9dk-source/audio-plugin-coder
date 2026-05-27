@@ -95,6 +95,7 @@ void SIDTranceAudioProcessorEditor::addAllFrames()
     v.addChild(&v.gatePanel);
     v.addChild(&v.macroPanel);
     v.addChild(&v.voiceModPanel);
+    v.addChild(&v.noisePanel);   // bottom-right strip, 1/3 of kPngArpGate
     // Two invisible click regions overlaid on the chip badges painted in
     // the PNG header.  Replace the old standalone SIDChipSwitch widget.
     v.addChild(&v.chip6581Area);
@@ -134,6 +135,8 @@ void SIDTranceAudioProcessorEditor::addAllFrames()
         v.osc1.superVoicesBtn.setPopupOverlay(p);
         v.osc2.superVoicesBtn.setPopupOverlay(p);
         v.osc3.superVoicesBtn.setPopupOverlay(p);
+        // Noise type cycle (4 options)
+        v.noisePanel.typeBtn.setPopupOverlay(p);
         for (int i = 0; i < 4; ++i) {
             v.modMatrix.srcBtn[i].setPopupOverlay(p);
             v.modMatrix.dstBtn[i].setPopupOverlay(p);
@@ -320,6 +323,21 @@ void SIDTranceAudioProcessorEditor::bindAllParameters()
     // The previous output fader was removed; master_volume is now driven
     // exclusively by the top-header rotary next to the TranceSID logo.
     bindKnob (v.masterVolKnob,               "master_volume");
+
+    // ── Noise generator ─────────────────────────────────────
+    bindKnob  (v.noisePanel.attackKnob,  "noise_attack");
+    bindKnob  (v.noisePanel.decayKnob,   "noise_decay");
+    bindKnob  (v.noisePanel.sustainKnob, "noise_sustain");
+    bindKnob  (v.noisePanel.releaseKnob, "noise_release");
+    bindKnob  (v.noisePanel.levelKnob,   "noise_level");
+    {
+        int cur = int(std::round(*apvts.getRawParameterValue("noise_type")));
+        v.noisePanel.typeBtn.setIndex(std::clamp(cur, 0, 3));
+        v.noisePanel.typeBtn.onChanged = [&apvts](int i) {
+            if (auto* p = apvts.getParameter("noise_type"))
+                p->setValueNotifyingHost((float)i / 3.0f);   // 4 options
+        };
+    }
     bindToggle(v.masterPanel.limiterBtn,     "master_limiter");
     bindToggle(v.masterPanel.polyModeBtn,    "master_poly");
 

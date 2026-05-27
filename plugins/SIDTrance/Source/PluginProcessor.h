@@ -277,6 +277,110 @@ struct SIDOscillator {
 };
 
 // ============================================================
+//  NoiseGen — per-voice noise generator with 4 selectable colours.
+//  Mixed in alongside the oscillators (before the filter) so it
+//  inherits the existing filter + amp routing automatically.
+// ============================================================
+struct NoiseGen {
+    enum class Type : int { White = 0, Pink, Vinyl, Sweep };
+    Type     type = Type::White;
+
+    // White-noise source (LFSR — thread-safe, no rand()).
+    uint32_t lfsr = 0xA5A5A5A5u;
+
+    // Pink-noise filter state (Paul Kellet's economy 3-pole 1/f).
+    float    pinkB0 = 0.0f, pinkB1 = 0.0f, pinkB2 = 0.0f;
+
+    // Vinyl-air state (1-pole HPF + sparse pop scheduler).
+    float    vinylHpZ        = 0.0f;
+    float    vinylPopCountdn = 0.0f;
+    float    vinylPopLevel   = 0.0f;
+    float    vinylPopDecay   = 1.0f;
+
+    // Sweep-noise: state-variable bandpass + accumulated sweep phase.
+    // The bandpass centre frequency is driven by `modulator` passed
+    // in by the caller (usually the noise ADSR's current value) so
+    // long noise attacks sweep up — perfect for risers/uplifters.
+    float    svfLow = 0.0f;
+    float    svfBand = 0.0f;
+
+    void reset() {
+        pinkB0 = pinkB1 = pinkB2 = 0.0f;
+        vinylHpZ = vinylPopLevel = 0.0f;
+        vinylPopCountdn = 0.0f;
+        svfLow = svfBand = 0.0f;
+    }
+
+    // Return one sample of noise.  `sr` = sample rate; `modulator` is a
+    // 0..1 value used by Sweep noise to drive the bandpass centre
+    // (typically the host envelope value or a free LFO).  Other types
+    // ignore it.  Output amplitude is roughly normalised so swapping
+    // between types doesn't produce a level jump.
+    float process(float sr, float modulator) {
+        // White-noise step (fresh sample every call).
+        lfsr ^= (lfsr << 13);
+        lfsr ^= (lfsr >> 17);
+        lfsr ^= (lfsr << 5);
+        const float white = float(int(lfsr & 0xFFFFu) - 32768) / 32768.0f;
+
+        switch (type) {
+        default:
+        case Type::White:
+            return white;
+
+        case Type::Pink: {
+            // Paul Kellet's economy pink-noise filter (~10 dB / decade).
+            pinkB0 = 0.99765f * pinkB0 + white * 0.0990460f;
+            pinkB1 = 0.96300f * pinkB1 + white * 0.2965164f;
+            pinkB2 = 0.57000f * pinkB2 + white * 1.0526913f;
+            const float pink = pinkB0 + pinkB1 + pinkB2 + white * 0.1848f;
+            return pink * 0.18f;   // gain-match to white
+        }
+
+        case Type::Vinyl: {
+            // "Air" noise: 1-pole HPF (~3 kHz) shaped white + occasional
+            // exponentially-decaying pops.  Sounds like a vinyl needle
+            // riding the run-out groove.
+            const float hpCoef = 0.985f;
+            vinylHpZ = hpCoef * (vinylHpZ + white - vinylHpZ);  // simple HPF approximation
+            const float hpOut = white - vinylHpZ;
+
+            // Pop scheduler — at roughly every 50 ms, roll a die for a pop.
+            vinylPopCountdn -= 1.0f / sr;
+            if (vinylPopCountdn <= 0.0f) {
+                vinylPopCountdn = 0.05f;
+                // ~5 % chance of a pop
+                lfsr ^= (lfsr << 13); lfsr ^= (lfsr >> 17); lfsr ^= (lfsr << 5);
+                if ((lfsr & 0xFFu) < 13u) {
+                    vinylPopLevel = (float(int(lfsr & 0xFFFFu) - 32768)
+                                     / 32768.0f) * 0.7f;
+                    vinylPopDecay = std::exp(-1.0f / (sr * 0.004f));   // 4 ms decay
+                }
+            }
+            const float popOut = vinylPopLevel;
+            vinylPopLevel *= vinylPopDecay;   // tail off
+            return hpOut * 0.55f + popOut;
+        }
+
+        case Type::Sweep: {
+            // Bandpass-filtered white noise — centre frequency driven by
+            // `modulator`.  Maps modulator∈[0,1] to a logarithmic
+            // 200 Hz..8 kHz sweep so a long noise ADSR attack produces
+            // a natural-sounding upward sweep (riser).
+            const float m = std::clamp(modulator, 0.0f, 1.0f);
+            const float fHz = 200.0f * std::pow(40.0f, m);    // 200 → 8000
+            const float f = 2.0f * std::sin(3.14159265f * fHz / sr);
+            const float q = 0.30f;
+            const float hp = white - svfLow - q * svfBand;
+            svfBand += f * hp;
+            svfLow  += f * svfBand;
+            return svfBand * 1.4f;
+        }
+        }
+    }
+};
+
+// ============================================================
 //  ADSREnv — per-sample ADSR envelope
 // ============================================================
 struct ADSREnv {
@@ -375,6 +479,13 @@ struct SIDVoice {
     ADSREnv       env1, env2, env3, ampEnv, filterEnv;
     SIDFilter     filter;
 
+    // Noise generator — mixed into the osc sum before the filter so it
+    // shares the filter + amp signal path.  Has its own ADSR so the user
+    // can shape a long sweep-noise riser independently of the amp envelope.
+    NoiseGen      noiseGen;
+    ADSREnv       noiseEnv;
+    float         noiseLevel = 0.0f;
+
     int   note    = -1;
     int   age     = 0;      // voice allocation age counter
     bool  active  = false;
@@ -419,11 +530,14 @@ struct SIDVoice {
         cachedGlide_     = 1e30f;   // invalidate pitch cache so first sample recomputes baseHz
         cachedPitchBend_ = 1e30f;
         filter.reset();
-        env1.noteOn(); env2.noteOn(); env3.noteOn(); ampEnv.noteOn(); filterEnv.noteOn();
+        noiseGen.reset();
+        env1.noteOn(); env2.noteOn(); env3.noteOn();
+        ampEnv.noteOn(); filterEnv.noteOn(); noiseEnv.noteOn();
     }
 
     void noteOff() {
-        env1.noteOff(); env2.noteOff(); env3.noteOff(); ampEnv.noteOff(); filterEnv.noteOff();
+        env1.noteOff(); env2.noteOff(); env3.noteOff();
+        ampEnv.noteOff(); filterEnv.noteOff(); noiseEnv.noteOff();
     }
 
     // Returns mono sample — unison panning applied by caller via uniPan
@@ -522,7 +636,18 @@ struct SIDVoice {
         osc2.pw = savedPW2;
         osc3.pw = savedPW3;
 
-        const float mixed = s1 + s2 + s3;
+        // Noise generator — runs in parallel with the oscillators and is
+        // mixed into the same pre-filter sum, so it inherits the existing
+        // filter envelope and amp envelope routing.  The Sweep noise type
+        // uses the noise envelope value as its sweep modulator, so a slow
+        // attack naturally produces a rising-frequency riser.
+        const float nEnv = noiseEnv.process();
+        const float noiseRaw = (noiseLevel > 0.0001f)
+                             ? noiseGen.process(sr, nEnv)
+                             : 0.0f;
+        const float noiseSig = noiseRaw * nEnv * noiseLevel;
+
+        const float mixed = s1 + s2 + s3 + noiseSig;
 
         // Filter: cutoff from param + keytrack + filter env + mod
         const float keyOff    = (note - 60) * keyTrack * 50.0f;
@@ -1061,6 +1186,13 @@ private:
     std::atomic<float>* arpSwingParam_     = {};   // arp_swing
     std::atomic<float>* arpOctaveParam_    = {};   // arp_octave
     std::atomic<float>* arpModeParam_      = {};   // arp_mode
+    // Noise generator
+    std::atomic<float>* noiseTypeParam_    = {};
+    std::atomic<float>* noiseAtkParam_     = {};
+    std::atomic<float>* noiseDecParam_     = {};
+    std::atomic<float>* noiseSusParam_     = {};
+    std::atomic<float>* noiseRelParam_     = {};
+    std::atomic<float>* noiseLevelParam_   = {};
 
     // Per-oscillator cached pointers (index 0=osc1, 1=osc2, 2=osc3).
     // Eliminates juce::String heap allocation + HashMap lookup per note-on.

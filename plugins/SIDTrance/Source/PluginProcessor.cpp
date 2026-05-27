@@ -87,6 +87,16 @@ APVTS::ParameterLayout SIDTranceAudioProcessor::createParameterLayout()
     addFloat("osc3_super_detune",  "OSC3 SDetune", 0.0f, 1.0f, 0.5f);
     addFloat("osc3_super_mix",     "OSC3 SMix",    0.0f, 1.0f, 0.5f);
 
+    // ── Noise generator ─────────────────────────────────────
+    // 4 colour modes (White / Pink / Vinyl / Sweep) with their own ADSR
+    // and level.  Level defaults to 0 so existing presets are unaffected.
+    addInt     ("noise_type",    "Noise Type",   0, 3, 0);       // 0=W,1=P,2=V,3=Sw
+    addFloatLog("noise_attack",  "Noise A",      0.001f, 10.0f, 0.01f);
+    addFloatLog("noise_decay",   "Noise D",      0.001f, 10.0f, 0.3f);
+    addFloat   ("noise_sustain", "Noise S",      0.0f, 1.0f, 0.5f);
+    addFloatLog("noise_release", "Noise R",      0.001f, 20.0f, 0.3f);
+    addFloat   ("noise_level",   "Noise Level",  0.0f, 1.0f, 0.0f);
+
     // ── Filter ──────────────────────────────────────────────
     addFloat("filter_cutoff",    "Cutoff",     20.0f, 18000.0f, 1200.0f); // start lower for filter sweep room
     addFloat("filter_res",       "Resonance",  0.0f, 0.99f,    0.55f);   // more resonance for click character
@@ -360,6 +370,14 @@ void SIDTranceAudioProcessor::prepareToPlay(double sampleRate_, int samplesPerBl
     arpOctaveParam_    = apvts.getRawParameterValue("arp_octave");
     arpModeParam_      = apvts.getRawParameterValue("arp_mode");
 
+    // Noise generator
+    noiseTypeParam_    = apvts.getRawParameterValue("noise_type");
+    noiseAtkParam_     = apvts.getRawParameterValue("noise_attack");
+    noiseDecParam_     = apvts.getRawParameterValue("noise_decay");
+    noiseSusParam_     = apvts.getRawParameterValue("noise_sustain");
+    noiseRelParam_     = apvts.getRawParameterValue("noise_release");
+    noiseLevelParam_   = apvts.getRawParameterValue("noise_level");
+
     // Reset gate, glide, and sustain state
     gate.reset();
     lastPlayedNote_   = -1;
@@ -526,6 +544,16 @@ void SIDTranceAudioProcessor::handleNoteOn(int, int note, float vel)
                               fenvDecParam_->load(),
                               fenvSusParam_->load(),
                               fenvRelParam_->load(), float(sr));
+
+        // Noise generator — type, ADSR, level.  Voice independently runs
+        // its own noise + envelope so polyphony works naturally.
+        v.noiseGen.type = NoiseGen::Type(std::clamp(
+            int(std::round(noiseTypeParam_->load())), 0, 3));
+        v.noiseEnv.setParams(noiseAtkParam_->load(),
+                             noiseDecParam_->load(),
+                             noiseSusParam_->load(),
+                             noiseRelParam_->load(), float(sr));
+        v.noiseLevel = noiseLevelParam_->load();
 
         // Unison detune: spread evenly from -uniDetune/2 to +uniDetune/2 cents
         // Apply to OSC1 fine (OSC2 gets a complementary smaller offset for width)

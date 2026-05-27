@@ -2734,6 +2734,95 @@ private:
 };
 
 // ============================================================
+//  SIDNoisePanel — compact noise generator section.
+//  Type selector (White / Pink / Vinyl / Sweep) + dedicated ADSR
+//  knobs + a level knob.  Routed through the global filter + amp
+//  as an extra source — great for risers/uplifters when using the
+//  Sweep type with a long attack.
+// ============================================================
+class SIDNoisePanel : public SIDPanelBase {
+public:
+    SIDCycleButton  typeBtn;     // White / Pink / Vinyl / Sweep
+    SIDKnob         attackKnob, decayKnob, sustainKnob, releaseKnob;
+    SIDKnob         levelKnob;
+
+    SIDNoisePanel() : SIDPanelBase("NOISE") {}
+
+    void init() override {
+        addChild(&typeBtn);
+        addChild(&attackKnob);
+        addChild(&decayKnob);
+        addChild(&sustainKnob);
+        addChild(&releaseKnob);
+        addChild(&levelKnob);
+        updateFonts();
+    }
+    void dpiChanged() override { updateFonts(); }
+
+    void resized() override {
+        const int W = width(), H = height();
+
+        // Row 1 — type cycle button (full width, slim).
+        typeBtn.setBounds(6, 24, W - 12, 18);
+
+        // Row 2 — 4 small ADSR knobs in a row.  Sized to fit the panel
+        // width with a tight gap (no overflow).
+        const int ks  = std::clamp((W - 22) / 4, 24, 36);
+        const int gap = 3;
+        const int totEnv = 4 * ks + 3 * gap;
+        const int eX = std::max(2, (W - totEnv) / 2);
+        const int eY = 52;
+        attackKnob.setBounds (eX,                  eY, ks, ks);
+        decayKnob.setBounds  (eX + (ks + gap),     eY, ks, ks);
+        sustainKnob.setBounds(eX + 2 * (ks + gap), eY, ks, ks);
+        releaseKnob.setBounds(eX + 3 * (ks + gap), eY, ks, ks);
+
+        // Row 3 — level knob, larger and centred.
+        const int lk = std::clamp(H - eY - ks - 24, 36, 56);
+        const int lY = eY + ks + 16;
+        levelKnob.setBounds((W - lk) / 2, lY, lk, lk);
+    }
+
+    void draw(visage::Canvas& canvas) override {
+        drawPanelBase(canvas);
+
+        if (fonts_.label.size() > 0) {
+            const int W = width();
+            // "LEVEL" section label above the bigger knob (visual anchor)
+            canvas.setColor(SIDColors::TEXT_DIM);
+            canvas.text("ENV", fonts_.label, visage::Font::kCenter,
+                        4, 44, W - 8, 10);
+        }
+    }
+
+private:
+    void updateFonts() {
+        const float dpi = std::max(1.0f, dpiScale());
+        if (BinaryData::LatoRegular_ttfSize > 0) {
+            fonts_.init(dpi,
+                reinterpret_cast<const unsigned char*>(BinaryData::LatoRegular_ttf),
+                BinaryData::LatoRegular_ttfSize);
+        }
+        setFonts(&fonts_);
+        typeBtn.setFonts(&fonts_);
+        typeBtn.setOptions({"WHITE","PINK","VINYL","SWEEP"});
+        attackKnob.setFonts(&fonts_);   attackKnob.setLabel("A");
+        attackKnob.setRingColor(SIDColors::ENV_ATTACK);
+        decayKnob.setFonts(&fonts_);    decayKnob.setLabel("D");
+        decayKnob.setRingColor(SIDColors::ENV_DECAY);
+        sustainKnob.setFonts(&fonts_);  sustainKnob.setLabel("S");
+        sustainKnob.setRingColor(SIDColors::ENV_SUSTAIN);
+        releaseKnob.setFonts(&fonts_);  releaseKnob.setLabel("R");
+        releaseKnob.setRingColor(SIDColors::ENV_RELEASE);
+        levelKnob.setFonts(&fonts_);    levelKnob.setLabel("LEVEL");
+        levelKnob.setRingColor(SIDColors::ACCENT_PURPLE);
+        levelKnob.setLarge(true);
+    }
+
+    SIDFonts fonts_;
+};
+
+// ============================================================
 //  SIDMacroPanel — 4 large macro knobs (Brightness/Motion/Space/Drive)
 // ============================================================
 class SIDMacroPanel : public SIDPanelBase {
@@ -2897,6 +2986,10 @@ public:
 
     // Voice mod (middle section, right of master)
     SIDVoiceModPanel     voiceModPanel;
+
+    // Noise generator — shares the bottom-right field with Arp + Gate.
+    // Compact panel: type cycle + 4 ADSR knobs + 1 level knob.
+    SIDNoisePanel        noisePanel;
 
     // Chip-model selectors — two invisible click regions overlaid on the
     // 6581 / 8580 badges painted into the background PNG.  Each has its own
@@ -3169,14 +3262,17 @@ private:
         place(lfo1,      kPngLfo1);
         place(lfo2,      kPngLfo2);
 
-        // Bottom-right field now holds Arp + Gate side by side (FX moved
-        // to the left vertical strip), each with half the field width.
+        // Bottom-right field now holds Arp + Gate + Noise — three thirds.
+        // The noise generator gets its own column on the right; Arp and
+        // Gate keep their full vertical height in the remaining space.
         {
             const auto r = map(kPngArpGate);
             const int gap = 4;
-            const int half = (r.w - gap) / 2;
-            arpPanel.setBounds (r.x,             r.y, half,         r.h);
-            gatePanel.setBounds(r.x + half + gap, r.y, r.w - half - gap, r.h);
+            const int third = (r.w - 2 * gap) / 3;
+            arpPanel.setBounds  (r.x,                              r.y, third, r.h);
+            gatePanel.setBounds (r.x + third + gap,                r.y, third, r.h);
+            noisePanel.setBounds(r.x + 2 * (third + gap),          r.y,
+                                  r.w - 2 * (third + gap),         r.h);
             currentFields_.push_back(r);
         }
     }
