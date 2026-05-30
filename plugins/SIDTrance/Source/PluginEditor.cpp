@@ -263,6 +263,10 @@ void SIDTranceAudioProcessorEditor::bindAllParameters()
                 p->setValueNotifyingHost((float)i / 2.0f);   // 3 options
         };
     }
+    // Skeleton-layout knobs for OSC 1: VOICES → super_voices,
+    // STEREO → osc1_pan.  DETUNE uses the existing superDetuneKnob.
+    bindKnob(v.osc1.voicesKnob, "osc1_super_voices");
+    bindKnob(v.osc1.stereoKnob, "osc1_pan");
 
     // ── OSC 2 ───────────────────────────────────────────────
     bindKnob(v.osc2.semiKnob,      "osc2_semi");
@@ -284,6 +288,14 @@ void SIDTranceAudioProcessorEditor::bindAllParameters()
                 p->setValueNotifyingHost((float)i / 2.0f);
         };
     }
+    bindKnob(v.osc2.voicesKnob,  "osc2_super_voices");
+    bindKnob(v.osc2.stereoKnob,  "osc2_pan");
+    // OSC 2 only — second row of knobs.  SYNC → osc_sync (global bool),
+    // FM AMOUNT → osc_fm_amt (global float).  RING MOD has no backing
+    // param (Wave::RING exists but no separate amount); leave unbound
+    // so it's a visual placeholder.
+    bindKnob(v.osc2.syncKnob,    "osc_sync");
+    bindKnob(v.osc2.fmAmtKnob,   "osc_fm_amt");
 
     // ── OSC 3 ───────────────────────────────────────────────
     bindKnob(v.osc3.semiKnob,      "osc3_semi");
@@ -305,6 +317,9 @@ void SIDTranceAudioProcessorEditor::bindAllParameters()
                 p->setValueNotifyingHost((float)i / 2.0f);
         };
     }
+    bindKnob(v.osc3.voicesKnob, "osc3_super_voices");
+    bindKnob(v.osc3.stereoKnob, "osc3_pan");
+    // OSC 3 LAYER MODE dropdown is a placeholder — no backing param.
 
     // ── Filter ───────────────────────────────────────────────
     bindKnob(v.filterPanel.cutoffKnob,    "filter_cutoff");

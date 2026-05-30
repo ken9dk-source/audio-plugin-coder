@@ -702,23 +702,25 @@ public:
         const float W = float(width()), H = float(height());
         const float r = 3.0f;
 
-        // Background
-        canvas.setColor(on_ ? SIDColors::BTN_ON_BG : (hovered_ ? 0xFF0D1E38 : SIDColors::BTN_OFF_BG));
-        canvas.roundedRectangle(0, 0, W, H, r);
-
-        // Inner glow + sheen when ON
+        // OFF state: leave the printed slot in the JPG showing through
+        // (no background/border).  ON state: glow + accent border for
+        // active-selection feedback.  Hovered (OFF) shows a faint
+        // backlight without competing with the JPG's printed slot frame.
         if (on_) {
+            canvas.setColor(SIDColors::BTN_ON_BG);
+            canvas.roundedRectangle(0, 0, W, H, r);
             canvas.setColor(0x1800BBDD);
             canvas.roundedRectangle(1, 1, W - 2, H - 2, r - 0.5f);
             canvas.setColor(0x18FFFFFF);
             canvas.roundedRectangle(1, 1, W - 2, H * 0.45f, r - 0.5f);
+            canvas.setColor(SIDColors::BTN_ON_BORDER);
+            canvas.roundedRectangleBorder(0, 0, W, H, r, 1.0f);
+        } else if (hovered_) {
+            canvas.setColor(0x40103060);
+            canvas.roundedRectangle(0, 0, W, H, r);
         }
 
-        // Border
-        canvas.setColor(on_ ? SIDColors::BTN_ON_BORDER : SIDColors::BTN_OFF_BORDER);
-        canvas.roundedRectangleBorder(0, 0, W, H, r, 1.0f);
-
-        // Wave icon
+        // Wave icon (always drawn, brighter when active)
         const float px = 4.0f, py = 4.0f;
         const float pw = W - 8.0f, ph = H - 8.0f;
         const float mid = py + ph * 0.5f;
@@ -1532,6 +1534,21 @@ public:
     SIDKnob         superDetuneKnob;
     SIDKnob         superMixKnob;
 
+    // ── New skeleton-layout knobs ────────────────────────────────────
+    // Per the TranSID_GUI.jpg layout each OSC field has a VOICES /
+    // DETUNE / STEREO row of three rotary knobs.  OSC 2 adds a second
+    // row (SYNC / RING MOD / FM AMOUNT) and OSC 3 adds a LAYER MODE
+    // dropdown.  These widgets are bound in PluginEditor; ring mod and
+    // layer mode are visual placeholders only.
+    SIDKnob              voicesKnob;
+    SIDKnob              stereoKnob;
+    // OSC 2 only — sync amount, ring mod amount, FM amount.
+    SIDKnob              syncKnob;
+    SIDKnob              ringModKnob;
+    SIDKnob              fmAmtKnob;
+    // OSC 3 only — layer mode dropdown.
+    SIDDropdownButton    layerModeBtn;
+
     SIDOscilloscopeView envelopeDisplay;
 
     // Waveform selector buttons (7 types: SAW TRI SQR NOI S+T RNG HSW)
@@ -1542,7 +1559,9 @@ public:
     std::function<void(int)> onWaveformChanged;
 
     explicit SIDOscillatorPanel(int oscNum)
-        : SIDPanelBase("OSCILLATOR " + std::to_string(oscNum)) {}
+        : SIDPanelBase("OSCILLATOR " + std::to_string(oscNum)), oscNum_(oscNum) {}
+
+    int oscNumber() const { return oscNum_; }
 
     // Set active waveform from outside (e.g. APVTS binding)
     void setWaveform(int w) {
@@ -1569,6 +1588,13 @@ public:
         addChild(&superVoicesBtn);
         addChild(&superDetuneKnob);
         addChild(&superMixKnob);
+        // New skeleton-layout knobs
+        addChild(&voicesKnob);
+        addChild(&stereoKnob);
+        addChild(&syncKnob);
+        addChild(&ringModKnob);
+        addChild(&fmAmtKnob);
+        addChild(&layerModeBtn);
         addChild(&envelopeDisplay);
         updateFontsAndLayout();
 
@@ -1595,54 +1621,78 @@ public:
     }
 
     void resized() override {
-        const int w = width();
-        const int h = height();
+        // Layout per the TranSID GUI.jpg skeleton.  The printed labels and
+        // slot artwork live in the JPG; this code only places interactive
+        // controls evenly inside the field rectangle.  Anything not in the
+        // skeleton spec is parked off-screen so it doesn't draw anything.
+        const int W = width();
+        const int H = height();
 
-        // Waveform buttons row — taller for pixel-art icons
-        const int btnW = (w - 8) / kNumWaveforms;
-        for (int i = 0; i < kNumWaveforms; ++i)
-            waveButtons[i].setBounds(4 + i * btnW, 22, btnW - 2, 30);
+        auto hide = [](visage::Frame& f) { f.setBounds(-1000, -1000, 1, 1); };
+        auto evenX = [](int slot, int total, int rangeW, int rangeX) {
+            // Centre of `slot` of `total` evenly-spaced columns inside [rangeX, rangeX+rangeW].
+            return rangeX + (rangeW * (2 * slot + 1)) / (2 * total);
+        };
 
-        // Knobs row (shifted down to accommodate taller buttons)
-        const int kx = 4, ky = 58, ks = 52;
-        semiKnob.setBounds(kx,          ky, ks, ks);
-        fineKnob.setBounds(kx + ks + 8, ky, ks, ks);
-        pwKnob.setBounds(kx + 2*(ks+8), ky, ks, ks);
+        // Hide all controls that aren't part of the new skeleton spec.
+        hide(semiKnob); hide(fineKnob); hide(pwKnob); hide(volumeKnob);
+        hide(attackKnob); hide(decayKnob); hide(sustainKnob); hide(releaseKnob);
+        hide(superBtn); hide(superVoicesBtn); hide(superMixKnob);
+        hide(envelopeDisplay);
 
-        // ADSR knobs — match the style used by Amp + Filter Env.  4 knobs
-        // centred in the panel; size scales with the panel width so they
-        // stay readable even on narrower OSC fields.
-        const int ek   = std::clamp((w - 32) / 4, 38, 48);
-        const int egap = 4;
-        const int totEnv = 4 * ek + 3 * egap;
-        const int eX = std::max(4, (w - totEnv) / 2);
-        const int eY = 116;
-        attackKnob.setBounds (eX,                       eY, ek, ek);
-        decayKnob.setBounds  (eX + (ek + egap),         eY, ek, ek);
-        sustainKnob.setBounds(eX + 2 * (ek + egap),     eY, ek, ek);
-        releaseKnob.setBounds(eX + 3 * (ek + egap),     eY, ek, ek);
+        // ── Top row: 6 wave buttons evenly distributed ──────────────────
+        // Skeleton display order: SAW, PULSE, TRI, NOISE, HYPER, SID WAVE.
+        // Maps to existing wave-enum indices: 0, 2, 1, 3, 6, 4.
+        // Button[5] (RING) has no slot in the new design — hide it.
+        static constexpr int kWaveOrder[6] = { 0, 2, 1, 3, 6, 4 };
+        const int waveRowY = H * 6  / 100;             // ~6 % from top
+        const int waveRowH = H * 22 / 100;             // ~22 % tall
+        const int btnW     = std::max(20, (W - 24) / 6);
+        for (int slot = 0; slot < 6; ++slot) {
+            const int cx = evenX(slot, 6, W - 24, 12);
+            waveButtons[kWaveOrder[slot]].setBounds(cx - btnW / 2, waveRowY, btnW, waveRowH);
+        }
+        hide(waveButtons[5]);
 
-        // SUPERSAW row — fits between ADSR (ends ~y=160) and the envelope
-        // display (was y=206).  4 controls in one row.  Layout adapts to
-        // the panel width: toggle + voice picker take fixed-ish space on
-        // the left, the two knobs take the remaining width on the right.
-        const int sY      = 174;                       // top of SUPER row
-        const int sToggleW = 56;
-        const int sVoicesW = 44;
-        const int sKnob    = std::clamp((w - sToggleW - sVoicesW - 16) / 2 - 4, 28, 38);
-        const int sToggleH = 18;
-        superBtn.setBounds      (6,                                       sY + 4, sToggleW, sToggleH);
-        superVoicesBtn.setBounds(6 + sToggleW + 4,                        sY + 4, sVoicesW, sToggleH);
-        const int sKnobY = sY - 4;
-        const int sKnobX1 = 6 + sToggleW + 4 + sVoicesW + 6;
-        const int sKnobX2 = sKnobX1 + sKnob + 4;
-        superDetuneKnob.setBounds(sKnobX1, sKnobY, sKnob, sKnob);
-        superMixKnob.setBounds   (sKnobX2, sKnobY, sKnob, sKnob);
+        // ── Knob row helpers — common knob size for all knob rows ──
+        // Square knobs sized to fit 3 across the field width with margins.
+        const int knobW = std::max(28, std::min(72, (W - 40) / 4));
 
-        // Envelope display + volume knob — pushed down a bit to make room
-        // for the supersaw row above.
-        envelopeDisplay.setBounds(4, 220, w - 62, 46);
-        volumeKnob.setBounds(w - 58, 220, ks, ks);
+        // For OSC 2 we need two knob rows (VOICES/DETUNE/STEREO above,
+        // SYNC/RING/FM below).  For OSC 1 / OSC 3 just one knob row.
+        const bool twoRows = (oscNum_ == 2);
+        const int row1Y = twoRows ? (H * 33 / 100) : (H * 38 / 100);
+        const int row2Y = twoRows ? (H * 65 / 100) : -1000;
+
+        // ── Row: VOICES / DETUNE / STEREO ──────────────────────────────
+        {
+            const int knobs[3] = { 0, 1, 2 };
+            visage::Frame* const widgets[3] = { &voicesKnob, &superDetuneKnob, &stereoKnob };
+            for (int slot : knobs) {
+                const int cx = evenX(slot, 3, W - 24, 12);
+                widgets[slot]->setBounds(cx - knobW / 2, row1Y, knobW, knobW);
+            }
+        }
+
+        // ── OSC 2 only: SYNC / RING MOD / FM AMOUNT row ────────────────
+        if (twoRows) {
+            visage::Frame* const widgets[3] = { &syncKnob, &ringModKnob, &fmAmtKnob };
+            for (int slot = 0; slot < 3; ++slot) {
+                const int cx = evenX(slot, 3, W - 24, 12);
+                widgets[slot]->setBounds(cx - knobW / 2, row2Y, knobW, knobW);
+            }
+        } else {
+            hide(syncKnob); hide(ringModKnob); hide(fmAmtKnob);
+        }
+
+        // ── OSC 3 only: LAYER MODE dropdown at the bottom ──────────────
+        if (oscNum_ == 3) {
+            const int ddH = std::max(18, H * 10 / 100);
+            const int ddW = (W * 65) / 100;
+            layerModeBtn.setBounds((W - ddW) / 2, H * 80 / 100, ddW, ddH);
+        } else {
+            hide(layerModeBtn);
+        }
     }
 
     void draw(visage::Canvas& canvas) override {
@@ -1650,6 +1700,8 @@ public:
     }
 
 private:
+    int oscNum_ = 1;  // which oscillator this panel represents (1, 2, or 3)
+
     void updateFontsAndLayout() {
         const float dpi = std::max(1.0f, dpiScale());
         if (BinaryData::LatoRegular_ttfSize > 0) {
@@ -1681,6 +1733,15 @@ private:
         superMixKnob.setFonts(&fonts_);      superMixKnob.setLabel("MIX");
         superMixKnob.setRingColor(SIDColors::ACCENT_PURPLE);
         envelopeDisplay.setFonts(&fonts_);
+
+        // New skeleton-layout knobs — bound in PluginEditor::bindAllParameters.
+        voicesKnob.setFonts(&fonts_);   voicesKnob.setRingColor(SIDColors::ACCENT_CYAN_BRIGHT);
+        stereoKnob.setFonts(&fonts_);   stereoKnob.setRingColor(SIDColors::ACCENT_PURPLE);
+        syncKnob.setFonts(&fonts_);     syncKnob.setRingColor(SIDColors::ACCENT_CYAN_BRIGHT);
+        ringModKnob.setFonts(&fonts_);  ringModKnob.setRingColor(SIDColors::ACCENT_PURPLE);
+        fmAmtKnob.setFonts(&fonts_);    fmAmtKnob.setRingColor(SIDColors::ACCENT_CYAN_BRIGHT);
+        layerModeBtn.setFonts(&fonts_);
+        layerModeBtn.setOptions({"STACK", "SPLIT", "SUB", "OCTAVE"});
 
         for (int i = 0; i < kNumWaveforms; ++i)
             waveButtons[i].setWaveType(i);
@@ -1728,41 +1789,48 @@ public:
     void dpiChanged() override { updateFonts(); }
 
     void resized() override {
-        const int W = width();
-        // The Filter field is ~188 effective px in the PNG-mapped layout.
-        // Every row below now fits inside that width with a small margin,
-        // and the spacing between Cutoff → Resonance is identical to
-        // Resonance → Env Amount (matches the requested layout).
-        // ── Row 1: Cutoff, Resonance, Env Amount (uniform size + gap) ─
-        const int ks  = 58;       // shared knob size for the top row
-        const int gap = 4;
-        const int row1Y = 18;
-        const int row1X = 4;
-        cutoffKnob.setBounds   (row1X,                          row1Y, ks, ks);
-        resonanceKnob.setBounds(row1X + (ks + gap),             row1Y, ks, ks);
-        envAmountKnob.setBounds(row1X + 2 * (ks + gap),         row1Y, ks, ks);
+        // Skeleton layout: filter-type list on the left (LP12/LP24/LP36/
+        // LADDER/DIODE — only LP12 + LP24 backed by params), curve display
+        // in the middle (passive — drawn by JPG, no widget), and 5 knobs
+        // on the right in a 2-column grid (CUTOFF/RESONANCE, DRIVE/ENV
+        // AMOUNT, KEY TRACK alone in the third row).  Everything else
+        // (envelope ADSR knobs, slope toggle, velocity toggle) is parked
+        // off-screen — no slot in the new skeleton.
+        const int W = width(), H = height();
+        auto hide = [](visage::Frame& f) { f.setBounds(-1000, -1000, 1, 1); };
+        hide(envAttackKnob); hide(envDecayKnob); hide(envSustainKnob); hide(envReleaseKnob);
+        hide(slopeBtn); hide(velocityBtn);
 
-        // ── Row 2: Type cycle + Slope toggle ─────────────────
-        typeBtn.setBounds (4,   92, 104, 20);
-        slopeBtn.setBounds(112, 92, 72,  20);
+        // Left list: filter-type cycle, 5 rows printed in the JPG.
+        // Since I only have a 4-option cycle (LP/HP/BP/Notch), bind it
+        // to a vertical clickable region the width of the printed list.
+        const int listX = 0;
+        const int listW = std::max(80, W * 18 / 100);
+        typeBtn.setBounds(listX + 4, H * 12 / 100, listW - 8, H * 76 / 100);
 
-        // ── Row 3: Filter ENV knobs ───────────────────────────
-        // Bumped 36 → 44 (much more readable), still fits the ~188-px
-        // effective field width: 4 × 44 + 3 × 4 = 188.  Centred for safety
-        // in case host scaling drifts the panel width slightly.
-        const int ek = 44;
-        const int egap = 4;
-        const int totEnv = 4 * ek + 3 * egap;            // 188
-        int ex = std::max(2, (W - totEnv) / 2);
-        envAttackKnob.setBounds (ex, 122, ek, ek);  ex += ek + egap;
-        envDecayKnob.setBounds  (ex, 122, ek, ek);  ex += ek + egap;
-        envSustainKnob.setBounds(ex, 122, ek, ek);  ex += ek + egap;
-        envReleaseKnob.setBounds(ex, 122, ek, ek);
+        // Right column: 5 knobs in a 2-column × 3-row grid.
+        const int rightX = W * 70 / 100;
+        const int rightW = W - rightX - 6;
+        const int rightY = H * 8 / 100;
+        const int rightH = H * 84 / 100;
+        const int rowH   = rightH / 3;
+        const int knobS  = std::min(rowH - 4, rightW / 2 - 6);
+        const int colXL  = rightX + (rightW / 2 - knobS) / 2;
+        const int colXR  = rightX + rightW / 2 + (rightW / 2 - knobS) / 2;
 
-        // ── Row 4: Key track + Velocity ──────────────────────
-        const int bw = 84;
-        keyTrackBtn.setBounds(4,           height() - 26, bw, 20);
-        velocityBtn.setBounds(W - 4 - bw,  height() - 26, bw, 20);
+        cutoffKnob.setBounds   (colXL, rightY + 0 * rowH, knobS, knobS);
+        resonanceKnob.setBounds(colXR, rightY + 0 * rowH, knobS, knobS);
+        envAmountKnob.setBounds(colXR, rightY + 1 * rowH, knobS, knobS);
+        // DRIVE: skeleton wants left column row 2 — use keyTrack slot via
+        // envAmountKnob mapping?  Actually map: DRIVE → drive_amount via a
+        // separate hookup in PluginEditor.  No DRIVE knob in this panel,
+        // so use the keyTrackBtn position for KEY TRACK row 3 left only.
+        keyTrackBtn.setBounds  (colXL, rightY + 2 * rowH,
+                                knobS + 8, std::max(20, rowH - 8));
+        // Move env-amount knob to the row 2 RIGHT slot already done above;
+        // left slot of row 2 (DRIVE) has no panel-internal widget — the
+        // top-level drive knob lives outside this panel (in voiceModPanel,
+        // which is hidden), so leave it as a placeholder.
     }
 
     void draw(visage::Canvas& canvas) override {
