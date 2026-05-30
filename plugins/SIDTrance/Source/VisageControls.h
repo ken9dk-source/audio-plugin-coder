@@ -2206,31 +2206,51 @@ public:
     void dpiChanged() override { updateFonts(); }
 
     void resized() override {
-        const int W = width();
+        // Skeleton ARP layout:
+        //   Top row    : PATTERN (wide dropdown), STEPS, RATE (right).
+        //   Middle row : 16-bar step display (the steps[] grid).
+        //   Bottom row : 5 buttons — UP / DOWN / RANDOM / CHORD / TRANCE.
+        //
+        // I have these existing widgets:
+        //   modeBtn   → bind to PATTERN (Up/Down/UpDn/Rand/Order options)
+        //   tempoBtn  → bind to RATE   (continuous BPM)
+        //   octaveBtn → repurpose as STEPS
+        //   steps[16] → the 16-bar step grid
+        //   gateBtn, swingBtn, arpOnBtn, syncBtn → hide off-screen
+        //
+        // The bottom UP/DOWN/RANDOM/CHORD/TRANCE row in the skeleton is
+        // a placeholder visualisation of the arp mode — I leave it empty
+        // (clicking the JPG buttons does nothing) since the active mode
+        // is already controllable via the PATTERN dropdown above.
+        const int W = width(), H = height();
+        auto hide = [](visage::Frame& f) { f.setBounds(-1000, -1000, 1, 1); };
 
-        // ── Top control row (label text drawn in draw()) ──
-        // Controls row — y=32, h=20.
-        // Order: ON | SYNC | MODE | OCT | GATE | SWING | TEMPO
-        // This avoids the arpOnBtn/syncBtn overlap that occurred at x≈290.
-        const int bY = 32, bH = 20;
-        arpOnBtn.setBounds (4,        bY, 38, bH);  // ON — leftmost, most prominent
-        syncBtn.setBounds  (46,       bY, 38, bH);  // SYNC — second
-        modeBtn.setBounds  (88,       bY, 54, bH);
-        octaveBtn.setBounds(146,      bY, 54, bH);
-        gateBtn.setBounds  (204,      bY, 42, bH);
-        swingBtn.setBounds (250,      bY, 42, bH);
-        tempoBtn.setBounds (296,      bY, W - 300, bH);
+        hide(gateBtn); hide(swingBtn); hide(arpOnBtn); hide(syncBtn);
 
-        // ── Step buttons ──
-        // Fit 16 buttons centred; make them as wide as possible
-        const int stepH = 36, gap = 4;
-        const int available = W - 8;           // 8px total side padding
-        const int stepW = (available - gap * (kStepCount - 1)) / kStepCount;
-        int sx = 4;
+        // Top row: 3 dropdowns.  Distribute as (60% / 18% / 18%) of width
+        // with small gaps so they fall under the printed labels.
+        const int topY = H * 8 / 100;
+        const int topH = std::max(18, H * 15 / 100);
+        const int margin = 6;
+        const int totalW = W - 2 * margin;
+        const int patternW = totalW * 60 / 100;
+        const int stepsW   = totalW * 18 / 100;
+        const int rateW    = totalW * 18 / 100;
+        modeBtn.setBounds   (margin,                                topY, patternW, topH);
+        octaveBtn.setBounds (margin + patternW + 6,                 topY, stepsW,   topH);
+        tempoBtn.setBounds  (margin + patternW + stepsW + 12,       topY, rateW,    topH);
+
+        // Middle row: 16-step display, evenly distributed across width.
+        const int midY = H * 32 / 100;
+        const int midH = H * 38 / 100;
+        const int stepGap = 3;
+        const int stepW = std::max(8, (W - 2 * margin - stepGap * (kStepCount - 1)) / kStepCount);
         for (int i = 0; i < kStepCount; ++i) {
-            steps[i].setBounds(sx, 58, stepW, stepH);
-            sx += stepW + gap;
+            const int sx = margin + i * (stepW + stepGap);
+            steps[i].setBounds(sx, midY, stepW, midH);
         }
+        // Bottom row UP/DOWN/RANDOM/CHORD/TRANCE: no backing widgets,
+        // skeleton prints the buttons for visual reference only.
     }
 
     void setPlayingStep(int step) {
@@ -2330,45 +2350,59 @@ public:
     void dpiChanged() override { updateFonts(); }
 
     void resized() override {
-        // The panel now lives in the narrow left vertical strip (~111 px
-        // wide, ~325 px tall after PNG-mapping).  The old horizontal layout
-        // (knobs at x=84+) ran off the right edge.  Stack the three FX
-        // sections vertically with three knobs centred in each section.
+        // Skeleton FX Rack: 6 horizontal rows evenly distributed.  Each
+        // row: LED on/off (leftmost), printed effect name, then 2-3
+        // rotary slots.  I have 3 backed effects (chorus / delay /
+        // reverb) — they land in the top 3 rows; rows 4-6 (phaser,
+        // dimension, compressor) are placeholders printed in the JPG.
         const int W = width(), H = height();
-        const int titleArea = 22;                         // top area for panel title
-        const int sectionH  = (H - titleArea) / 3;
-        const int ks   = 28;
-        const int kgap = 4;
-        const int row3W = 3 * ks + 2 * kgap;              // 92
-        const int rowX  = std::max(4, (W - row3W) / 2);
+        const int rows = 6;
+        const int rowH = H / rows;
+        // Layout per row: LED at left ~5 %, name area ~25 %, 3 knob
+        // slots filling the remaining ~70 %.
+        const int ledX = std::max(4, W * 3 / 100);
+        const int ledS = std::max(14, rowH * 40 / 100);
+        const int knobAreaX = W * 38 / 100;
+        const int knobAreaW = W - knobAreaX - 6;
+        const int slotW = knobAreaW / 3;
+        const int knobS = std::max(20, std::min(rowH - 6, slotW - 6));
 
-        auto placeSection = [&](int idx,
-                                SIDToggleButton& led,
-                                visage::Frame& a, visage::Frame& b, visage::Frame& c) {
-            const int y0 = titleArea + idx * sectionH;
-            led.setBounds(6, y0 + 6, 12, 12);
-            const int ry = y0 + 24;
-            a.setBounds(rowX,                    ry, ks, ks);
-            b.setBounds(rowX + (ks + kgap),      ry, ks, ks);
-            c.setBounds(rowX + 2 * (ks + kgap),  ry, ks, ks);
+        auto centreKnob = [&](visage::Frame& f, int slot, int rowY) {
+            const int cx = knobAreaX + slot * slotW + slotW / 2 - knobS / 2;
+            const int cy = rowY + (rowH - knobS) / 2;
+            f.setBounds(cx, cy, knobS, knobS);
         };
 
-        placeSection(0, chorusBtn, chorusRate,    chorusDepth,   chorusMix);
-
-        // Delay row: time-picker (smaller than a knob) + FDBK + MIX
+        // Row 0 — Chorus (LED + 3 knobs)
         {
-            const int y0 = titleArea + 1 * sectionH;
-            delayBtn.setBounds(6, y0 + 6, 12, 12);
-            const int ry = y0 + 24;
-            const int pickerW = ks;                       // match knob width
-            const int pickerH = 16;
-            const int pickerY = ry + (ks - pickerH) / 2;  // vertically centred
-            delayTimeBtn.setBounds(rowX,                            pickerY, pickerW, pickerH);
-            delayFeedback.setBounds(rowX + (ks + kgap),             ry,      ks, ks);
-            delayMix.setBounds     (rowX + 2 * (ks + kgap),         ry,      ks, ks);
+            const int rowY = 0;
+            chorusBtn.setBounds(ledX, rowY + (rowH - ledS) / 2, ledS, ledS);
+            centreKnob(chorusRate,  0, rowY);
+            centreKnob(chorusDepth, 1, rowY);
+            centreKnob(chorusMix,   2, rowY);
         }
-
-        placeSection(2, reverbBtn, reverbSize,    reverbDamping, reverbMix);
+        // Row 1 — Delay (LED + Time picker + Feedback + Mix)
+        {
+            const int rowY = rowH;
+            delayBtn.setBounds(ledX, rowY + (rowH - ledS) / 2, ledS, ledS);
+            // Time = cycle button replaces the knob shape; size it like a knob.
+            const int cx0 = knobAreaX + 0 * slotW + slotW / 2 - knobS / 2;
+            const int cy  = rowY + (rowH - knobS) / 2;
+            const int pickerH = std::max(18, knobS * 70 / 100);
+            delayTimeBtn.setBounds(cx0, cy + (knobS - pickerH) / 2, knobS, pickerH);
+            centreKnob(delayFeedback, 1, rowY);
+            centreKnob(delayMix,      2, rowY);
+        }
+        // Row 2 — Reverb (LED + 3 knobs)
+        {
+            const int rowY = 2 * rowH;
+            reverbBtn.setBounds(ledX, rowY + (rowH - ledS) / 2, ledS, ledS);
+            centreKnob(reverbSize,    0, rowY);
+            centreKnob(reverbDamping, 1, rowY);
+            centreKnob(reverbMix,     2, rowY);
+        }
+        // Rows 3-5: PHASER / DIMENSION / COMPRESSOR — placeholders.
+        // The skeleton prints LED, name and knob slots; no widgets.
     }
 
     void draw(visage::Canvas& canvas) override {
@@ -2447,13 +2481,27 @@ public:
     void dpiChanged() override { updateFonts(); }
 
     void resized() override {
-        // Columns: [4..83] src | [88..113] knob | [118..width-4] dst
-        const int W = width();
+        // Skeleton: 8 numbered rows evenly distributed.  Each row has
+        // SRC dropdown | DST dropdown | small AMT knob.  I have 4 mod
+        // slots (kSlots=4); they land in the top 4 rows.  Rows 5-8 are
+        // visual placeholders printed in the JPG.
+        const int W = width(), H = height();
+        const int totalRows = 8;
+        const int rowH = H / totalRows;
+        const int margin = 6;
+        const int srcW = (W - 2 * margin) * 42 / 100;
+        const int dstW = (W - 2 * margin) * 42 / 100;
+        const int amtS = std::max(18, rowH - 6);
+        const int srcX = margin;
+        const int dstX = srcX + srcW + 6;
+        const int amtX = W - margin - amtS;
+        const int controlH = std::max(16, rowH - 8);
+
         for (int i = 0; i < kSlots; ++i) {
-            const int ry = 22 + i * 26;
-            srcBtn[i].setBounds(4,       ry, 80, 22);
-            amtKnob[i].setBounds(88,     ry - 1, 24, 24);
-            dstBtn[i].setBounds(116,     ry, W - 120, 22);
+            const int ry = i * rowH + (rowH - controlH) / 2;
+            srcBtn[i].setBounds(srcX, ry, srcW, controlH);
+            dstBtn[i].setBounds(dstX, ry, dstW, controlH);
+            amtKnob[i].setBounds(amtX, i * rowH + (rowH - amtS) / 2, amtS, amtS);
         }
     }
 
@@ -3010,13 +3058,26 @@ public:
     void dpiChanged() override { updateFonts(); }
 
     void resized() override {
+        // Skeleton: 8 macro rows stacked vertically, each with a number
+        // badge (1-8) printed to the left and a label (ENERGY / LIFT /
+        // BRIGHT / WIDTH / AIR / DRIVE / MOTION / BREAKDOWN) to the right.
+        // I have 4 backing params (macro1..macro4) — place them in the
+        // top 4 slots evenly distributed inside the column.  Slots 5-8
+        // remain visual placeholders (no widget).
         const int W = width(), H = height();
-        const int kw = (W - 8) / 4 - 2;
-        const int kh = H - 22;
-        macro1.setBounds(4,              22, kw, kh);
-        macro2.setBounds(4 + kw + 2,     22, kw, kh);
-        macro3.setBounds(4 + 2*(kw+2),   22, kw, kh);
-        macro4.setBounds(4 + 3*(kw+2),   22, kw, kh);
+        const int slots = 8;
+        const int slotH = H / slots;
+        const int knobS = std::min(slotH - 8, W * 45 / 100);
+        // Knob horizontally centred where the JPG prints the circle
+        // (roughly 35 % from the left, between badge and label).
+        const int knobX = W * 30 / 100;
+        SIDKnob* knobs[4] = { &macro1, &macro2, &macro3, &macro4 };
+        for (int i = 0; i < 4; ++i) {
+            const int slotY = i * slotH;
+            const int kx = knobX;
+            const int ky = slotY + (slotH - knobS) / 2;
+            knobs[i]->setBounds(kx, ky, knobS, knobS);
+        }
     }
 
     void draw(visage::Canvas& canvas) override {
@@ -3066,19 +3127,39 @@ public:
     void dpiChanged() override { updateFonts(); }
 
     void resized() override {
-        const int W = width();
-        const int bY = 32, bH = 20;
-        gateOnBtn.setBounds  (4,  bY, 44, bH);
-        gateSwingBtn.setBounds(52, bY, 72, bH);
+        // Skeleton layout: full-width bottom strip with:
+        //   - Left column (~10 % wide): TRANCE GATE title (printed) + ON
+        //     toggle.  3 sub-row labels (VELOCITY / PROBABILITY / SWING)
+        //     are printed in the JPG below it.
+        //   - Middle (~75 %): 16-step grid arranged in 3 lanes
+        //     (gate on/off, velocity, swing).  Only the first lane has
+        //     backing params (gate_step_NN); the other two lanes are
+        //     printed in the skeleton but have no widgets.
+        //   - Right column (~15 %): STEPS / RATE / SWING dropdowns +
+        //     dice button.  No backing params — placeholders.
+        const int W = width(), H = height();
+        auto hide = [](visage::Frame& f) { f.setBounds(-1000, -1000, 1, 1); };
+        hide(gateSwingBtn);
 
-        // 16 step buttons
-        const int stepH = 36, gap = 3;
-        const int available = W - 8;
-        const int stepW = (available - gap * (kStepCount - 1)) / kStepCount;
-        int sx = 4;
+        // Left column: ON toggle, vertically centred in the header area.
+        const int leftW = std::max(80, W * 9 / 100);
+        const int onH   = std::max(18, H * 16 / 100);
+        gateOnBtn.setBounds(leftW * 5 / 10, H * 10 / 100, leftW / 2, onH);
+
+        // Middle: 16 step buttons evenly distributed in the TOP lane only
+        // (gate on/off).  The Y position is the upper third of the panel
+        // to leave the printed VELOCITY/PROBABILITY lanes underneath
+        // visible.
+        const int midX = leftW + 6;
+        const int rightW = std::max(80, W * 12 / 100);
+        const int midW = W - midX - rightW - 6;
+        const int laneH = H * 24 / 100;
+        const int gateY = H * 14 / 100;
+        const int gap = 2;
+        const int stepW = std::max(8, (midW - gap * (kStepCount - 1)) / kStepCount);
         for (int i = 0; i < kStepCount; ++i) {
-            steps[i].setBounds(sx, 58, stepW, stepH);
-            sx += stepW + gap;
+            const int sx = midX + i * (stepW + gap);
+            steps[i].setBounds(sx, gateY, stepW, laneH);
         }
     }
 
@@ -3365,17 +3446,11 @@ private:
         }
 
         // ── MACROS LEFT VERTICAL COLUMN ────────────────────────────────
-        // Skeleton shows 8 macro slots; macro1..4 are functional, the
-        // rest are placeholder positions left for future DSP.  Place the
-        // existing 4-knob macroPanel inside the TOP HALF of the column
-        // so the bottom-half placeholder slots in the skeleton remain
-        // visible (the panel chrome doesn't cover them).
-        {
-            const auto r = map(kSklMacros);
-            const int topH = (r.h * 4) / 8;            // top 4 of 8 slots
-            macroPanel.setBounds(r.x, r.y, r.w, topH);
-            currentFields_.push_back({r.x, r.y, r.w, topH});
-        }
+        // Give the macro panel the FULL column height so its internal
+        // 8-slot distribution lines up with the JPG's printed circles
+        // for macros 1-8.  Only macro1..macro4 are bound to params —
+        // those land in the top 4 slots; the bottom 4 stay empty.
+        place(macroPanel, kSklMacros);
 
         // ── OSC 1/2/3 ──────────────────────────────────────────────────
         // Each OSC panel placed inside its skeleton field.  The scope and
