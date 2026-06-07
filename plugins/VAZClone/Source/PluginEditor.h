@@ -18,6 +18,7 @@ public:
 
     void paint (juce::Graphics&) override;
     void resized() override;
+    int  getControlParameterIndex (juce::Component&) override;   // host control→param mapping (Ableton automation)
 
 private:
     VAZCloneAudioProcessor& audioProcessor;
@@ -136,6 +137,8 @@ private:
     juce::WebSliderRelay portamentoRelay  { ParameterIDs::portamento };
     juce::WebSliderRelay bendRangeRelay   { ParameterIDs::bend_range };
     juce::WebSliderRelay uniVoicesRelay   { ParameterIDs::uni_voices };
+
+    juce::WebControlParameterIndexReceiver controlParamReceiver;   // reports which control the mouse is over → param index (Ableton)
 
     // 2. WEBVIEW (destroyed middle)
     std::unique_ptr<juce::WebBrowserComponent> webView;

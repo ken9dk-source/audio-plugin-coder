@@ -36,6 +36,14 @@ VAZCloneAudioProcessorEditor::VAZCloneAudioProcessorEditor (VAZCloneAudioProcess
                 [this] (const juce::Array<juce::var>& args, juce::WebBrowserComponent::NativeFunctionCompletion complete)
                 { const int o = args.size() > 0 ? (int) args[0] : 0;
                   complete (juce::var ((o == 1 ? audioProcessor.osc2SampleData : audioProcessor.osc1SampleData).name)); })
+            .withNativeFunction (juce::Identifier ("resetParam"),
+                [this] (const juce::Array<juce::var>& args, juce::WebBrowserComponent::NativeFunctionCompletion complete)
+                {
+                    if (args.size() > 0)
+                        if (auto* p = audioProcessor.apvts.getParameter (args[0].toString()))
+                            { p->beginChangeGesture(); p->setValueNotifyingHost (p->getDefaultValue()); p->endChangeGesture(); }
+                    complete (juce::var());
+                })
             .withResourceProvider ([this] (const auto& url) { return getResource (url); })
             .withOptionsFrom (o1OctaveRelay)
             .withOptionsFrom (o2OctaveRelay)
@@ -149,7 +157,8 @@ VAZCloneAudioProcessorEditor::VAZCloneAudioProcessorEditor (VAZCloneAudioProcess
             .withOptionsFrom (e2DestRelay)
             .withOptionsFrom (mix1PostRelay)
             .withOptionsFrom (mix2PostRelay)
-            .withOptionsFrom (mix3PostRelay));
+            .withOptionsFrom (mix3PostRelay)
+            .withOptionsFrom (controlParamReceiver));
 
     addAndMakeVisible (*webView);
 
@@ -283,6 +292,9 @@ VAZCloneAudioProcessorEditor::VAZCloneAudioProcessorEditor (VAZCloneAudioProcess
     webView->goToURL (juce::WebBrowserComponent::getResourceProviderRoot());
 
     setSize (726, 572);   // 604x475 content × 1.2 zoom (+ small margin) → shows the full menu bar + Env Curve buttons
+    setResizable (true, true);
+    if (auto* c = getConstrainer()) c->setFixedAspectRatio (726.0 / 572.0);   // keep proportions while resizing
+    setResizeLimits (545, 429, 1815, 1430);                                   // 0.75x .. 2.5x
 }
 
 VAZCloneAudioProcessorEditor::~VAZCloneAudioProcessorEditor() {}
@@ -297,6 +309,11 @@ void VAZCloneAudioProcessorEditor::resized()
 {
     if (webView != nullptr)
         webView->setBounds (getLocalBounds());
+}
+
+int VAZCloneAudioProcessorEditor::getControlParameterIndex (juce::Component&)
+{
+    return controlParamReceiver.getControlParameterIndex();
 }
 
 //==============================================================================

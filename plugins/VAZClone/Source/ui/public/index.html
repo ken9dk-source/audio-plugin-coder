@@ -11,9 +11,11 @@ body {
   font-family:'Tahoma','MS Sans Serif',Arial,sans-serif;
   font-size:10px;
   color:#e0a020;
-  user-select:none;
+  user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; -webkit-user-drag:none;
+  cursor:default;
   margin:0; padding:0;
 }
+* { -webkit-user-select:none; user-select:none; -webkit-user-drag:none; }
 /* dark window bar at the very top — plain strip, full width (flush with the wood edges) */
 .topbar {
   background:linear-gradient(180deg,#3a3f55,#15161f);
@@ -731,6 +733,7 @@ function _initWave(dispId,osc){try{var p=getNativeFunction('getSampleName')(osc)
 function _initWaves(tries){try{if(window.__JUCE__&&window.__JUCE__.backend){_initWave('o1WaveDisp',0);_initWave('o2WaveDisp',1);return;}}catch(e){}if(tries>0)setTimeout(function(){_initWaves(tries-1);},300);}
 _initWaves(12);
 </script>
+
 
 
 
@@ -1482,6 +1485,15 @@ function bindSlider(paramId, el) {
     state.valueChangedEvent.addListener(updateThumb);
   updateThumb();
 
+  // tell the host (Ableton) which parameter this control maps to
+  const setIdx = () => {
+    const i = state.properties ? state.properties.parameterIndex : -1;
+    if (i != null && i >= 0) el.setAttribute("controlparameterindex", i);
+  };
+  if (state.propertiesChangedEvent && state.propertiesChangedEvent.addListener)
+    state.propertiesChangedEvent.addListener(setIdx);
+  setIdx();
+
   let dragging = false;
   const setFromX = (clientX) => {
     const r = el.getBoundingClientRect();
@@ -1490,9 +1502,21 @@ function bindSlider(paramId, el) {
     state.setNormalisedValue(p);
     if (thumb) thumb.style.left = (p * 92) + "%";
   };
-  el.addEventListener("mousedown", (e) => { dragging = true; el.classList.remove("center"); setFromX(e.clientX); });
-  window.addEventListener("mousemove", (e) => { if (dragging) setFromX(e.clientX); });
-  window.addEventListener("mouseup", () => { dragging = false; });
+  el.addEventListener("pointerdown", (e) => {
+    if (e.metaKey || e.ctrlKey) {                 // Cmd (Mac) / Ctrl (Win) → reset to default
+      try { Juce.getNativeFunction("resetParam")(paramId); } catch (err) {}
+      e.preventDefault();
+      return;
+    }
+    dragging = true;
+    el.classList.remove("center");
+    try { el.setPointerCapture(e.pointerId); } catch (err) {}   // keep tracking even if the pointer leaves the slider (Mac fix)
+    setFromX(e.clientX);
+    e.preventDefault();
+  });
+  el.addEventListener("pointermove", (e) => { if (dragging) setFromX(e.clientX); });
+  el.addEventListener("pointerup",   (e) => { dragging = false; try { el.releasePointerCapture(e.pointerId); } catch (err) {} });
+  el.addEventListener("pointercancel", () => { dragging = false; });
 }
 
 // <select> bound to a WebComboBoxRelay (correct API for choice params).
@@ -1564,19 +1588,6 @@ function bindToggle(paramId, el) {
   el.addEventListener("click", () => state.setValue(!state.getValue()));
 }
 
-function bindNumInput(id, paramId, lo, hi) {
-  const el = document.getElementById(id); if (!el) return;
-  let state; try { state = getSliderState(paramId); } catch (e) { state = null; }
-  if (!state) return;
-  const upd = () => { el.value = Math.round(lo + (hi - lo) * state.getNormalisedValue()); };
-  if (state.valueChangedEvent && state.valueChangedEvent.addListener) state.valueChangedEvent.addListener(upd);
-  upd();
-  el.addEventListener("change", () => {
-    let v = parseFloat(el.value); if (isNaN(v)) return;
-    v = Math.max(lo, Math.min(hi, v));
-    state.setNormalisedValue((v - lo) / (hi - lo));
-  });
-}
 function init() {
   populateModSources();                               // fill mod-source dropdowns before binding
   document.querySelectorAll("[data-toggle]").forEach((el) => {
@@ -1592,46 +1603,21 @@ function init() {
   bindButtonGroup('[data-wg="wf2"]', "o2_wave");    // waveform buttons OSC2
   bindButtonGroup('[data-og="o1t"]', "o1_octave");  // octave buttons OSC1
   bindButtonGroup('[data-og="o2t"]', "o2_octave");  // octave buttons OSC2
-  bindRadioGroup('input[data-vm]', "voice_mode");      // Mono/Poly/Unison radios
-  bindRadioGroup('input[data-prio]', "note_priority"); // Last/High/Low/Duo radios
-  document.querySelectorAll('.mod-row').forEach(row => {          // +/- modulation sign toggles
-    const plus = row.querySelector('.pm-btn:not(.minus)'), minus = row.querySelector('.pm-btn.minus');
-    if (!plus || !minus) return;
-    let sib = row.nextElementSibling;
-    while (sib && !(sib.classList && sib.classList.contains('slider'))) sib = sib.nextElementSibling;
-    const dp = sib && sib.getAttribute && sib.getAttribute('data-param');
-    let st = null; if (dp) { try { st = getToggleState(dp + '_inv'); } catch (e) { st = null; } }
-    const ui = neg => { plus.classList.toggle('on', !neg); minus.classList.toggle('on', neg); };
-    if (st && st.valueChangedEvent) st.valueChangedEvent.addListener(() => ui(st.getValue()));
-    ui(st ? st.getValue() : false);
-    plus.addEventListener('click', () => { if (st) st.setValue(false); ui(false); });
-    minus.addEventListener('click', () => { if (st) st.setValue(true); ui(true); });
-  });
-  // Dynamic filter-slider labels per mode (matches VAZ: Unused/Bandwidth/Separation/Highpass …)
-  const FILTLABELS = [
-    ['Unused','Unused','Resonance Modulation'],['Bandwidth','Unused','Resonance Modulation'],
-    ['Unused','Highpass Cutoff','Resonance Modulation'],['Separation','Highpass Cutoff','Resonance Modulation'],
-    ['Unused','Unused','Resonance Modulation'],['Unused','Unused','Resonance Modulation'],
-    ['Bandwidth','Unused','Resonance Modulation'],['Bandwidth','Unused','Resonance Modulation'],
-    ['Separation','Highpass Cutoff','Separation Modulation'],['Separation','Highpass Cutoff','Highpass Modulation'],
-    ['Unused','Unused','Resonance Modulation'],['Unused','Unused','Resonance Modulation'],
-    ['Unused','Unused','Resonance Modulation'],['Separation','Unused','Separation Modulation'],
-    ['Unused','Highpass Cutoff','Highpass Modulation'],['Unused','Unused','Resonance Modulation'],
-    ['Highpass Resonance','Highpass Cutoff','Highpass Modulation'],['Unused','Highpass Cutoff','Resonance Modulation'],
-    ['Unused','Highpass Cutoff','Highpass Modulation'],['Unused','Highpass Cutoff','Resonance Modulation'],
-    ['Unused','Highpass Cutoff','Highpass Modulation'],['Damping','In/Out Mix','Resonance Modulation']
-  ];
-  const fmEl = document.getElementById('filterMode'), auxL = document.getElementById('auxLbl'),
-        hpL = document.getElementById('hpLbl'), rmL = document.getElementById('resModLbl');
-  const updFiltLabels = () => {
-    const L = FILTLABELS[fmEl ? fmEl.selectedIndex : 19] || FILTLABELS[19];
-    if (auxL) auxL.textContent = L[0]; if (hpL) hpL.textContent = L[1]; if (rmL) rmL.textContent = L[2];
+  bindRadioGroup('input[data-vm]', "voice_mode");   // Mono/Poly/Unison radios
+
+  // host control→param mapping (Ableton "Configure" / automation): report the control under the mouse
+  try {
+    const idxUpdater = new Juce.ControlParameterIndexUpdater("controlparameterindex");
+    window.addEventListener("mousemove", (e) => idxUpdater.handleMouseMove(e));
+  } catch (e) {}
+
+  // resizable GUI: scale the synth panel to fill the (resizable) window
+  const fitWindow = () => {
+    const win = document.querySelector(".vaz-win");
+    if (win) win.style.zoom = Math.max(0.5, window.innerWidth / 604);
   };
-  if (fmEl) fmEl.addEventListener('change', updFiltLabels);
-  try { const fst = getComboBoxState('filter_mode'); if (fst && fst.valueChangedEvent) fst.valueChangedEvent.addListener(updFiltLabels); } catch (e) {}
-  updFiltLabels();
-  bindNumInput('bendInput', "bend_range", 1, 24);      // pitch-bend range in semitones
-  bindNumInput('univInput', "uni_voices", 1, 16);      // unison voice count
+  window.addEventListener("resize", fitWindow);
+  fitWindow();
 }
 
 // Modules load async via the resource provider — DOMContentLoaded may already have fired

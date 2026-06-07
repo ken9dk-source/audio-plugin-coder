@@ -17,6 +17,15 @@ function bindSlider(paramId, el) {
     state.valueChangedEvent.addListener(updateThumb);
   updateThumb();
 
+  // tell the host (Ableton) which parameter this control maps to
+  const setIdx = () => {
+    const i = state.properties ? state.properties.parameterIndex : -1;
+    if (i != null && i >= 0) el.setAttribute("controlparameterindex", i);
+  };
+  if (state.propertiesChangedEvent && state.propertiesChangedEvent.addListener)
+    state.propertiesChangedEvent.addListener(setIdx);
+  setIdx();
+
   let dragging = false;
   const setFromX = (clientX) => {
     const r = el.getBoundingClientRect();
@@ -25,9 +34,21 @@ function bindSlider(paramId, el) {
     state.setNormalisedValue(p);
     if (thumb) thumb.style.left = (p * 92) + "%";
   };
-  el.addEventListener("mousedown", (e) => { dragging = true; el.classList.remove("center"); setFromX(e.clientX); });
-  window.addEventListener("mousemove", (e) => { if (dragging) setFromX(e.clientX); });
-  window.addEventListener("mouseup", () => { dragging = false; });
+  el.addEventListener("pointerdown", (e) => {
+    if (e.metaKey || e.ctrlKey) {                 // Cmd (Mac) / Ctrl (Win) → reset to default
+      try { Juce.getNativeFunction("resetParam")(paramId); } catch (err) {}
+      e.preventDefault();
+      return;
+    }
+    dragging = true;
+    el.classList.remove("center");
+    try { el.setPointerCapture(e.pointerId); } catch (err) {}   // keep tracking even if the pointer leaves the slider (Mac fix)
+    setFromX(e.clientX);
+    e.preventDefault();
+  });
+  el.addEventListener("pointermove", (e) => { if (dragging) setFromX(e.clientX); });
+  el.addEventListener("pointerup",   (e) => { dragging = false; try { el.releasePointerCapture(e.pointerId); } catch (err) {} });
+  el.addEventListener("pointercancel", () => { dragging = false; });
 }
 
 // <select> bound to a WebComboBoxRelay (correct API for choice params).
@@ -115,6 +136,20 @@ function init() {
   bindButtonGroup('[data-og="o1t"]', "o1_octave");  // octave buttons OSC1
   bindButtonGroup('[data-og="o2t"]', "o2_octave");  // octave buttons OSC2
   bindRadioGroup('input[data-vm]', "voice_mode");   // Mono/Poly/Unison radios
+
+  // host control→param mapping (Ableton "Configure" / automation): report the control under the mouse
+  try {
+    const idxUpdater = new Juce.ControlParameterIndexUpdater("controlparameterindex");
+    window.addEventListener("mousemove", (e) => idxUpdater.handleMouseMove(e));
+  } catch (e) {}
+
+  // resizable GUI: scale the synth panel to fill the (resizable) window
+  const fitWindow = () => {
+    const win = document.querySelector(".vaz-win");
+    if (win) win.style.zoom = Math.max(0.5, window.innerWidth / 604);
+  };
+  window.addEventListener("resize", fitWindow);
+  fitWindow();
 }
 
 // Modules load async via the resource provider — DOMContentLoaded may already have fired
