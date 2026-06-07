@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>VAZ 2010 VSTi</title>
+<style>
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+
+body {
+  background:#6a6a6a;
+  font-family:'Tahoma','MS Sans Serif',Arial,sans-serif;
+  font-size:10px;
+  color:#e0a020;
+  user-select:none;
+  padding:10px;
+}
+
+/* ── PALETTE ──
+   panel navy:   #2a2f6a / #232858
+   orange text:  #e89020
+   orange btn:   #d8810d
+   dark field:   #0a0c14
+   wood:         mahogany gradient
+   button grey:  #3a4048
+*/
+
+.vaz-win {
+  width:600px;
+  background:#1c1c2c;
+  border:1px solid #000;
+  box-shadow:3px 3px 12px #000;
+}
+
+/* TITLEBAR (host frame - grey) */
+.host-titlebar {
+  background:linear-gradient(180deg,#5a5a5a,#3a3a3a);
+  padding:3px 6px;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  color:#ddd;
+  font-size:11px;
+  font-weight:bold;
+  border-bottom:1px solid #222;
+}
+.host-titlebar .left { display:flex; align-items:center; gap:6px; color:#bbb; }
+.host-btns { display:flex; gap:3px; }
+.host-btn { color:#999; cursor:pointer; font-size:11px; padding:0 3px; }
+
+/* PATCH BAR (orange text on navy) */
+.patch-bar {
+  background:#23284e;
+  border-bottom:1px solid #000;
+  border-top:1px solid #4a4f7a;
+  padding:2px 5px;
+  display:flex;
+  align-items:center;
+}
+.patch-name { color:#e89020; font-weight:bold; font-size:11px; }
+.patch-close { margin-left:auto; color:#888; cursor:pointer; }
+
+/* MAIN GRID */
+.main {
+  display:grid;
+  grid-template-columns:122px 122px 86px 130px 122px;
+  background:#23284e;
+}
+
+/* wood strip on the left of each oscillator column */
+.col { position:relative; }
+.col-inner { padding-left:0; }
+.synth-body { display:flex; }
+.wood-edge { width:11px; flex-shrink:0; }
+.wood-left {
+  background:linear-gradient(90deg,
+    #2a160a 0%, #6a3818 25%, #8a5028 45%, #6a3818 70%, #3a1e10 100%);
+}
+.wood-right {
+  background:linear-gradient(90deg,
+    #3a1e10 0%, #6a3818 30%, #8a5028 55%, #6a3818 75%, #2a160a 100%);
+}
+
+
+/* SECTION HEADER (orange underlined text) */
+.sh {
+  color:#e89020;
+  font-weight:bold;
+  font-size:11px;
+  padding:1px 4px 0;
+  text-decoration:underline;
+  font-style:italic;
+}
+
+.sb { padding:1px 4px 3px; }
+
+/* LABELS */
+.lbl { color:#c8c8d8; font-size:9px; line-height:12px; }
+
+/* HORIZONTAL SLIDERS w/ tick marks */
+.slider {
+  position:relative;
+  height:14px;
+  background:
+    repeating-linear-gradient(90deg,
+      transparent 0px, transparent 6px,
+      #5560a0 6px, #5560a0 7px),
+    #161a38;
+  border:1px solid #0a0c1a;
+  border-top-color:#000;
+  margin-bottom:2px;
+  cursor:pointer;
+}
+.slider .thumb {
+  position:absolute;
+  top:0; bottom:0;
+  width:8px;
+  background:linear-gradient(180deg,#e0e0e0 0%,#b0b0b0 45%,#808080 55%,#a0a0a0 100%);
+  border:1px solid #333;
+  border-top-color:#fff;
+  border-left-color:#ddd;
+}
+.slider.center .thumb { left:46%; }
+
+/* slider with end labels */
+.slider-lbl {
+  display:flex;
+  align-items:center;
+  gap:2px;
+}
+.slider-lbl .endlbl { font-size:8px; color:#9090b0; flex-shrink:0; }
+.slider-lbl .slider { flex:1; margin-bottom:0; }
+
+/* TUNING ROW (octave buttons) */
+.tuning-row {
+  display:flex;
+  gap:0;
+  margin-bottom:2px;
+}
+.oct-btn {
+  flex:1;
+  background:linear-gradient(180deg,#454b6a,#2e3350);
+  border:1px solid #11142a;
+  border-top-color:#5a6088;
+  color:#c0c0d0;
+  font-size:9px;
+  height:15px;
+  cursor:pointer;
+  text-align:center;
+  line-height:13px;
+}
+.oct-btn.on {
+  background:linear-gradient(180deg,#f0a030,#d8810d);
+  border-top-color:#ffc060;
+  color:#3a1e00;
+  font-weight:bold;
+}
+
+/* WAVEFORM ICON BUTTONS */
+.wave-btns { display:flex; gap:0; margin-bottom:2px; }
+.wbtn {
+  flex:1;
+  background:linear-gradient(180deg,#454b6a,#2e3350);
+  border:1px solid #11142a;
+  border-top-color:#5a6088;
+  color:#c0c0d0;
+  font-family:monospace;
+  font-size:10px;
+  height:16px;
+  line-height:14px;
+  text-align:center;
+  cursor:pointer;
+}
+.wbtn.on {
+  background:linear-gradient(180deg,#f0a030,#d8810d);
+  border-top-color:#ffc060;
+  color:#3a1e00;
+}
+
+/* DROPDOWN FIELDS (dark w/ orange text) */
+.dd-field {
+  background:#0a0c18;
+  border:1px solid #000;
+  border-bottom-color:#3a3f6a;
+  border-right-color:#3a3f6a;
+  color:#e89020;
+  font-size:9px;
+  font-family:inherit;
+  height:15px;
+  padding:0 3px;
+  cursor:pointer;
+  width:100%;
+  outline:none;
+  -webkit-appearance:none;
+  appearance:none;
+}
+.dd-field option { background:#2a2f5a; color:#e0e0e0; }
+
+/* small grey button (Post, Sync, Link, etc) */
+.gbtn {
+  background:linear-gradient(180deg,#c8c8c8,#909090);
+  border:1px solid #444;
+  border-top-color:#eee;
+  border-left-color:#ddd;
+  color:#222;
+  font-size:8px;
+  font-family:inherit;
+  height:14px;
+  padding:0 4px;
+  cursor:pointer;
+  white-space:nowrap;
+}
+.gbtn:active, .gbtn.on {
+  background:linear-gradient(180deg,#909090,#c8c8c8);
+  border-top-color:#666;
+}
+
+/* +/- mod buttons (orange) */
+.mod-row { display:flex; gap:0; align-items:stretch; margin-bottom:1px; }
+.pm-btn {
+  width:15px;
+  background:linear-gradient(180deg,#f0a030,#d8810d);
+  border:1px solid #803e00;
+  border-top-color:#ffc868;
+  color:#4a2200;
+  font-size:11px;
+  font-weight:bold;
+  line-height:13px;
+  text-align:center;
+  cursor:pointer;
+  flex-shrink:0;
+}
+.pm-btn.minus {
+  background:linear-gradient(180deg,#b8b8b8,#888);
+  border-top-color:#ddd;
+  color:#333;
+}
+.mod-row .dd-field { flex:1; }
+
+/* WAVE/icon row helpers */
+.row { display:flex; align-items:center; gap:2px; margin-bottom:2px; }
+.row .lbl { white-space:nowrap; }
+.flex1 { flex:1; }
+
+/* LFO header (orange italic underline, with red dot) */
+.lfo-hdr {
+  display:flex; align-items:center; gap:4px;
+  padding:2px 4px 0;
+}
+.lfo-lbl { color:#e89020; font-weight:bold; font-style:italic; text-decoration:underline; font-size:11px; }
+.reddot { width:7px;height:7px;border-radius:50%;background:#d02020;border:1px solid #600;flex-shrink:0; }
+
+/* ENVELOPE — HORIZONTAL sliders, label overlaid at left, long fader */
+.env-row {
+  position:relative;
+  margin-bottom:3px;
+  height:14px;
+}
+.env-row .slider {
+  width:100%;
+  margin-bottom:0;
+}
+.env-name {
+  position:absolute;
+  left:3px; top:1px;
+  font-size:9px; color:#d8d8e8;
+  z-index:2;
+  pointer-events:none;
+  text-shadow:1px 1px 1px #000;
+}
+
+/* ENV button row */
+.env-btns { display:flex; gap:0; margin-top:1px; }
+.env-btns .gbtn { flex:1; }
+
+/* RADIO */
+.radio-grp { display:flex; gap:3px; flex-wrap:wrap; margin-bottom:1px; }
+.radio-grp label { display:flex; align-items:center; gap:2px; color:#c8c8d8; font-size:9px; cursor:pointer; }
+.radio-grp input { width:9px; height:9px; }
+
+/* tuning numeric */
+.num { width:24px; background:#0a0c18; border:1px solid #000; border-bottom-color:#3a3f6a; color:#e89020; font-size:9px; text-align:center; height:14px; font-family:inherit; }
+
+/* TRANSPORT */
+.transport {
+  background:linear-gradient(180deg,#4a4a4a,#333);
+  border-top:1px solid #222;
+  padding:3px 5px;
+  display:flex; align-items:center; gap:4px;
+}
+.t-btn {
+  background:linear-gradient(180deg,#c8c8c8,#909090);
+  border:1px solid #444; border-top-color:#eee;
+  color:#222; font-size:10px; height:18px; padding:0 6px; cursor:pointer;
+}
+.tempo { background:#0a0c18; color:#ffaa00; font-weight:bold; font-size:11px; border:1px solid #000; width:34px; text-align:center; height:18px; font-family:monospace; }
+.synth-box { background:#e08800; color:#000; font-weight:bold; font-size:10px; padding:0 10px; height:18px; line-height:18px; border:1px solid #905000; margin-left:auto; }
+.val-box { background:#000; color:#0c0; font-size:10px; font-family:monospace; padding:0 5px; height:18px; line-height:18px; border:1px solid #333; }
+
+/* MENU */
+.menu-wrap { position:relative; }
+.dropdown { display:none; position:absolute; bottom:100%; left:0; background:#3a3a3a; border:1px solid #777; z-index:100; min-width:115px; box-shadow:2px -2px 8px #000; }
+.dropdown.open { display:block; }
+.dd-item { padding:2px 10px; font-size:10px; color:#e0e0e0; cursor:pointer; position:relative; white-space:nowrap; display:flex; justify-content:space-between; gap:12px; }
+.dd-item:hover { background:#d8810d; color:#000; }
+.dd-item.disabled { color:#777; }
+.dd-item.disabled:hover { background:transparent; color:#777; }
+.dd-sep { border-top:1px solid #555; margin:2px 0; }
+.submenu { display:none; position:absolute; left:100%; top:-1px; background:#3a3a3a; border:1px solid #777; min-width:165px; box-shadow:2px 2px 8px #000; }
+.dd-item:hover > .submenu { display:block; }
+.shortcut { color:#999; font-size:9px; }
+.arrow { color:#999; font-size:8px; }
+</style>
+</head>
+<body>
+
+<div class="vaz-win">
+
+<!-- HOST TITLEBAR -->
+<div class="host-titlebar">
+  <div class="left">▸ ⚙ <span style="color:#ddd;">VAZ 2010 VSTi #2</span> <span style="color:#999;font-weight:normal;">(Master)</span></div>
+  <div style="display:flex;align-items:center;gap:8px;">
+    <span style="font-size:10px;font-weight:normal;color:#bbb;">▦ Presets ◀ ▶</span>
+    <div class="host-btns">
+      <span class="host-btn">_</span><span class="host-btn">□</span><span class="host-btn">✕</span>
+    </div>
+  </div>
+</div>
+
+<!-- PATCH BAR -->
+<div class="patch-bar">
+  <span class="patch-name">Synth 1 "New Patch"</span>
+  <span class="patch-close">✕</span>
+</div>
+
+<!-- MAIN -->
+<div class="synth-body">
+<div class="wood-edge wood-left"></div>
+<div class="main">
+
+<!-- ═══ OSCILLATOR 1 ═══ -->
+<div class="col">
+ <div class="col-inner">
+  <div class="sh">Oscillator 1</div>
+  <div class="sb">
+    <div class="lbl">Tuning</div>
+    <div class="tuning-row">
+      <button class="oct-btn" data-og="o1t">32'</button>
+      <button class="oct-btn" data-og="o1t">16'</button>
+      <button class="oct-btn on" data-og="o1t">8'</button>
+      <button class="oct-btn" data-og="o1t">4'</button>
+      <button class="oct-btn" data-og="o1t">2'</button>
+    </div>
+    <div class="slider-lbl"><span class="endlbl">|-12</span><div class="slider center"><div class="thumb"></div></div><span class="endlbl">+12|</span></div>
+    <div style="height:2px;"></div>
+    <div class="slider-lbl"><span class="endlbl">|-1</span><div class="slider center"><div class="thumb"></div></div><span class="endlbl">+1|</span></div>
+  </div>
+
+  <div class="sb">
+    <div class="lbl">Waveform</div>
+    <div class="wave-btns" id="wf1">
+      <button class="wbtn on" data-wg="wf1">◣</button>
+      <button class="wbtn" data-wg="wf1">⊓</button>
+      <button class="wbtn" data-wg="wf1">⋀</button>
+      <button class="wbtn" data-wg="wf1">↔</button>
+      <button class="wbtn" data-wg="wf1" style="font-size:8px;">Ext</button>
+    </div>
+    <div class="row">
+      <span class="lbl">Wave</span>
+      <select class="dd-field flex1">
+        <option>Sine</option><option>Triangle</option><option>Sawtooth</option><option>Square</option><option>Pulse</option>
+      </select>
+    </div>
+    <div class="lbl" id="o1xlbl">Position</div>
+    <div class="slider"><div class="thumb" style="left:20%;"></div></div>
+  </div>
+
+  <div class="sb">
+    <div class="row">
+      <span class="lbl">Frequency Modulation</span>
+      <button class="gbtn">Link</button>
+    </div>
+    <div class="mod-row"><div class="pm-btn">+</div><div class="pm-btn minus">−</div><select class="dd-field" id="fm1a"><option>None</option></select></div>
+    <div class="slider"><div class="thumb" style="left:0;"></div></div>
+    <div class="mod-row"><div class="pm-btn">+</div><div class="pm-btn minus">−</div><select class="dd-field" id="fm1b"><option>None</option></select></div>
+    <div class="slider"><div class="thumb" style="left:0;"></div></div>
+  </div>
+
+  <div class="sb">
+    <div class="lbl" id="o1mlbl">Modulation</div>
+    <div class="mod-row"><div class="pm-btn">+</div><div class="pm-btn minus">−</div><select class="dd-field" id="md1a"><option>None</option></select></div>
+    <div class="slider"><div class="thumb" style="left:0;"></div></div>
+  </div>
+
+  <div class="lfo-hdr"><span class="reddot"></span><span class="lfo-lbl">LFO 1</span></div>
+  <div class="sb">
+    <div class="row">
+      <span class="lbl">Rate</span>
+      <button class="gbtn on">Sync</button>
+      <select class="dd-field" style="width:32px;"><option>4B</option><option>2B</option><option>1B</option><option>1/2</option><option>1/4</option><option>1/8</option></select>
+      <button class="gbtn">Trig</button>
+    </div>
+    <div class="slider"><div class="thumb" style="left:40%;"></div></div>
+    <div class="row">
+      <span class="lbl">Wave</span>
+      <select class="dd-field flex1">
+        <option>Saw / Tri</option><option>Tri + Delay</option><option>Saw + Delay</option><option>Sine + Delay</option><option>Pulse</option><option>Square + Delay</option><option>Sample &amp; Hold + Lag</option><option>Sample &amp; Hold + Delay</option>
+      </select>
+    </div>
+    <div class="slider"><div class="thumb" style="left:50%;"></div></div>
+  </div>
+
+  <div class="lfo-hdr"><span class="lfo-lbl">LFO 3</span></div>
+  <div class="sb">
+    <div class="row">
+      <span class="lbl">Waveform</span>
+      <select class="dd-field" style="width:34px;"><option>Tri</option><option>Sine</option></select>
+      <button class="gbtn on">○</button>
+      <select class="dd-field" style="width:38px;"><option>Sine</option><option>Tri</option></select>
+    </div>
+    <div class="slider"><div class="thumb" style="left:30%;"></div></div>
+  </div>
+ </div>
+</div>
+
+<!-- ═══ OSCILLATOR 2 ═══ -->
+<div class="col">
+ <div class="col-inner">
+  <div class="sh">Oscillator 2</div>
+  <div class="sb">
+    <div class="lbl">Tuning</div>
+    <div class="tuning-row">
+      <button class="oct-btn" data-og="o2t">32'</button>
+      <button class="oct-btn" data-og="o2t">16'</button>
+      <button class="oct-btn on" data-og="o2t">8'</button>
+      <button class="oct-btn" data-og="o2t">4'</button>
+      <button class="oct-btn" data-og="o2t">2'</button>
+    </div>
+    <div class="slider-lbl"><span class="endlbl">|-12</span><div class="slider center"><div class="thumb"></div></div><span class="endlbl">+12|</span></div>
+    <div style="height:2px;"></div>
+    <div class="slider-lbl"><span class="endlbl">|-1</span><div class="slider center"><div class="thumb"></div></div><span class="endlbl">+1|</span></div>
+  </div>
+
+  <div class="sb">
+    <div class="lbl" style="font-style:italic;">Waveform</div>
+    <div class="wave-btns" id="wf2">
+      <button class="wbtn on" data-wg="wf2">◣</button>
+      <button class="wbtn" data-wg="wf2">⊓</button>
+      <button class="wbtn" data-wg="wf2">⋀</button>
+      <button class="wbtn" data-wg="wf2">↔</button>
+      <button class="wbtn" data-wg="wf2" style="font-size:8px;">Sync</button>
+    </div>
+    <div class="row">
+      <span class="lbl">Wave</span>
+      <select class="dd-field flex1">
+        <option>Sine</option><option>Triangle</option><option>Sawtooth</option><option>Square</option><option>Pulse</option>
+      </select>
+    </div>
+    <div class="lbl">Waveshape</div>
+    <div class="slider"><div class="thumb" style="left:30%;"></div></div>
+  </div>
+
+  <div class="sb">
+    <div class="lbl">Frequency Modulation</div>
+    <div class="mod-row"><div class="pm-btn">+</div><div class="pm-btn minus">−</div><select class="dd-field" id="fm2a"><option>None</option></select></div>
+    <div class="slider"><div class="thumb" style="left:0;"></div></div>
+    <div class="mod-row"><div class="pm-btn">+</div><div class="pm-btn minus">−</div><select class="dd-field" id="fm2b"><option>None</option></select></div>
+    <div class="slider"><div class="thumb" style="left:0;"></div></div>
+  </div>
+
+  <div class="sb">
+    <div class="lbl">Waveshape Modulation</div>
+    <div class="mod-row"><div class="pm-btn">+</div><div class="pm-btn minus">−</div><select class="dd-field" id="ws2a"><option>None</option></select></div>
+    <div class="slider"><div class="thumb" style="left:0;"></div></div>
+  </div>
+
+  <div class="lfo-hdr"><span class="reddot"></span><span class="lfo-lbl">LFO 2</span></div>
+  <div class="sb">
+    <div class="row">
+      <span class="lbl">Rate</span>
+      <button class="gbtn on">Sync</button>
+      <select class="dd-field" style="width:32px;"><option>4B</option><option>2B</option><option>1B</option><option>1/2</option><option>1/4</option><option>1/8</option></select>
+      <button class="gbtn">Trig</button>
+    </div>
+    <div class="slider"><div class="thumb" style="left:40%;"></div></div>
+    <div class="lbl">Rate Modulation</div>
+    <div class="mod-row"><div class="pm-btn">+</div><div class="pm-btn minus">−</div><select class="dd-field" id="rm2a"><option>None</option></select></div>
+    <div class="slider"><div class="thumb" style="left:0;"></div></div>
+    <div class="row">
+      <span class="lbl">Wave</span>
+      <select class="dd-field flex1">
+        <option>Saw / Tri</option><option>Tri + Delay</option><option>Saw + Delay</option><option>Sine + Delay</option><option>Pulse</option><option>Square + Delay</option><option>Sample &amp; Hold + Lag</option><option>Sample &amp; Hold + Delay</option>
+      </select>
+    </div>
+    <div class="row">
+      <span class="lbl">Dest</span>
+      <select class="dd-field flex1"><option>Attack</option><option>None</option><option>Pitch</option><option>Cutoff</option></select>
+    </div>
+  </div>
+ </div>
+</div>
+
+<!-- ═══ MIXER ═══ -->
+<div class="col">
+ <div class="col-inner">
+  <div class="sh">Mixer</div>
+  <div class="sb">
+    <div class="row"><select class="dd-field flex1" id="mix1"><option>Oscillator 1</option><option>Ring Modulator</option><option>Noise</option><option>External Input</option><option>Mod Amplifier 1</option><option>Mod Amplifier 2</option></select><button class="gbtn on">Post</button></div>
+    <div class="slider"><div class="thumb" style="left:80%;"></div></div>
+  </div>
+  <div class="sb">
+    <div class="row"><select class="dd-field flex1" id="mix2"><option>Oscillator 2</option><option>Ring Modulator</option><option>Noise</option><option>External Input</option><option>Mod Amplifier 1</option><option>Mod Amplifier 2</option></select><button class="gbtn on">Post</button></div>
+    <div class="slider"><div class="thumb" style="left:75%;"></div></div>
+  </div>
+  <div class="sb">
+    <div class="row"><select class="dd-field flex1" id="mix3"><option>Noise</option><option>Oscillator 3</option><option>Ring Modulator</option><option>External Input</option><option>Mod Amplifier 1</option><option>Mod Amplifier 2</option></select><button class="gbtn on">Post</button></div>
+    <div class="slider"><div class="thumb" style="left:25%;"></div></div>
+  </div>
+
+  <div class="sh">Envelope 1</div>
+  <div class="sb">
+    <div class="env-row"><span class="env-name">|ttack</span><div class="slider"><div class="thumb" style="left:20%;"></div></div></div>
+    <div class="env-row"><span class="env-name">|ecay</span><div class="slider"><div class="thumb" style="left:55%;"></div></div></div>
+    <div class="env-row"><span class="env-name">|Sustain</span><div class="slider"><div class="thumb" style="left:70%;"></div></div></div>
+    <div class="env-row"><span class="env-name">|elease</span><div class="slider"><div class="thumb" style="left:30%;"></div></div></div>
+    <div class="env-btns"><button class="gbtn">Multi</button><button class="gbtn">Reset</button><button class="gbtn">Cycle</button><button class="gbtn">Curve</button></div>
+  </div>
+
+  <div class="sh">Envelope 2</div>
+  <div class="sb">
+    <div class="env-row"><span class="env-name">|ttack</span><div class="slider"><div class="thumb" style="left:20%;"></div></div></div>
+    <div class="env-row"><span class="env-name">|ecay</span><div class="slider"><div class="thumb" style="left:60%;"></div></div></div>
+    <div class="env-row"><span class="env-name">|Sustain</span><div class="slider"><div class="thumb" style="left:50%;"></div></div></div>
+    <div class="env-row"><span class="env-name">|elease</span><div class="slider"><div class="thumb" style="left:30%;"></div></div></div>
+    <div class="env-btns"><button class="gbtn">Multi</button><button class="gbtn">Reset</button><button class="gbtn">Cycle</button><button class="gbtn">Curve</button></div>
+    <div class="lbl" style="margin-top:2px;">Envelope Modulation</div>
+    <div class="mod-row"><div class="pm-btn">+</div><div class="pm-btn minus">−</div><select class="dd-field" id="envmod"><option>None</option></select></div>
+    <div class="slider"><div class="thumb" style="left:0;"></div></div>
+    <div class="row" style="margin-top:1px;"><span class="lbl">Dest</span><select class="dd-field flex1"><option>Attack</option><option>Decay</option><option>Sustain</option><option>Release</option><option>None</option></select></div>
+  </div>
+ </div>
+</div>
+<div class="col">
+ <div class="col-inner">
+  <div class="sh">Filter</div>
+  <div class="sb">
+    <!-- Options ordered by .v2p byte value (sec3+28): option index = saved value 0-21 -->
+    <div class="row"><span class="lbl">Mode</span><select class="dd-field flex1" id="filterMode">
+      <option value="0">Type A LP 2-Pole</option>
+      <option value="1">Type B LP 2-Pole</option>
+      <option value="2">Type C 2P LP Res Mod</option>
+      <option value="3">Type C 4P LP Res Mod</option>
+      <option value="4">Type A HP 2-Pole</option>
+      <option value="5">Type A BP 2-Pole</option>
+      <option value="6">Type B HP 2-Pole</option>
+      <option value="7">Type B BP 2-Pole</option>
+      <option value="8">Type C 4P LP Sep Mod</option>
+      <option value="9">Type C 4P LP HP Mod</option>
+      <option value="10">Type D LP 2-Pole</option>
+      <option value="11">Type D BP 2-Pole</option>
+      <option value="12">Type D HP 2-Pole</option>
+      <option value="13">Type D HP+LP</option>
+      <option value="14">Type C 2P LP HP Mod</option>
+      <option value="15">Type K LP Sallen-Key</option>
+      <option value="16">Type K HP+LP</option>
+      <option value="17">Type R 2P LP Res Mod</option>
+      <option value="18">Type R 2P LP HP Mod</option>
+      <option value="19" selected>Type R 4P LP Res Mod</option>
+      <option value="20">Type R 4P LP HP Mod</option>
+      <option value="21">Comb Filter</option>
+    </select></div>
+    <div class="lbl">Cutoff</div><div class="slider"><div class="thumb" style="left:75%;"></div></div>
+    <div class="lbl">Resonance</div><div class="slider"><div class="thumb" style="left:40%;"></div></div>
+    <div class="lbl">Unused</div><div class="slider"><div class="thumb" style="left:0;"></div></div>
+    <div class="lbl">Highpass Cutoff</div><div class="slider"><div class="thumb" style="left:20%;"></div></div>
+  </div>
+  <div class="sb">
+    <div class="lbl">Cutoff Modulation</div>
+    <div class="mod-row"><div class="pm-btn">+</div><div class="pm-btn minus">−</div><select class="dd-field" id="cm1"><option>None</option></select></div>
+    <div class="slider"><div class="thumb" style="left:0;"></div></div>
+    <div class="mod-row"><div class="pm-btn">+</div><div class="pm-btn minus">−</div><select class="dd-field" id="cm2"><option>None</option></select></div>
+    <div class="slider"><div class="thumb" style="left:0;"></div></div>
+  </div>
+  <div class="sb">
+    <div class="lbl">Resonance Modulation</div>
+    <div class="mod-row"><div class="pm-btn">+</div><div class="pm-btn minus">−</div><select class="dd-field" id="rm1"><option>None</option></select></div>
+    <div class="slider"><div class="thumb" style="left:0;"></div></div>
+  </div>
+
+  <div class="sh">Mod Amplifier 2</div>
+  <div class="sb">
+    <div class="row"><span class="lbl">In</span><select class="dd-field flex1" id="ma2in"><option>None</option></select></div>
+    <div class="slider"><div class="thumb" style="left:50%;"></div></div>
+    <div class="row"><span class="lbl">AM</span><select class="dd-field flex1" id="ma2am"><option>None</option></select></div>
+    <div class="slider"><div class="thumb" style="left:50%;"></div></div>
+  </div>
+
+  <div class="sh">Lag Processor</div>
+  <div class="sb">
+    <div class="row"><span class="lbl">In</span><select class="dd-field flex1" id="lagin"><option>None</option></select></div>
+    <div class="lbl">Time</div>
+    <div class="slider"><div class="thumb" style="left:30%;"></div></div>
+    <div class="row"><span class="lbl">Dest</span><select class="dd-field flex1" id="lagdest"><option>Attack</option><option>None</option><option>Pitch</option><option>Cutoff</option><option>Resonance</option><option>Amplitude</option></select></div>
+  </div>
+ </div>
+</div>
+
+<!-- ═══ AMPLIFIER ═══ -->
+<div class="col">
+ <div class="col-inner">
+  <div class="sh">Amplifier</div>
+  <div class="sb">
+    <div class="lbl">Amplitude Modulation</div>
+    <div class="mod-row"><div class="pm-btn">+</div><div class="pm-btn minus">−</div><select class="dd-field" id="amp1">
+      <option>Envelope 1</option><option>None</option><option>LFO 1</option><option>LFO 2</option><option>LFO 3</option><option>Envelope 2</option><option>Mod Amplifier 1</option><option>Mod Amplifier 2</option><option>Lag Processor</option><option>Oscillator 1</option><option>Oscillator 1 Pitch</option><option>Oscillator 2</option><option>Noise</option><option>External Input</option><option>Accent</option><option>Sequencer A</option><option>Sequencer B</option><option>MIDI Velocity</option><option>MIDI Pressure</option><option>MIDI Control A</option><option>MIDI Control B</option><option>Voice Number</option>
+    </select></div>
+    <div class="slider"><div class="thumb" style="left:80%;"></div></div>
+    <div class="mod-row"><div class="pm-btn">+</div><div class="pm-btn minus">−</div><select class="dd-field" id="amp2"><option>None</option></select></div>
+    <div class="slider"><div class="thumb" style="left:0;"></div></div>
+  </div>
+  <div class="sb">
+    <div class="lbl">Pan Modulation</div>
+    <div class="mod-row"><div class="pm-btn">+</div><div class="pm-btn minus">−</div><select class="dd-field" id="pan1"><option>None</option></select></div>
+    <div class="slider"><div class="thumb" style="left:50%;"></div></div>
+    <div class="lbl">Overdrive</div>
+    <div class="slider"><div class="thumb" style="left:10%;"></div></div>
+  </div>
+
+  <div class="sh">Mod Amplifier 1</div>
+  <div class="sb">
+    <div class="row"><span class="lbl">In</span><select class="dd-field flex1" id="ma1in"><option>None</option></select></div>
+    <div class="slider"><div class="thumb" style="left:60%;"></div></div>
+    <div class="row"><span class="lbl">Amplitude Modulation</span><button class="gbtn">SQ</button></div>
+    <div class="mod-row"><div class="pm-btn">+</div><div class="pm-btn minus">−</div><select class="dd-field" id="ma1am"><option>None</option></select></div>
+    <div class="slider"><div class="thumb" style="left:0;"></div></div>
+  </div>
+
+  <div class="sh">Performance</div>
+  <div class="sb">
+    <div class="radio-grp"><label><input type="radio" name="p1" checked>Mono</label><label><input type="radio" name="p1">High</label><label><input type="radio" name="p1">Last</label></div>
+    <div class="radio-grp"><label><input type="radio" name="p2">Poly</label><label><input type="radio" name="p2">Low</label><label><input type="radio" name="p3">Unison</label><label><input type="radio" name="p3">Duo</label></div>
+    <div class="lbl">Poly Detune</div>
+    <div class="slider"><div class="thumb" style="left:20%;"></div></div>
+    <div class="row"><span class="lbl">Portamento</span><button class="gbtn on">Auto</button><button class="gbtn">Exp</button></div>
+    <div class="slider"><div class="thumb" style="left:30%;"></div></div>
+    <div class="row"><span class="lbl">UniVce</span><input class="num" value="32"><span class="lbl">Bend</span><input class="num" value="2" style="width:18px;"></div>
+    <div class="row"><span class="lbl">Voices</span><input class="num" value="16" style="width:18px;"><span class="lbl">Midi</span><input class="num" value="1" style="width:16px;"></div>
+    <div class="row" style="gap:1px;"><button class="gbtn" style="font-size:11px;">♩</button><button class="gbtn" style="font-size:9px;">♫♫</button><button class="gbtn on">Arp</button><button class="gbtn">Mode</button></div>
+  </div>
+ </div>
+</div>
+
+</div><!-- main -->
+<div class="wood-edge wood-right"></div>
+</div><!-- synth-body -->
+
+<!-- TRANSPORT -->
+<div class="transport">
+  <button class="t-btn">▶</button>
+  <button class="t-btn" style="background:linear-gradient(180deg,#d8810d,#a05000);color:#fff;">■</button>
+  <button class="t-btn on">Sync</button>
+  <input class="tempo" value="120">
+  <div class="menu-wrap">
+    <button class="t-btn" id="menuToggle">Menu ▸</button>
+    <div class="dropdown" id="mainMenu">
+      <div class="dd-item">File <span class="arrow">▸</span>
+        <div class="submenu">
+          <div class="dd-item">New Bank</div><div class="dd-item">Open Bank...</div>
+          <div class="dd-item disabled">Save Bank</div><div class="dd-item">Save Bank As...</div>
+          <div class="dd-sep"></div><div class="dd-item">New Synth</div><div class="dd-sep"></div>
+          <div class="dd-item">New Patch</div><div class="dd-item">Open Patch...</div><div class="dd-item">Reopen Patch <span class="arrow">▸</span></div>
+          <div class="dd-sep"></div><div class="dd-item disabled">Save Patch</div><div class="dd-item">Save Patch As...</div><div class="dd-item">Rename Patch...</div>
+          <div class="dd-sep"></div><div class="dd-item">Capture...</div><div class="dd-item">Capture Sequence...</div>
+        </div>
+      </div>
+      <div class="dd-item">Edit <span class="arrow">▸</span><div class="submenu"><div class="dd-item">Edit...</div><div class="dd-item">Snapshot <span class="shortcut">Ctrl+S</span></div></div></div>
+      <div class="dd-item">Patch <span class="arrow">▸</span><div class="submenu"><div class="dd-item">Arpeggiate <span class="shortcut">Ctrl+A</span></div><div class="dd-item">Arp Mode... <span class="shortcut">Ctrl+M</span></div><div class="dd-item">Hold <span class="shortcut">Ctrl+H</span></div><div class="dd-sep"></div><div class="dd-item">Controller Mappings...</div></div></div>
+      <div class="dd-item">Local <span class="arrow">▸</span><div class="submenu"><div class="dd-item">Arpeggiate <span class="shortcut">Ctrl+A</span></div><div class="dd-item">Arp Mode... <span class="shortcut">Ctrl+M</span></div><div class="dd-item">Hold <span class="shortcut">Ctrl+H</span></div><div class="dd-sep"></div><div class="dd-item">Controller Mappings...</div></div></div>
+      <div class="dd-item">Global <span class="arrow">▸</span><div class="submenu"><div class="dd-item">All Notes Off <span class="shortcut">Ctrl+O</span></div><div class="dd-item">Auto Thru <span class="shortcut">Ctrl+T</span></div></div></div>
+      <div class="dd-item">Options <span class="arrow">▸</span><div class="submenu"><div class="dd-item">Preferences...</div></div></div>
+      <div class="dd-item">Window <span class="arrow">▸</span><div class="submenu"><div class="dd-item">Cascade</div><div class="dd-sep"></div><div class="dd-item">Mixer "New Mix"</div><div class="dd-item">Synth 1 "New Patch" <span class="arrow">▸</span><div class="submenu"><div class="dd-item">Editor</div><div class="dd-item">Sequencer "New Sequence"</div></div></div></div></div>
+      <div class="dd-item">Help <span class="arrow">▸</span><div class="submenu"><div class="dd-item">Help Contents</div><div class="dd-item">Home Page</div><div class="dd-item">Support Area</div><div class="dd-item">Check for Updates</div><div class="dd-sep"></div><div class="dd-item">About...</div></div></div>
+    </div>
+  </div>
+  <select class="dd-field" style="width:55px;height:18px;"><option>Mixer</option><option>FX</option></select>
+  <span class="synth-box">Synth 1</span>
+  <span style="font-size:9px;color:#ccc;margin-left:2px;">Value</span>
+  <span class="val-box">0</span>
+  <span style="font-size:9px;color:#ccc;">MIDI</span>
+</div>
+
+</div>
+
+<script>
+const modSources=['None','LFO 1','LFO 2','LFO 3','Envelope 1','Envelope 2','Mod Amplifier 1','Mod Amplifier 2','Lag Processor','Oscillator 1','Oscillator 1 Pitch','Oscillator 2','Noise','External Input','Accent','Sequencer A','Sequencer B','MIDI Velocity','MIDI Pressure','MIDI Control A','MIDI Control B','Voice Number'];
+['fm1a','fm1b','md1a','fm2a','fm2b','ws2a','rm2a','cm1','cm2','rm1','ma2in','ma2am','lagin','amp2','pan1','ma1in','ma1am','envmod'].forEach(id=>{
+  const s=document.getElementById(id); if(!s)return;
+  modSources.forEach(src=>{const o=document.createElement('option');o.textContent=src;s.appendChild(o);});
+});
+
+// octave button groups
+document.querySelectorAll('[data-og]').forEach(b=>{
+  b.addEventListener('click',()=>{document.querySelectorAll(`[data-og="${b.dataset.og}"]`).forEach(x=>x.classList.remove('on'));b.classList.add('on');});
+});
+
+// waveform groups + osc1 dynamic label
+// Button index = .v2p waveform byte (B131): 0=Sine 1=Pulse 2=Detune 3=Wavetable 4=Ext
+const o1labels=['Position','Pulsewidth','Detune','Wavetable Position','Position'];
+const o1modlabels=['Modulation','Pulsewidth Modulation','Detune Modulation','Wavetable Modulation','Modulation'];
+document.querySelectorAll('[data-wg]').forEach(b=>{
+  b.addEventListener('click',()=>{
+    const g=b.dataset.wg;
+    document.querySelectorAll(`[data-wg="${g}"]`).forEach(x=>x.classList.remove('on'));
+    b.classList.add('on');
+    if(g==='wf1'){
+      const idx=Array.from(document.querySelectorAll('[data-wg="wf1"]')).indexOf(b);
+      document.getElementById('o1xlbl').textContent=o1labels[idx]||'Position';
+      document.getElementById('o1mlbl').textContent=o1modlabels[idx]||'Modulation';
+    }
+  });
+});
+
+// grey toggle buttons
+document.querySelectorAll('.gbtn').forEach(b=>{
+  const t=b.textContent.trim();
+  if(['Sync','Trig','Post','Auto','Exp','Multi','Reset','Cycle','Curve','SQ','Link','Arp','Mode','○'].includes(t)){
+    b.addEventListener('click',()=>b.classList.toggle('on'));
+  }
+});
+
+// draggable sliders
+document.querySelectorAll('.slider').forEach(sl=>{
+  const thumb=sl.querySelector('.thumb');
+  let drag=false;
+  const move=e=>{
+    if(!drag)return;
+    const r=sl.getBoundingClientRect();
+    let p=(e.clientX-r.left)/r.width;
+    p=Math.max(0,Math.min(1,p));
+    thumb.style.left=(p*100*0.92)+'%';
+  };
+  sl.addEventListener('mousedown',e=>{drag=true;sl.classList.remove('center');move(e);});
+  document.addEventListener('mousemove',move);
+  document.addEventListener('mouseup',()=>drag=false);
+});
+
+// menu
+const mt=document.getElementById('menuToggle'),mm=document.getElementById('mainMenu');
+mt.addEventListener('click',e=>{e.stopPropagation();mm.classList.toggle('open');});
+document.addEventListener('click',()=>mm.classList.remove('open'));
+mm.addEventListener('click',e=>e.stopPropagation());
+</script>
+</body>
+</html>

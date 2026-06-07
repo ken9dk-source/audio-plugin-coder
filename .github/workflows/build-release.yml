@@ -12,6 +12,11 @@ on:
           - gnarly2
           - nf_gnarly
           - SIDTrance
+          - VAZClone
+          - VAZReverb
+          - VAZPhaser
+          - VAZDecimator
+          - VAZAutopan
           - all
       platforms:
         description: 'Which platforms to build?'
@@ -55,7 +60,7 @@ jobs:
         id: set-matrix
         run: |
           if [ "${{ inputs.plugin }}" == "all" ]; then
-            echo 'matrix={"plugin":["CloudWash","gnarly2","nf_gnarly"]}' >> $GITHUB_OUTPUT
+            echo 'matrix={"plugin":["CloudWash","gnarly2","nf_gnarly","VAZClone","VAZReverb","VAZPhaser","VAZDecimator","VAZAutopan"]}' >> $GITHUB_OUTPUT
           else
             echo 'matrix={"plugin":["${{ inputs.plugin }}"]}' >> $GITHUB_OUTPUT
           fi

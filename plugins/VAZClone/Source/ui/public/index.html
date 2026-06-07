@@ -1,0 +1,1646 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>VAZClone</title>
+<style>
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+
+html, body { height:100%; overflow:hidden; background:#15161f; }
+body {
+  font-family:'Tahoma','MS Sans Serif',Arial,sans-serif;
+  font-size:10px;
+  color:#e0a020;
+  user-select:none;
+  margin:0; padding:0;
+}
+/* dark window bar at the very top — plain strip, full width (flush with the wood edges) */
+.topbar {
+  background:linear-gradient(180deg,#3a3f55,#15161f);
+  border-bottom:1px solid #000;
+  height:16px;
+}
+
+/* ── PALETTE ──
+   panel navy:   #2a2f6a / #232858
+   orange text:  #e89020
+   orange btn:   #d8810d
+   dark field:   #0a0c14
+   wood:         mahogany gradient
+   button grey:  #3a4048
+*/
+
+.vaz-win {
+  width:604px;
+  background:#15161f;
+  zoom:1.2;            /* scale the whole synth up ~20% to match the original VAZ size (was a bit small) */
+}
+::-webkit-scrollbar { width:0; height:0; display:none; }
+
+/* TITLEBAR (host frame - grey) */
+.host-titlebar {
+  background:linear-gradient(180deg,#5a5a5a,#3a3a3a);
+  padding:3px 6px;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  color:#ddd;
+  font-size:11px;
+  font-weight:bold;
+  border-bottom:1px solid #222;
+}
+.host-titlebar .left { display:flex; align-items:center; gap:6px; color:#bbb; }
+.host-btns { display:flex; gap:3px; }
+.host-btn { color:#999; cursor:pointer; font-size:11px; padding:0 3px; }
+
+/* PATCH BAR (orange text on navy) */
+.patch-bar {
+  background:#23284e;
+  border-bottom:1px solid #000;
+  border-top:1px solid #4a4f7a;
+  padding:2px 5px;
+  display:flex;
+  align-items:center;
+}
+.patch-name { color:#e89020; font-weight:bold; font-size:11px; }
+.patch-close { margin-left:auto; color:#888; cursor:pointer; }
+
+/* MAIN GRID */
+.main {
+  display:grid;
+  grid-template-columns:122px 122px 86px 130px 122px;
+  background:#23284e;
+}
+
+/* wood strip on the left of each oscillator column */
+.col { position:relative; }
+.col-inner { padding-left:0; }
+.synth-body { display:flex; }
+.wood-edge { width:11px; flex-shrink:0; }
+.wood-left {
+  background:linear-gradient(90deg,
+    #2a160a 0%, #6a3818 25%, #8a5028 45%, #6a3818 70%, #3a1e10 100%);
+}
+.wood-right {
+  background:linear-gradient(90deg,
+    #3a1e10 0%, #6a3818 30%, #8a5028 55%, #6a3818 75%, #2a160a 100%);
+}
+
+
+/* SECTION HEADER (orange underlined text) */
+.sh {
+  color:#e89020;
+  font-weight:bold;
+  font-size:11px;
+  padding:1px 4px 0;
+  text-decoration:underline;
+  font-style:italic;
+}
+
+.sb { padding:1px 4px 3px; }
+
+/* LABELS */
+.lbl { color:#c8c8d8; font-size:9px; line-height:12px; }
+
+/* HORIZONTAL SLIDERS w/ tick marks */
+.slider {
+  position:relative;
+  height:14px;
+  background:
+    repeating-linear-gradient(90deg,
+      transparent 0px, transparent 6px,
+      #5560a0 6px, #5560a0 7px),
+    #161a38;
+  border:1px solid #0a0c1a;
+  border-top-color:#000;
+  margin-bottom:2px;
+  cursor:pointer;
+}
+.slider .thumb {
+  position:absolute;
+  top:0; bottom:0;
+  width:8px;
+  background:linear-gradient(180deg,#e0e0e0 0%,#b0b0b0 45%,#808080 55%,#a0a0a0 100%);
+  border:1px solid #333;
+  border-top-color:#fff;
+  border-left-color:#ddd;
+}
+.slider.center .thumb { left:46%; }
+
+/* slider with end labels */
+.slider-lbl {
+  display:flex;
+  align-items:center;
+  gap:2px;
+}
+.slider-lbl .endlbl { font-size:8px; color:#9090b0; flex-shrink:0; }
+.slider-lbl .slider { flex:1; margin-bottom:0; }
+
+/* TUNING ROW (octave buttons) */
+.tuning-row {
+  display:flex;
+  gap:0;
+  margin-bottom:2px;
+}
+.oct-btn {
+  flex:1;
+  background:linear-gradient(180deg,#454b6a,#2e3350);
+  border:1px solid #11142a;
+  border-top-color:#5a6088;
+  color:#c0c0d0;
+  font-size:9px;
+  height:15px;
+  cursor:pointer;
+  text-align:center;
+  line-height:13px;
+}
+.oct-btn.on {
+  background:linear-gradient(180deg,#f0a030,#d8810d);
+  border-top-color:#ffc060;
+  color:#3a1e00;
+  font-weight:bold;
+}
+
+/* WAVEFORM ICON BUTTONS */
+.wave-btns { display:flex; gap:0; margin-bottom:2px; }
+.wbtn {
+  flex:1;
+  background:linear-gradient(180deg,#454b6a,#2e3350);
+  border:1px solid #11142a;
+  border-top-color:#5a6088;
+  color:#c0c0d0;
+  font-family:monospace;
+  font-size:10px;
+  height:16px;
+  line-height:14px;
+  text-align:center;
+  cursor:pointer;
+}
+.wbtn.on {
+  background:linear-gradient(180deg,#f0a030,#d8810d);
+  border-top-color:#ffc060;
+  color:#3a1e00;
+}
+
+/* DROPDOWN FIELDS (dark w/ orange text) */
+.dd-field {
+  background:#0a0c18;
+  border:1px solid #000;
+  border-bottom-color:#3a3f6a;
+  border-right-color:#3a3f6a;
+  color:#e89020;
+  font-size:9px;
+  font-family:inherit;
+  height:15px;
+  padding:0 3px;
+  cursor:pointer;
+  width:100%;
+  outline:none;
+  -webkit-appearance:none;
+  appearance:none;
+}
+.dd-field option { background:#2a2f5a; color:#e0e0e0; }
+
+/* small grey button (Post, Sync, Link, etc) */
+.gbtn {
+  background:linear-gradient(180deg,#c8c8c8,#909090);
+  border:1px solid #444;
+  border-top-color:#eee;
+  border-left-color:#ddd;
+  color:#222;
+  font-size:8px;
+  font-family:inherit;
+  height:14px;
+  padding:0 4px;
+  cursor:pointer;
+  white-space:nowrap;
+}
+.gbtn:active, .gbtn.on {
+  background:linear-gradient(180deg,#909090,#c8c8c8);
+  border-top-color:#666;
+}
+
+/* +/- mod buttons (orange) */
+.mod-row { display:flex; gap:0; align-items:stretch; margin-bottom:1px; }
+.pm-btn {
+  width:15px; border:1px solid #803e00; color:#5a3008;
+  font-size:11px; font-weight:bold; line-height:13px; text-align:center; cursor:pointer; flex-shrink:0;
+  background:linear-gradient(180deg,#9a6820,#6a4810);   /* dim = inactive + */
+}
+.pm-btn.on { background:linear-gradient(180deg,#f0a030,#d8810d); border-top-color:#ffc868; color:#4a2200; }
+.pm-btn.minus { border-color:#666; color:#555; background:linear-gradient(180deg,#888,#666); }  /* dim = inactive − */
+.pm-btn.minus.on { background:linear-gradient(180deg,#cfcfcf,#9a9a9a); border-top-color:#eee; color:#222; }
+.mod-row .dd-field { flex:1; }
+
+/* WAVE/icon row helpers */
+.row { display:flex; align-items:center; gap:2px; margin-bottom:2px; }
+.row .lbl { white-space:nowrap; }
+.flex1 { flex:1; }
+
+/* LFO header (orange italic underline, with red dot) */
+.lfo-hdr {
+  display:flex; align-items:center; gap:4px;
+  padding:2px 4px 0;
+}
+.lfo-lbl { color:#e89020; font-weight:bold; font-style:italic; text-decoration:underline; font-size:11px; }
+.reddot { width:7px;height:7px;border-radius:50%;background:#d02020;border:1px solid #600;flex-shrink:0; }
+
+/* ENVELOPE — HORIZONTAL sliders, label overlaid at left, long fader */
+.env-row {
+  position:relative;
+  margin-bottom:3px;
+  height:14px;
+}
+.env-row .slider {
+  width:100%;
+  margin-bottom:0;
+}
+.env-name {
+  position:absolute;
+  left:3px; top:1px;
+  font-size:9px; color:#d8d8e8;
+  z-index:2;
+  pointer-events:none;
+  text-shadow:1px 1px 1px #000;
+}
+
+/* ENV button row */
+.env-btns { display:flex; gap:0; margin-top:1px; }
+.env-btns .gbtn { flex:1; min-width:0; font-size:7px; padding:0; letter-spacing:-0.2px; }  /* fit all 4 (Multi/Reset/Cycle/Curve) without clipping Curve */
+
+/* RADIO */
+.radio-grp { display:flex; gap:3px; flex-wrap:wrap; margin-bottom:1px; }
+.radio-grp label { display:flex; align-items:center; gap:2px; color:#c8c8d8; font-size:9px; cursor:pointer; }
+.radio-grp input { width:9px; height:9px; }
+
+/* tuning numeric */
+.num { width:24px; background:#0a0c18; border:1px solid #000; border-bottom-color:#3a3f6a; color:#e89020; font-size:9px; text-align:center; height:14px; font-family:inherit; }
+
+/* TRANSPORT */
+.transport {
+  background:linear-gradient(180deg,#4a4a4a,#333);
+  border-top:1px solid #222;
+  padding:3px 5px;
+  display:flex; align-items:center; gap:4px;
+}
+.t-btn {
+  background:linear-gradient(180deg,#c8c8c8,#909090);
+  border:1px solid #444; border-top-color:#eee;
+  color:#222; font-size:10px; height:18px; padding:0 6px; cursor:pointer;
+}
+.tempo { background:#0a0c18; color:#ffaa00; font-weight:bold; font-size:11px; border:1px solid #000; width:34px; text-align:center; height:18px; font-family:monospace; }
+.synth-box { background:#e08800; color:#000; font-weight:bold; font-size:10px; padding:0 10px; height:18px; line-height:18px; border:1px solid #905000; margin-left:auto; }
+.val-box { background:#000; color:#0c0; font-size:10px; font-family:monospace; padding:0 5px; height:18px; line-height:18px; border:1px solid #333; }
+
+/* MENU */
+.menu-wrap { position:relative; }
+.dropdown { display:none; position:absolute; bottom:100%; left:0; background:#3a3a3a; border:1px solid #777; z-index:100; min-width:115px; box-shadow:2px -2px 8px #000; }
+.dropdown.open { display:block; }
+.dd-item { padding:2px 10px; font-size:10px; color:#e0e0e0; cursor:pointer; position:relative; white-space:nowrap; display:flex; justify-content:space-between; gap:12px; }
+.dd-item:hover { background:#d8810d; color:#000; }
+.dd-item.disabled { color:#777; }
+.dd-item.disabled:hover { background:transparent; color:#777; }
+.dd-sep { border-top:1px solid #555; margin:2px 0; }
+.submenu { display:none; position:absolute; left:100%; top:-1px; background:#3a3a3a; border:1px solid #777; min-width:165px; box-shadow:2px 2px 8px #000; }
+.dd-item:hover > .submenu { display:block; }
+.shortcut { color:#999; font-size:9px; }
+.arrow { color:#999; font-size:8px; }
+</style>
+</head>
+<body>
+
+<div class="vaz-win">
+
+<div class="topbar"></div>
+
+<!-- MAIN -->
+<div class="synth-body">
+<div class="wood-edge wood-left"></div>
+<div class="main">
+
+<!-- ═══ OSCILLATOR 1 ═══ -->
+<div class="col">
+ <div class="col-inner">
+  <div class="sh">Oscillator 1</div>
+  <div class="sb">
+    <div class="lbl">Tuning</div>
+    <div class="tuning-row">
+      <button class="oct-btn" data-og="o1t">32'</button>
+      <button class="oct-btn" data-og="o1t">16'</button>
+      <button class="oct-btn on" data-og="o1t">8'</button>
+      <button class="oct-btn" data-og="o1t">4'</button>
+      <button class="oct-btn" data-og="o1t">2'</button>
+    </div>
+    <div class="slider-lbl"><span class="endlbl">|-12</span><div class="slider center" data-param="o1_coarse"><div class="thumb"></div></div><span class="endlbl">+12|</span></div>
+    <div style="height:2px;"></div>
+    <div class="slider-lbl"><span class="endlbl">|-1</span><div class="slider center" data-param="o1_fine"><div class="thumb"></div></div><span class="endlbl">+1|</span></div>
+  </div>
+
+  <div class="sb">
+    <div class="lbl">Waveform</div>
+    <div class="wave-btns" id="wf1">
+      <button class="wbtn on" data-wg="wf1">◣</button>
+      <button class="wbtn" data-wg="wf1">⊓</button>
+      <button class="wbtn" data-wg="wf1">⋀</button>
+      <button class="wbtn" data-wg="wf1">↔</button>
+      <button class="wbtn" data-wg="wf1" style="font-size:8px;">Ext</button>
+    </div>
+    <div class="row">
+      <span class="lbl" id="o1WaveLbl" style="cursor:pointer;" title="Click = reset to Sine">Wave</span>
+      <div class="dd-field flex1" id="o1WaveDisp" style="cursor:pointer;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;" title="Click = load a sample">Sine (default sample)</div>
+    </div>
+    <div class="lbl" id="o1xlbl">Waveshape</div>
+    <div class="slider" data-param="o1_shape"><div class="thumb" style="left:0;"></div></div>
+  </div>
+
+  <div class="sb">
+    <div class="row">
+      <span class="lbl">Frequency Modulation</span>
+      <button class="gbtn" data-toggle="osc_link">Link</button>
+    </div>
+    <div class="mod-row"><div class="pm-btn">+</div><div class="pm-btn minus">−</div><select class="dd-field" data-combo="o1_fm_src" data-modsrc></select></div>
+    <div class="slider" data-param="o1_fm_amt"><div class="thumb" style="left:0;"></div></div>
+    <div class="mod-row"><div class="pm-btn">+</div><div class="pm-btn minus">−</div><select class="dd-field" id="fm1b"><option>None</option></select></div>
+    <div class="slider"><div class="thumb" style="left:0;"></div></div>
+  </div>
+
+  <div class="sb">
+    <div class="lbl" id="o1mlbl">Waveshape Modulation</div>
+    <div class="mod-row"><div class="pm-btn">+</div><div class="pm-btn minus">−</div><select class="dd-field" data-combo="o1_ws_src" data-modsrc></select></div>
+    <div class="slider" data-param="o1_ws_amt"><div class="thumb" style="left:0;"></div></div>
+  </div>
+
+  <div class="lfo-hdr"><span class="reddot"></span><span class="lfo-lbl">LFO 1</span></div>
+  <div class="sb">
+    <div class="row">
+      <span class="lbl">Rate</span>
+      <button class="gbtn" data-toggle="lfo_sync">Sync</button>
+      <select class="dd-field" style="width:32px;" data-combo="lfo_period"><option>1/32T</option><option>1/32</option><option>1/16T</option><option>1/16</option><option>1/8T</option><option>1/8</option><option>1/4T</option><option>1/4</option><option>2b</option><option>3b</option><option>4b</option><option>5b</option><option>6b</option><option>8b</option><option>12b</option><option>16b</option><option>24b</option><option>32b</option><option>48b</option><option>64b</option><option>96b</option><option>128b</option><option>192b</option><option>256b</option></select>
+      <button class="gbtn" data-toggle="lfo_trig">Trig</button>
+    </div>
+    <div class="slider" data-param="lfo_rate"><div class="thumb" style="left:40%;"></div></div>
+    <div class="row">
+      <span class="lbl">Wave</span>
+      <select class="dd-field flex1" data-combo="lfo_wave">
+        <option>Saw / Tri</option><option>Tri + Delay</option><option>Saw + Delay</option><option>Sine + Delay</option><option>Pulse</option><option>Square + Delay</option><option>Sample &amp; Hold + Lag</option><option>Sample &amp; Hold + Delay</option>
+      </select>
+    </div>
+    <div class="slider" data-param="lfo_shape"><div class="thumb" style="left:50%;"></div></div>
+  </div>
+
+  <div class="lfo-hdr"><span class="lfo-lbl">LFO 3</span></div>
+  <div class="sb">
+    <div class="row">
+      <span class="lbl">Waveform</span>
+      <select class="dd-field" style="width:34px;"><option>Tri</option><option>Sine</option></select>
+      <button class="gbtn on">○</button>
+      <select class="dd-field" style="width:38px;"><option>Sine</option><option>Tri</option></select>
+    </div>
+    <div class="slider" data-param="lfo3_rate"><div class="thumb" style="left:0;"></div></div>
+  </div>
+ </div>
+</div>
+
+<!-- ═══ OSCILLATOR 2 ═══ -->
+<div class="col">
+ <div class="col-inner">
+  <div class="sh">Oscillator 2</div>
+  <div class="sb">
+    <div class="lbl">Tuning</div>
+    <div class="tuning-row">
+      <button class="oct-btn" data-og="o2t">32'</button>
+      <button class="oct-btn" data-og="o2t">16'</button>
+      <button class="oct-btn on" data-og="o2t">8'</button>
+      <button class="oct-btn" data-og="o2t">4'</button>
+      <button class="oct-btn" data-og="o2t">2'</button>
+    </div>
+    <div class="slider-lbl"><span class="endlbl">|-12</span><div class="slider center" data-param="o2_coarse"><div class="thumb"></div></div><span class="endlbl">+12|</span></div>
+    <div style="height:2px;"></div>
+    <div class="slider-lbl"><span class="endlbl">|-1</span><div class="slider center" data-param="o2_fine"><div class="thumb"></div></div><span class="endlbl">+1|</span></div>
+  </div>
+
+  <div class="sb">
+    <div class="lbl" style="font-style:italic;">Waveform</div>
+    <div class="wave-btns" id="wf2">
+      <button class="wbtn on" data-wg="wf2">◣</button>
+      <button class="wbtn" data-wg="wf2">⊓</button>
+      <button class="wbtn" data-wg="wf2">⋀</button>
+      <button class="wbtn" data-wg="wf2">↔</button>
+      <button class="wbtn" data-wg="wf2" style="font-size:8px;">Sync</button>
+    </div>
+    <div class="row">
+      <span class="lbl" id="o2WaveLbl" style="cursor:pointer;" title="Click = reset to Sine">Wave</span>
+      <div class="dd-field flex1" id="o2WaveDisp" style="cursor:pointer;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;" title="Click = load a sample">Sine (default sample)</div>
+    </div>
+    <div class="lbl">Waveshape</div>
+    <div class="slider" data-param="o2_shape"><div class="thumb" style="left:0;"></div></div>
+  </div>
+
+  <div class="sb">
+    <div class="lbl">Frequency Modulation</div>
+    <div class="mod-row"><div class="pm-btn">+</div><div class="pm-btn minus">−</div><select class="dd-field" data-combo="o2_fm_src" data-modsrc></select></div>
+    <div class="slider" data-param="o2_fm_amt"><div class="thumb" style="left:0;"></div></div>
+    <div class="mod-row"><div class="pm-btn">+</div><div class="pm-btn minus">−</div><select class="dd-field" id="fm2b"><option>None</option></select></div>
+    <div class="slider"><div class="thumb" style="left:0;"></div></div>
+  </div>
+
+  <div class="sb">
+    <div class="lbl">Waveshape Modulation</div>
+    <div class="mod-row"><div class="pm-btn">+</div><div class="pm-btn minus">−</div><select class="dd-field" data-combo="o2_ws_src" data-modsrc></select></div>
+    <div class="slider" data-param="o2_ws_amt"><div class="thumb" style="left:0;"></div></div>
+  </div>
+
+  <div class="lfo-hdr"><span class="reddot"></span><span class="lfo-lbl">LFO 2</span></div>
+  <div class="sb">
+    <div class="row">
+      <span class="lbl">Rate</span>
+      <button class="gbtn" data-toggle="lfo2_sync">Sync</button>
+      <select class="dd-field" style="width:32px;" data-combo="lfo2_period"><option>1/32T</option><option>1/32</option><option>1/16T</option><option>1/16</option><option>1/8T</option><option>1/8</option><option>1/4T</option><option>1/4</option><option>2b</option><option>3b</option><option>4b</option><option>5b</option><option>6b</option><option>8b</option><option>12b</option><option>16b</option><option>24b</option><option>32b</option><option>48b</option><option>64b</option><option>96b</option><option>128b</option><option>192b</option><option>256b</option></select>
+      <button class="gbtn" data-toggle="lfo2_trig">Trig</button>
+    </div>
+    <div class="slider" data-param="lfo2_rate"><div class="thumb" style="left:0;"></div></div>
+    <div class="lbl">Rate Modulation</div>
+    <div class="mod-row"><div class="pm-btn">+</div><div class="pm-btn minus">−</div><select class="dd-field" data-combo="lfo2_rm_src" data-modsrc></select></div>
+    <div class="slider" data-param="lfo2_rm_amt"><div class="thumb" style="left:0;"></div></div>
+    <div class="row">
+      <span class="lbl">Wave</span>
+      <select class="dd-field flex1" data-combo="lfo2_wave">
+        <option>Saw / Tri</option><option>Tri + Delay</option><option>Saw + Delay</option><option>Sine + Delay</option><option>Pulse</option><option>Square + Delay</option><option>Sample &amp; Hold + Lag</option><option>Sample &amp; Hold + Delay</option>
+      </select>
+    </div>
+    <div class="row">
+      <span class="lbl">Dest</span>
+      <select class="dd-field flex1"><option>Attack</option><option>None</option><option>Pitch</option><option>Cutoff</option></select>
+    </div>
+  </div>
+ </div>
+</div>
+
+<!-- ═══ MIXER ═══ -->
+<div class="col">
+ <div class="col-inner">
+  <div class="sh">Mixer</div>
+  <div class="sb">
+    <div class="row"><select class="dd-field flex1" id="mix1" data-combo="mix1_src"><option>Oscillator 1</option><option>Ring Modulator</option><option>Noise</option><option>External Input</option><option>Mod Amplifier 1</option><option>Mod Amplifier 2</option></select><button class="gbtn" data-toggle="mix1_post">Post</button></div>
+    <div class="slider" data-param="o1_level"><div class="thumb" style="left:80%;"></div></div>
+  </div>
+  <div class="sb">
+    <div class="row"><select class="dd-field flex1" id="mix2" data-combo="mix2_src"><option>Oscillator 2</option><option>Ring Modulator</option><option>Noise</option><option>External Input</option><option>Mod Amplifier 1</option><option>Mod Amplifier 2</option></select><button class="gbtn" data-toggle="mix2_post">Post</button></div>
+    <div class="slider" data-param="o2_level"><div class="thumb" style="left:75%;"></div></div>
+  </div>
+  <div class="sb">
+    <div class="row"><select class="dd-field flex1" id="mix3" data-combo="mix3_src"><option>Noise</option><option>Oscillator 3</option><option>Ring Modulator</option><option>External Input</option><option>Mod Amplifier 1</option><option>Mod Amplifier 2</option></select><button class="gbtn" data-toggle="mix3_post">Post</button></div>
+    <div class="slider" data-param="noise_level"><div class="thumb" style="left:25%;"></div></div>
+  </div>
+
+  <div class="sh">Envelope 1</div>
+  <div class="sb">
+    <div class="env-row"><span class="env-name">|ttack</span><div class="slider" data-param="e1_attack"><div class="thumb" style="left:20%;"></div></div></div>
+    <div class="env-row"><span class="env-name">|ecay</span><div class="slider" data-param="e1_decay"><div class="thumb" style="left:55%;"></div></div></div>
+    <div class="env-row"><span class="env-name">|Sustain</span><div class="slider" data-param="e1_sustain"><div class="thumb" style="left:70%;"></div></div></div>
+    <div class="env-row"><span class="env-name">|elease</span><div class="slider" data-param="e1_release"><div class="thumb" style="left:30%;"></div></div></div>
+    <div class="env-btns"><button class="gbtn" data-toggle="e1_multi">Multi</button><button class="gbtn" data-toggle="e1_reset">Reset</button><button class="gbtn" data-toggle="e1_cycle">Cycle</button><button class="gbtn" data-toggle="e1_curve">Curve</button></div>
+  </div>
+
+  <div class="sh">Envelope 2</div>
+  <div class="sb">
+    <div class="env-row"><span class="env-name">|ttack</span><div class="slider" data-param="e2_attack"><div class="thumb" style="left:20%;"></div></div></div>
+    <div class="env-row"><span class="env-name">|ecay</span><div class="slider" data-param="e2_decay"><div class="thumb" style="left:60%;"></div></div></div>
+    <div class="env-row"><span class="env-name">|Sustain</span><div class="slider" data-param="e2_sustain"><div class="thumb" style="left:50%;"></div></div></div>
+    <div class="env-row"><span class="env-name">|elease</span><div class="slider" data-param="e2_release"><div class="thumb" style="left:30%;"></div></div></div>
+    <div class="env-btns"><button class="gbtn" data-toggle="e2_multi">Multi</button><button class="gbtn" data-toggle="e2_reset">Reset</button><button class="gbtn" data-toggle="e2_cycle">Cycle</button><button class="gbtn" data-toggle="e2_curve">Curve</button></div>
+    <div class="lbl" style="margin-top:2px;">Envelope Modulation</div>
+    <div class="mod-row"><div class="pm-btn">+</div><div class="pm-btn minus">−</div><select class="dd-field" id="envmod" data-combo="e2_mod_src"><option>None</option></select></div>
+    <div class="slider" data-param="e2_mod_amt"><div class="thumb" style="left:0;"></div></div>
+    <div class="row" style="margin-top:1px;"><span class="lbl">Dest</span><select class="dd-field flex1" data-combo="e2_dest"><option>Attack</option><option>Decay</option><option>Sustain</option><option>Release</option><option>None</option></select></div>
+  </div>
+ </div>
+</div>
+<div class="col">
+ <div class="col-inner">
+  <div class="sh">Filter</div>
+  <div class="sb">
+    <!-- Options ordered by .v2p byte value (sec3+28): option index = saved value 0-21 -->
+    <div class="row"><span class="lbl">Mode</span><select class="dd-field flex1" id="filterMode" data-combo="filter_mode">
+      <option value="0">Type A LP 2-Pole</option>
+      <option value="1">Type B LP 2-Pole</option>
+      <option value="2">Type C 2P LP Res Mod</option>
+      <option value="3">Type C 4P LP Res Mod</option>
+      <option value="4">Type A HP 2-Pole</option>
+      <option value="5">Type A BP 2-Pole</option>
+      <option value="6">Type B HP 2-Pole</option>
+      <option value="7">Type B BP 2-Pole</option>
+      <option value="8">Type C 4P LP Sep Mod</option>
+      <option value="9">Type C 4P LP HP Mod</option>
+      <option value="10">Type D LP 2-Pole</option>
+      <option value="11">Type D BP 2-Pole</option>
+      <option value="12">Type D HP 2-Pole</option>
+      <option value="13">Type D HP+LP</option>
+      <option value="14">Type C 2P LP HP Mod</option>
+      <option value="15">Type K LP Sallen-Key</option>
+      <option value="16">Type K HP+LP</option>
+      <option value="17">Type R 2P LP Res Mod</option>
+      <option value="18">Type R 2P LP HP Mod</option>
+      <option value="19" selected>Type R 4P LP Res Mod</option>
+      <option value="20">Type R 4P LP HP Mod</option>
+      <option value="21">Comb Filter</option>
+    </select></div>
+    <div class="lbl">Cutoff</div><div class="slider" data-param="cutoff"><div class="thumb" style="left:75%;"></div></div>
+    <div class="lbl">Resonance</div><div class="slider" data-param="resonance"><div class="thumb" style="left:40%;"></div></div>
+    <div class="lbl" id="auxLbl">Bandwidth / Sep</div><div class="slider" data-param="flt_aux"><div class="thumb" style="left:50%;"></div></div>
+    <div class="lbl" id="hpLbl">Highpass Cutoff</div><div class="slider" data-param="hp_cutoff"><div class="thumb" style="left:20%;"></div></div>
+  </div>
+  <div class="sb">
+    <div class="lbl">Cutoff Modulation</div>
+    <div class="mod-row"><div class="pm-btn">+</div><div class="pm-btn minus">−</div><select class="dd-field" data-combo="cut_mod1_src" data-modsrc></select></div>
+    <div class="slider" data-param="filt_env_amt"><div class="thumb" style="left:0;"></div></div>
+    <div class="mod-row"><div class="pm-btn">+</div><div class="pm-btn minus">−</div><select class="dd-field" data-combo="cut_mod2_src" data-modsrc></select></div>
+    <div class="slider" data-param="lfo_amt"><div class="thumb" style="left:0;"></div></div>
+  </div>
+  <div class="sb">
+    <div class="lbl" id="resModLbl">Resonance Modulation</div>
+    <div class="mod-row"><div class="pm-btn">+</div><div class="pm-btn minus">−</div><select class="dd-field" data-combo="res_mod_src" data-modsrc></select></div>
+    <div class="slider" data-param="res_mod_amt"><div class="thumb" style="left:0;"></div></div>
+  </div>
+
+  <div class="sh">Mod Amplifier 2</div>
+  <div class="sb">
+    <div class="row"><span class="lbl">In</span><select class="dd-field flex1" data-combo="ma2_in_src" data-modsrc></select></div>
+    <div class="row"><span class="lbl">AM</span><select class="dd-field flex1" data-combo="ma2_am_src" data-modsrc></select></div>
+    <div class="slider" data-param="ma2_am_amt"><div class="thumb" style="left:0;"></div></div>
+  </div>
+
+  <div class="sh">Lag Processor</div>
+  <div class="sb">
+    <div class="row"><span class="lbl">In</span><select class="dd-field flex1" data-combo="lag_in_src" data-modsrc></select></div>
+    <div class="lbl">Time</div>
+    <div class="slider" data-param="lag_time"><div class="thumb" style="left:30%;"></div></div>
+    <div class="row"><span class="lbl">Dest</span><select class="dd-field flex1" id="lagdest"><option>Attack</option><option>None</option><option>Pitch</option><option>Cutoff</option><option>Resonance</option><option>Amplitude</option></select></div>
+  </div>
+ </div>
+</div>
+
+<!-- ═══ AMPLIFIER ═══ -->
+<div class="col">
+ <div class="col-inner">
+  <div class="sh">Amplifier</div>
+  <div class="sb">
+    <div class="lbl">Amplitude Modulation</div>
+    <div class="mod-row"><div class="pm-btn">+</div><div class="pm-btn minus">−</div><select class="dd-field" id="amp1">
+      <option>Envelope 1</option><option>None</option><option>LFO 1</option><option>LFO 2</option><option>LFO 3</option><option>Envelope 2</option><option>Mod Amplifier 1</option><option>Mod Amplifier 2</option><option>Lag Processor</option><option>Oscillator 1</option><option>Oscillator 1 Pitch</option><option>Oscillator 2</option><option>Noise</option><option>External Input</option><option>Accent</option><option>Sequencer A</option><option>Sequencer B</option><option>MIDI Velocity</option><option>MIDI Pressure</option><option>MIDI Control A</option><option>MIDI Control B</option><option>Voice Number</option>
+    </select></div>
+    <div class="slider" data-param="amp_level"><div class="thumb" style="left:80%;"></div></div>
+    <div class="mod-row"><div class="pm-btn">+</div><div class="pm-btn minus">−</div><select class="dd-field" data-combo="amp_mod_src" data-modsrc></select></div>
+    <div class="slider" data-param="amp_mod_amt"><div class="thumb" style="left:0;"></div></div>
+  </div>
+  <div class="sb">
+    <div class="lbl">Pan Modulation</div>
+    <div class="mod-row"><div class="pm-btn">+</div><div class="pm-btn minus">−</div><select class="dd-field" id="pan1" data-combo="pan_mod_src"><option>None</option></select></div>
+    <div class="slider" data-param="pan_mod_amt"><div class="thumb" style="left:50%;"></div></div>
+    <div class="lbl">Overdrive</div>
+    <div class="slider" data-param="overdrive"><div class="thumb" style="left:10%;"></div></div>
+  </div>
+
+  <div class="sh">Mod Amplifier 1</div>
+  <div class="sb">
+    <div class="row"><span class="lbl">In</span><select class="dd-field flex1" data-combo="ma1_in_src" data-modsrc></select></div>
+    <div class="row"><span class="lbl">Amplitude Modulation</span><button class="gbtn" data-toggle="ma1_sq">SQ</button></div>
+    <div class="mod-row"><div class="pm-btn">+</div><div class="pm-btn minus">−</div><select class="dd-field" data-combo="ma1_am_src" data-modsrc></select></div>
+    <div class="slider" data-param="ma1_am_amt"><div class="thumb" style="left:0;"></div></div>
+  </div>
+
+  <div class="sh">Performance</div>
+  <div class="sb">
+    <div class="radio-grp"><label><input type="radio" name="vmode" data-vm>Mono</label><label><input type="radio" name="vmode" data-vm checked>Poly</label><label><input type="radio" name="vmode" data-vm>Unison</label></div>
+    <div class="radio-grp"><label><input type="radio" name="prio" data-prio checked>Last</label><label><input type="radio" name="prio" data-prio>High</label><label><input type="radio" name="prio" data-prio>Low</label><label><input type="radio" name="prio" data-prio>Duo</label></div>
+    <div class="lbl" id="detuneLbl">Poly Detune</div>
+    <div class="slider" data-param="uni_detune"><div class="thumb" style="left:20%;"></div></div>
+    <div class="row"><span class="lbl">Portamento</span><button class="gbtn on" data-toggle="porta_auto">Auto</button><button class="gbtn" data-toggle="porta_exp">Exp</button></div>
+    <div class="slider" data-param="portamento"><div class="thumb" style="left:30%;"></div></div>
+    <div class="row"><span class="lbl">UniVce</span><input class="num" value="4" id="univInput"><span class="lbl">Bend</span><input class="num" value="2" style="width:18px;" id="bendInput"></div>
+    <div class="row"><span class="lbl">Voices</span><input class="num" value="24" style="width:18px;"><span class="lbl">Midi</span><input class="num" value="1" style="width:16px;"></div>
+    <div class="row" style="gap:1px;"><button class="gbtn" style="font-size:11px;">♩</button><button class="gbtn" style="font-size:9px;">♫♫</button><button class="gbtn" data-toggle="arp_on">Arp</button><button class="gbtn" data-toggle="arp_hold">Hold</button></div>
+    <div class="row" style="gap:2px;">
+      <select class="dd-field" style="width:50px;" data-combo="arp_mode"><option>Up</option><option>Down</option><option>Up&amp;Down</option><option>Random</option></select>
+      <select class="dd-field" style="width:38px;" data-combo="arp_rate"><option>1/4</option><option>1/8</option><option>1/8T</option><option>1/16</option><option>1/16T</option><option>1/32</option></select>
+      <span class="lbl">Oct</span><select class="dd-field" style="width:30px;" data-combo="arp_oct"><option>1</option><option>2</option><option>3</option><option>4</option></select>
+    </div>
+  </div>
+ </div>
+</div>
+
+</div><!-- main -->
+<div class="wood-edge wood-right"></div>
+</div><!-- synth-body -->
+
+<!-- BOTTOM BAR — just the patch menu (host provides transport; VAZ mixer bypassed) -->
+<div class="transport">
+  <div class="menu-wrap">
+    <button class="t-btn" id="menuToggle">Menu ▸</button>
+    <div class="dropdown" id="mainMenu">
+      <div class="dd-item" id="loadPatch">Load Patch…</div>
+      <div class="dd-item" id="savePatch">Save Patch…</div>
+    </div>
+  </div>
+</div>
+
+</div>
+
+<script>
+const modSources=['None','LFO 1','LFO 2','LFO 3','Envelope 1','Envelope 2','Mod Amplifier 1','Mod Amplifier 2','Lag Processor','Oscillator 1','Oscillator 1 Pitch','Oscillator 2','Noise','External Input','Accent','Sequencer A','Sequencer B','MIDI Velocity','MIDI Pressure','MIDI Control A','MIDI Control B','Voice Number'];
+['fm1a','fm1b','md1a','fm2a','fm2b','ws2a','rm2a','cm1','cm2','rm1','ma2in','ma2am','lagin','amp2','pan1','ma1in','ma1am','envmod'].forEach(id=>{
+  const s=document.getElementById(id); if(!s)return;
+  modSources.forEach(src=>{const o=document.createElement('option');o.textContent=src;s.appendChild(o);});
+});
+
+// octave button groups
+document.querySelectorAll('[data-og]').forEach(b=>{
+  b.addEventListener('click',()=>{document.querySelectorAll(`[data-og="${b.dataset.og}"]`).forEach(x=>x.classList.remove('on'));b.classList.add('on');});
+});
+
+// waveform groups + osc1 dynamic label
+// Button index = .v2p waveform byte (B131): 0=Sine 1=Pulse 2=Detune 3=Wavetable 4=Ext
+const o1labels=['Position','Pulsewidth','Detune','Wavetable Position','Position'];
+const o1modlabels=['Modulation','Pulsewidth Modulation','Detune Modulation','Wavetable Modulation','Modulation'];
+document.querySelectorAll('[data-wg]').forEach(b=>{
+  b.addEventListener('click',()=>{
+    const g=b.dataset.wg;
+    document.querySelectorAll(`[data-wg="${g}"]`).forEach(x=>x.classList.remove('on'));
+    b.classList.add('on');
+    if(g==='wf1'){
+      const idx=Array.from(document.querySelectorAll('[data-wg="wf1"]')).indexOf(b);
+      document.getElementById('o1xlbl').textContent=o1labels[idx]||'Position';
+      document.getElementById('o1mlbl').textContent=o1modlabels[idx]||'Modulation';
+    }
+  });
+});
+
+// grey toggle buttons
+document.querySelectorAll('.gbtn').forEach(b=>{
+  if(b.hasAttribute('data-toggle'))return;   // real param toggles are handled by bindToggle
+  const t=b.textContent.trim();
+  if(['Sync','Trig','Post','Auto','Exp','Multi','Reset','Cycle','Curve','SQ','Link','Arp','Mode','Hold','○'].includes(t)){
+    b.addEventListener('click',()=>b.classList.toggle('on'));
+  }
+});
+
+// draggable sliders
+document.querySelectorAll('.slider').forEach(sl=>{
+  const thumb=sl.querySelector('.thumb');
+  let drag=false;
+  const move=e=>{
+    if(!drag)return;
+    const r=sl.getBoundingClientRect();
+    let p=(e.clientX-r.left)/r.width;
+    p=Math.max(0,Math.min(1,p));
+    thumb.style.left=(p*100*0.92)+'%';
+  };
+  sl.addEventListener('mousedown',e=>{drag=true;sl.classList.remove('center');move(e);});
+  document.addEventListener('mousemove',move);
+  document.addEventListener('mouseup',()=>drag=false);
+});
+
+// menu
+const mt=document.getElementById('menuToggle'),mm=document.getElementById('mainMenu');
+mt.addEventListener('click',e=>{e.stopPropagation();mm.classList.toggle('open');});
+document.addEventListener('click',()=>mm.classList.remove('open'));
+mm.addEventListener('click',e=>e.stopPropagation());
+
+// dynamic Detune label — Poly Detune / Unison Detune per voice mode
+const vmodeRadios=document.querySelectorAll('input[data-vm]');
+const detuneLbl=document.getElementById('detuneLbl');
+function updateDetuneLbl(){
+  const i=Array.from(vmodeRadios).findIndex(r=>r.checked);
+  if(detuneLbl) detuneLbl.textContent=(i===2?'Unison Detune':i===1?'Poly Detune':'Detune');
+}
+vmodeRadios.forEach(r=>r.addEventListener('change',updateDetuneLbl));
+updateDetuneLbl();
+
+// Load / Save Patch — call native functions (C++ adds .v2p file dialog + parser in the next wave)
+const _lp=document.getElementById('loadPatch'),_sp=document.getElementById('savePatch');
+if(_lp)_lp.addEventListener('click',()=>{try{getNativeFunction('loadPatch')();}catch(e){}mm.classList.remove('open');});
+if(_sp)_sp.addEventListener('click',()=>{try{getNativeFunction('savePatch')();}catch(e){}mm.classList.remove('open');});
+function _bindWave(dispId,lblId,osc){
+  var d=document.getElementById(dispId),l=document.getElementById(lblId);
+  if(d)d.addEventListener('click',function(){try{var p=getNativeFunction('loadSample')(osc);if(p&&p.then)p.then(function(n){if(n)d.textContent=n;});}catch(e){}});
+  if(l)l.addEventListener('click',function(){try{getNativeFunction('resetSample')(osc);}catch(e){}if(d)d.textContent='Sine (default sample)';});
+}
+_bindWave('o1WaveDisp','o1WaveLbl',0);
+_bindWave('o2WaveDisp','o2WaveLbl',1);
+function _initWave(dispId,osc){try{var p=getNativeFunction('getSampleName')(osc);if(p&&p.then)p.then(function(n){if(n)document.getElementById(dispId).textContent=n;});}catch(e){}}
+function _initWaves(tries){try{if(window.__JUCE__&&window.__JUCE__.backend){_initWave('o1WaveDisp',0);_initWave('o2WaveDisp',1);return;}}catch(e){}if(tries>0)setTimeout(function(){_initWaves(tries-1);},300);}
+_initWaves(12);
+</script>
+
+
+
+
+
+
+
+
+
+
+<script>
+/* ===== inlined JUCE interop ===== */
+/*
+  ==============================================================================
+
+   This file is part of the JUCE framework.
+   Copyright (c) Raw Material Software Limited
+
+   JUCE is an open source framework subject to commercial or open source
+   licensing.
+
+   By downloading, installing, or using the JUCE framework, or combining the
+   JUCE framework with any other source code, object code, content or any other
+   copyrightable work, you agree to the terms of the JUCE End User Licence
+   Agreement, and all incorporated terms including the JUCE Privacy Policy and
+   the JUCE Website Terms of Service, as applicable, which will bind you. If you
+   do not agree to the terms of these agreements, we will not license the JUCE
+   framework to you, and you must discontinue the installation or download
+   process and cease use of the JUCE framework.
+
+   JUCE End User Licence Agreement: https://juce.com/legal/juce-8-licence/
+   JUCE Privacy Policy: https://juce.com/juce-privacy-policy
+   JUCE Website Terms of Service: https://juce.com/juce-website-terms-of-service/
+
+   Or:
+
+   You may also use this code under the terms of the AGPLv3:
+   https://www.gnu.org/licenses/agpl-3.0.en.html
+
+   THE JUCE FRAMEWORK IS PROVIDED "AS IS" WITHOUT ANY WARRANTY, AND ALL
+   WARRANTIES, WHETHER EXPRESSED OR IMPLIED, INCLUDING WARRANTY OF
+   MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, ARE DISCLAIMED.
+
+  ==============================================================================
+*/
+
+if (
+  typeof window.__JUCE__ !== "undefined" &&
+  typeof window.__JUCE__.getAndroidUserScripts !== "undefined" &&
+  typeof window.inAndroidUserScriptEval === "undefined"
+) {
+  window.inAndroidUserScriptEval = true;
+  eval(window.__JUCE__.getAndroidUserScripts());
+  delete window.inAndroidUserScriptEval;
+}
+
+{
+  if (typeof window.__JUCE__ === "undefined") {
+    console.warn(
+      "The 'window.__JUCE__' object is undefined." +
+        " Native integration features will not work." +
+        " Defining a placeholder 'window.__JUCE__' object."
+    );
+
+    window.__JUCE__ = {
+      postMessage: function () {},
+    };
+  }
+
+  if (typeof window.__JUCE__.initialisationData === "undefined") {
+    window.__JUCE__.initialisationData = {
+      __juce__platform: [],
+      __juce__functions: [],
+      __juce__registeredGlobalEventIds: [],
+      __juce__sliders: [],
+      __juce__toggles: [],
+      __juce__comboBoxes: [],
+    };
+  }
+
+  class ListenerList {
+    constructor() {
+      this.listeners = new Map();
+      this.listenerId = 0;
+    }
+
+    addListener(fn) {
+      const newListenerId = this.listenerId++;
+      this.listeners.set(newListenerId, fn);
+      return newListenerId;
+    }
+
+    removeListener(id) {
+      if (this.listeners.has(id)) {
+        this.listeners.delete(id);
+      }
+    }
+
+    callListeners(payload) {
+      for (const [, value] of this.listeners) {
+        value(payload);
+      }
+    }
+  }
+
+  class EventListenerList {
+    constructor() {
+      this.eventListeners = new Map();
+    }
+
+    addEventListener(eventId, fn) {
+      if (!this.eventListeners.has(eventId))
+        this.eventListeners.set(eventId, new ListenerList());
+
+      const id = this.eventListeners.get(eventId).addListener(fn);
+
+      return [eventId, id];
+    }
+
+    removeEventListener([eventId, id]) {
+      if (this.eventListeners.has(eventId)) {
+        this.eventListeners.get(eventId).removeListener(id);
+      }
+    }
+
+    emitEvent(eventId, object) {
+      if (this.eventListeners.has(eventId))
+        this.eventListeners.get(eventId).callListeners(object);
+    }
+  }
+
+  class Backend {
+    constructor() {
+      this.listeners = new EventListenerList();
+    }
+
+    addEventListener(eventId, fn) {
+      return this.listeners.addEventListener(eventId, fn);
+    }
+
+    removeEventListener([eventId, id]) {
+      this.listeners.removeEventListener([eventId, id]);
+    }
+
+    emitEvent(eventId, object) {
+      window.__JUCE__.postMessage(
+        JSON.stringify({ eventId: eventId, payload: object })
+      );
+    }
+
+    emitByBackend(eventId, object) {
+      this.listeners.emitEvent(eventId, JSON.parse(object));
+    }
+  }
+
+  if (typeof window.__JUCE__.backend === "undefined")
+    window.__JUCE__.backend = new Backend();
+}
+
+/* ===== inlined JUCE frontend ===== */
+/*
+  ==============================================================================
+
+   This file is part of the JUCE framework.
+   Copyright (c) Raw Material Software Limited
+
+   JUCE is an open source framework subject to commercial or open source
+   licensing.
+
+   By downloading, installing, or using the JUCE framework, or combining the
+   JUCE framework with any other source code, object code, content or any other
+   copyrightable work, you agree to the terms of the JUCE End User Licence
+   Agreement, and all incorporated terms including the JUCE Privacy Policy and
+   the JUCE Website Terms of Service, as applicable, which will bind you. If you
+   do not agree to the terms of these agreements, we will not license the JUCE
+   framework to you, and you must discontinue the installation or download
+   process and cease use of the JUCE framework.
+
+   JUCE End User Licence Agreement: https://juce.com/legal/juce-8-licence/
+   JUCE Privacy Policy: https://juce.com/juce-privacy-policy
+   JUCE Website Terms of Service: https://juce.com/juce-website-terms-of-service/
+
+   Or:
+
+   You may also use this code under the terms of the AGPLv3:
+   https://www.gnu.org/licenses/agpl-3.0.en.html
+
+   THE JUCE FRAMEWORK IS PROVIDED "AS IS" WITHOUT ANY WARRANTY, AND ALL
+   WARRANTIES, WHETHER EXPRESSED OR IMPLIED, INCLUDING WARRANTY OF
+   MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, ARE DISCLAIMED.
+
+  ==============================================================================
+*/
+
+
+
+class PromiseHandler {
+  constructor() {
+    this.lastPromiseId = 0;
+    this.promises = new Map();
+
+    window.__JUCE__.backend.addEventListener(
+      "__juce__complete",
+      ({ promiseId, result }) => {
+        if (this.promises.has(promiseId)) {
+          this.promises.get(promiseId).resolve(result);
+          this.promises.delete(promiseId);
+        }
+      }
+    );
+  }
+
+  createPromise() {
+    const promiseId = this.lastPromiseId++;
+    const result = new Promise((resolve, reject) => {
+      this.promises.set(promiseId, { resolve: resolve, reject: reject });
+    });
+    return [promiseId, result];
+  }
+}
+
+const promiseHandler = new PromiseHandler();
+
+/**
+ * Returns a function object that calls a function registered on the JUCE backend and forwards all
+ * parameters to it.
+ *
+ * The provided name should be the same as the name argument passed to
+ * WebBrowserComponent::Options.withNativeFunction() on the backend.
+ *
+ * @param {String} name
+ */
+function getNativeFunction(name) {
+  if (!window.__JUCE__.initialisationData.__juce__functions.includes(name))
+    console.warn(
+      `Creating native function binding for '${name}', which is unknown to the backend`
+    );
+
+  const f = function () {
+    const [promiseId, result] = promiseHandler.createPromise();
+
+    window.__JUCE__.backend.emitEvent("__juce__invoke", {
+      name: name,
+      params: Array.prototype.slice.call(arguments),
+      resultId: promiseId,
+    });
+
+    return result;
+  };
+
+  return f;
+}
+
+//==============================================================================
+
+class ListenerList {
+  constructor() {
+    this.listeners = new Map();
+    this.listenerId = 0;
+  }
+
+  addListener(fn) {
+    const newListenerId = this.listenerId++;
+    this.listeners.set(newListenerId, fn);
+    return newListenerId;
+  }
+
+  removeListener(id) {
+    if (this.listeners.has(id)) {
+      this.listeners.delete(id);
+    }
+  }
+
+  callListeners(payload) {
+    for (const [, value] of this.listeners) {
+      value(payload);
+    }
+  }
+}
+
+const BasicControl_valueChangedEventId = "valueChanged";
+const BasicControl_propertiesChangedId = "propertiesChanged";
+const SliderControl_sliderDragStartedEventId = "sliderDragStarted";
+const SliderControl_sliderDragEndedEventId = "sliderDragEnded";
+
+/**
+ * SliderState encapsulates data and callbacks that are synchronised with a WebSliderRelay object
+ * on the backend.
+ *
+ * Use getSliderState() to create a SliderState object. This object will be synchronised with the
+ * WebSliderRelay backend object that was created using the same unique name.
+ *
+ * @param {String} name
+ */
+class SliderState {
+  constructor(name) {
+    if (!window.__JUCE__.initialisationData.__juce__sliders.includes(name))
+      console.warn(
+        "Creating SliderState for '" +
+          name +
+          "', which is unknown to the backend"
+      );
+
+    this.name = name;
+    this.identifier = "__juce__slider" + this.name;
+    this.scaledValue = 0;
+    this.properties = {
+      start: 0,
+      end: 1,
+      skew: 1,
+      name: "",
+      label: "",
+      numSteps: 100,
+      interval: 0,
+      parameterIndex: -1,
+    };
+    this.valueChangedEvent = new ListenerList();
+    this.propertiesChangedEvent = new ListenerList();
+
+    window.__JUCE__.backend.addEventListener(this.identifier, (event) =>
+      this.handleEvent(event)
+    );
+
+    window.__JUCE__.backend.emitEvent(this.identifier, {
+      eventType: "requestInitialUpdate",
+    });
+  }
+
+  /**
+   * Sets the normalised value of the corresponding backend parameter. This value is always in the
+   * [0, 1] range (inclusive).
+   *
+   * The meaning of this range is the same as in the case of
+   * AudioProcessorParameter::getValue() (C++).
+   *
+   * @param {String} name
+   */
+  setNormalisedValue(newValue) {
+    this.scaledValue = this.snapToLegalValue(
+      this.normalisedToScaledValue(newValue)
+    );
+
+    window.__JUCE__.backend.emitEvent(this.identifier, {
+      eventType: BasicControl_valueChangedEventId,
+      value: this.scaledValue,
+    });
+  }
+
+  /**
+   * This function should be called first thing when the user starts interacting with the slider.
+   */
+  sliderDragStarted() {
+    window.__JUCE__.backend.emitEvent(this.identifier, {
+      eventType: SliderControl_sliderDragStartedEventId,
+    });
+  }
+
+  /**
+   * This function should be called when the user finished the interaction with the slider.
+   */
+  sliderDragEnded() {
+    window.__JUCE__.backend.emitEvent(this.identifier, {
+      eventType: SliderControl_sliderDragEndedEventId,
+    });
+  }
+
+  /** Internal. */
+  handleEvent(event) {
+    if (event.eventType == BasicControl_valueChangedEventId) {
+      this.scaledValue = event.value;
+      this.valueChangedEvent.callListeners();
+    }
+    if (event.eventType == BasicControl_propertiesChangedId) {
+      // eslint-disable-next-line no-unused-vars
+      let { eventType: _, ...rest } = event;
+      this.properties = rest;
+      this.propertiesChangedEvent.callListeners();
+    }
+  }
+
+  /**
+   * Returns the scaled value of the parameter. This corresponds to the return value of
+   * NormalisableRange::convertFrom0to1() (C++). This value will differ from a linear
+   * [0, 1] range if a non-default NormalisableRange was set for the parameter.
+   */
+  getScaledValue() {
+    return this.scaledValue;
+  }
+
+  /**
+   * Returns the normalised value of the corresponding backend parameter. This value is always in the
+   * [0, 1] range (inclusive).
+   *
+   * The meaning of this range is the same as in the case of
+   * AudioProcessorParameter::getValue() (C++).
+   *
+   * @param {String} name
+   */
+  getNormalisedValue() {
+    return Math.pow(
+      (this.scaledValue - this.properties.start) /
+        (this.properties.end - this.properties.start),
+      this.properties.skew
+    );
+  }
+
+  /** Internal. */
+  normalisedToScaledValue(normalisedValue) {
+    return (
+      Math.pow(normalisedValue, 1 / this.properties.skew) *
+        (this.properties.end - this.properties.start) +
+      this.properties.start
+    );
+  }
+
+  /** Internal. */
+  snapToLegalValue(value) {
+    const interval = this.properties.interval;
+
+    if (interval == 0) return value;
+
+    const start = this.properties.start;
+    const clamp = (val, min = 0, max = 1) => Math.max(min, Math.min(max, val));
+
+    return clamp(
+      start + interval * Math.floor((value - start) / interval + 0.5),
+      this.properties.start,
+      this.properties.end
+    );
+  }
+}
+
+const sliderStates = new Map();
+
+for (const sliderName of window.__JUCE__.initialisationData.__juce__sliders)
+  sliderStates.set(sliderName, new SliderState(sliderName));
+
+/**
+ * Returns a SliderState object that is connected to the backend WebSliderRelay object that was
+ * created with the same name argument.
+ *
+ * To register a WebSliderRelay object create one with the right name and add it to the
+ * WebBrowserComponent::Options struct using withOptionsFrom.
+ *
+ * @param {String} name
+ */
+function getSliderState(name) {
+  if (!sliderStates.has(name)) sliderStates.set(name, new SliderState(name));
+
+  return sliderStates.get(name);
+}
+
+/**
+ * ToggleState encapsulates data and callbacks that are synchronised with a WebToggleRelay object
+ * on the backend.
+ *
+ * Use getToggleState() to create a ToggleState object. This object will be synchronised with the
+ * WebToggleRelay backend object that was created using the same unique name.
+ *
+ * @param {String} name
+ */
+class ToggleState {
+  constructor(name) {
+    if (!window.__JUCE__.initialisationData.__juce__toggles.includes(name))
+      console.warn(
+        "Creating ToggleState for '" +
+          name +
+          "', which is unknown to the backend"
+      );
+
+    this.name = name;
+    this.identifier = "__juce__toggle" + this.name;
+    this.value = false;
+    this.properties = {
+      name: "",
+      parameterIndex: -1,
+    };
+    this.valueChangedEvent = new ListenerList();
+    this.propertiesChangedEvent = new ListenerList();
+
+    window.__JUCE__.backend.addEventListener(this.identifier, (event) =>
+      this.handleEvent(event)
+    );
+
+    window.__JUCE__.backend.emitEvent(this.identifier, {
+      eventType: "requestInitialUpdate",
+    });
+  }
+
+  /** Returns the value corresponding to the associated WebToggleRelay's (C++) state. */
+  getValue() {
+    return this.value;
+  }
+
+  /** Informs the backend to change the associated WebToggleRelay's (C++) state. */
+  setValue(newValue) {
+    this.value = newValue;
+
+    window.__JUCE__.backend.emitEvent(this.identifier, {
+      eventType: BasicControl_valueChangedEventId,
+      value: this.value,
+    });
+  }
+
+  /** Internal. */
+  handleEvent(event) {
+    if (event.eventType == BasicControl_valueChangedEventId) {
+      this.value = event.value;
+      this.valueChangedEvent.callListeners();
+    }
+    if (event.eventType == BasicControl_propertiesChangedId) {
+      // eslint-disable-next-line no-unused-vars
+      let { eventType: _, ...rest } = event;
+      this.properties = rest;
+      this.propertiesChangedEvent.callListeners();
+    }
+  }
+}
+
+const toggleStates = new Map();
+
+for (const name of window.__JUCE__.initialisationData.__juce__toggles)
+  toggleStates.set(name, new ToggleState(name));
+
+/**
+ * Returns a ToggleState object that is connected to the backend WebToggleButtonRelay object that was
+ * created with the same name argument.
+ *
+ * To register a WebToggleButtonRelay object create one with the right name and add it to the
+ * WebBrowserComponent::Options struct using withOptionsFrom.
+ *
+ * @param {String} name
+ */
+function getToggleState(name) {
+  if (!toggleStates.has(name)) toggleStates.set(name, new ToggleState(name));
+
+  return toggleStates.get(name);
+}
+
+/**
+ * ComboBoxState encapsulates data and callbacks that are synchronised with a WebComboBoxRelay object
+ * on the backend.
+ *
+ * Use getComboBoxState() to create a ComboBoxState object. This object will be synchronised with the
+ * WebComboBoxRelay backend object that was created using the same unique name.
+ *
+ * @param {String} name
+ */
+class ComboBoxState {
+  constructor(name) {
+    if (!window.__JUCE__.initialisationData.__juce__comboBoxes.includes(name))
+      console.warn(
+        "Creating ComboBoxState for '" +
+          name +
+          "', which is unknown to the backend"
+      );
+
+    this.name = name;
+    this.identifier = "__juce__comboBox" + this.name;
+    this.value = 0.0;
+    this.properties = {
+      name: "",
+      parameterIndex: -1,
+      choices: [],
+    };
+    this.valueChangedEvent = new ListenerList();
+    this.propertiesChangedEvent = new ListenerList();
+
+    window.__JUCE__.backend.addEventListener(this.identifier, (event) =>
+      this.handleEvent(event)
+    );
+
+    window.__JUCE__.backend.emitEvent(this.identifier, {
+      eventType: "requestInitialUpdate",
+    });
+  }
+
+  /**
+   * Returns the value corresponding to the associated WebComboBoxRelay's (C++) state.
+   *
+   * This is an index identifying which element of the properties.choices array is currently
+   * selected.
+   */
+  getChoiceIndex() {
+    return Math.round(this.value * (this.properties.choices.length - 1));
+  }
+
+  /**
+   * Informs the backend to change the associated WebComboBoxRelay's (C++) state.
+   *
+   * This should be called with the index identifying the selected element from the
+   * properties.choices array.
+   */
+  setChoiceIndex(index) {
+    const numItems = this.properties.choices.length;
+    this.value = numItems > 1 ? index / (numItems - 1) : 0.0;
+
+    window.__JUCE__.backend.emitEvent(this.identifier, {
+      eventType: BasicControl_valueChangedEventId,
+      value: this.value,
+    });
+  }
+
+  /** Internal. */
+  handleEvent(event) {
+    if (event.eventType == BasicControl_valueChangedEventId) {
+      this.value = event.value;
+      this.valueChangedEvent.callListeners();
+    }
+    if (event.eventType == BasicControl_propertiesChangedId) {
+      // eslint-disable-next-line no-unused-vars
+      let { eventType: _, ...rest } = event;
+      this.properties = rest;
+      this.propertiesChangedEvent.callListeners();
+    }
+  }
+}
+
+const comboBoxStates = new Map();
+
+for (const name of window.__JUCE__.initialisationData.__juce__comboBoxes)
+  comboBoxStates.set(name, new ComboBoxState(name));
+
+/**
+ * Returns a ComboBoxState object that is connected to the backend WebComboBoxRelay object that was
+ * created with the same name argument.
+ *
+ * To register a WebComboBoxRelay object create one with the right name and add it to the
+ * WebBrowserComponent::Options struct using withOptionsFrom.
+ *
+ * @param {String} name
+ */
+function getComboBoxState(name) {
+  if (!comboBoxStates.has(name))
+    comboBoxStates.set(name, new ComboBoxState(name));
+
+  return comboBoxStates.get(name);
+}
+
+/**
+ * Appends a platform-specific prefix to the path to ensure that a request sent to this address will
+ * be received by the backend's ResourceProvider.
+ * @param {String} path
+ */
+function getBackendResourceAddress(path) {
+  const platform =
+    window.__JUCE__.initialisationData.__juce__platform.length > 0
+      ? window.__JUCE__.initialisationData.__juce__platform[0]
+      : "";
+
+  if (platform == "windows" || platform == "android")
+    return "https://juce.backend/" + path;
+
+  if (platform == "macos" || platform == "ios" || platform == "linux")
+    return "juce://juce.backend/" + path;
+
+  console.warn(
+    "getBackendResourceAddress() called, but no JUCE native backend is detected."
+  );
+  return path;
+}
+
+/**
+ * This helper class is intended to aid the implementation of
+ * AudioProcessorEditor::getControlParameterIndex() for editors using a WebView interface.
+ *
+ * Create an instance of this class and call its handleMouseMove() method in each mousemove event.
+ *
+ * This class can be used to continuously report the controlParameterIndexAnnotation attribute's
+ * value related to the DOM element that is currently under the mouse pointer.
+ *
+ * This value is defined at all times as follows
+ * * the annotation attribute's value for the DOM element directly under the mouse, if it has it,
+ * * the annotation attribute's value for the first parent element, that has it,
+ * * -1 otherwise.
+ *
+ * Whenever there is a change in this value, an event is emitted to the frontend with the new value.
+ * You can use a ControlParameterIndexReceiver object on the backend to listen to these events.
+ *
+ * @param {String} controlParameterIndexAnnotation
+ */
+class ControlParameterIndexUpdater {
+  constructor(controlParameterIndexAnnotation) {
+    this.controlParameterIndexAnnotation = controlParameterIndexAnnotation;
+    this.lastElement = null;
+    this.lastControlParameterIndex = null;
+  }
+
+  handleMouseMove(event) {
+    const currentElement = document.elementFromPoint(
+      event.clientX,
+      event.clientY
+    );
+
+    if (currentElement === this.lastElement) return;
+    this.lastElement = currentElement;
+
+    let controlParameterIndex = -1;
+
+    if (currentElement !== null)
+      controlParameterIndex = this.#getControlParameterIndex(currentElement);
+
+    if (controlParameterIndex === this.lastControlParameterIndex) return;
+    this.lastControlParameterIndex = controlParameterIndex;
+
+    window.__JUCE__.backend.emitEvent(
+      "__juce__controlParameterIndexChanged",
+      controlParameterIndex
+    );
+  }
+
+  //==============================================================================
+  #getControlParameterIndex(element) {
+    const isValidNonRootElement = (e) => {
+      return e !== null && e !== document.documentElement;
+    };
+
+    while (isValidNonRootElement(element)) {
+      if (element.hasAttribute(this.controlParameterIndexAnnotation)) {
+        return element.getAttribute(this.controlParameterIndexAnnotation);
+      }
+
+      element = element.parentElement;
+    }
+
+    return -1;
+  }
+}
+
+
+
+/* ===== VAZClone bindings ===== */
+// VAZClone WebView bridge — connects the VAZ panel controls to JUCE parameters.
+// Each control with [data-param="<id>"] binds to the matching APVTS parameter
+// via the JUCE WebSliderRelay. IDs match Source/ParameterIDs.hpp.
+
+
+function bindSlider(paramId, el) {
+  let state;
+  try { state = getSliderState(paramId); } catch (e) { state = null; }
+  if (!state) return; // running in a plain browser (no JUCE backend) — preview only
+
+  const thumb = el.querySelector(".thumb");
+  const updateThumb = () => {
+    const v = state.getNormalisedValue();
+    if (thumb) thumb.style.left = (v * 92) + "%";
+  };
+  if (state.valueChangedEvent && state.valueChangedEvent.addListener)
+    state.valueChangedEvent.addListener(updateThumb);
+  updateThumb();
+
+  let dragging = false;
+  const setFromX = (clientX) => {
+    const r = el.getBoundingClientRect();
+    let p = (clientX - r.left) / r.width;
+    p = Math.max(0, Math.min(1, p));
+    state.setNormalisedValue(p);
+    if (thumb) thumb.style.left = (p * 92) + "%";
+  };
+  el.addEventListener("mousedown", (e) => { dragging = true; el.classList.remove("center"); setFromX(e.clientX); });
+  window.addEventListener("mousemove", (e) => { if (dragging) setFromX(e.clientX); });
+  window.addEventListener("mouseup", () => { dragging = false; });
+}
+
+// <select> bound to a WebComboBoxRelay (correct API for choice params).
+function bindCombo(paramId, el) {
+  let state;
+  try { state = getComboBoxState(paramId); } catch (e) { state = null; }
+  if (!state) return;
+  const update = () => { el.selectedIndex = state.getChoiceIndex(); };
+  if (state.valueChangedEvent && state.valueChangedEvent.addListener)
+    state.valueChangedEvent.addListener(update);
+  update();
+  el.addEventListener("change", () => state.setChoiceIndex(el.selectedIndex));
+}
+
+// Button group (waveform / octave) bound to a WebComboBoxRelay: button position = choice index.
+function bindButtonGroup(selector, paramId) {
+  let state;
+  try { state = getComboBoxState(paramId); } catch (e) { state = null; }
+  if (!state) return;
+  const btns = Array.from(document.querySelectorAll(selector));
+  const update = () => {
+    const idx = state.getChoiceIndex();
+    btns.forEach((b, i) => b.classList.toggle("on", i === idx));
+  };
+  if (state.valueChangedEvent && state.valueChangedEvent.addListener)
+    state.valueChangedEvent.addListener(update);
+  update();
+  btns.forEach((b, i) => b.addEventListener("click", () => state.setChoiceIndex(i)));
+}
+
+// Radio-button group bound to a WebComboBoxRelay choice (e.g. Mono/Poly/Unison).
+function bindRadioGroup(selector, paramId) {
+  let state;
+  try { state = getComboBoxState(paramId); } catch (e) { state = null; }
+  if (!state) return;
+  const radios = Array.from(document.querySelectorAll(selector));
+  const update = () => {
+    const idx = state.getChoiceIndex();
+    radios.forEach((r, i) => { r.checked = (i === idx); });
+  };
+  if (state.valueChangedEvent && state.valueChangedEvent.addListener)
+    state.valueChangedEvent.addListener(update);
+  update();
+  radios.forEach((r, i) => r.addEventListener("change", () => state.setChoiceIndex(i)));
+}
+
+// The 22 modulation sources — MUST match the order of the modSrcs[] array in the processor.
+const MODSOURCES = ["None","LFO 1","LFO 2","LFO 3","Envelope 1","Envelope 2","Mod Amplifier 1",
+  "Mod Amplifier 2","Lag Processor","Oscillator 1","Oscillator 1 Pitch","Oscillator 2","Noise",
+  "External Input","Accent","Sequencer A","Sequencer B","MIDI Velocity","MIDI Pressure",
+  "MIDI Control A","MIDI Control B","Voice Number"];
+
+function populateModSources() {
+  document.querySelectorAll("select[data-modsrc]").forEach((sel) => {
+    if (sel.options.length < MODSOURCES.length)
+      sel.innerHTML = MODSOURCES.map((s) => "<option>" + s + "</option>").join("");
+  });
+}
+
+// Toggle button bound to a WebToggleButtonRelay bool param (ENV Reset/Cycle/Curve).
+function bindToggle(paramId, el) {
+  let state;
+  try { state = getToggleState(paramId); } catch (e) { state = null; }
+  if (!state) return;
+  const update = () => el.classList.toggle("on", state.getValue());
+  if (state.valueChangedEvent && state.valueChangedEvent.addListener)
+    state.valueChangedEvent.addListener(update);
+  update();
+  el.addEventListener("click", () => state.setValue(!state.getValue()));
+}
+
+function bindNumInput(id, paramId, lo, hi) {
+  const el = document.getElementById(id); if (!el) return;
+  let state; try { state = getSliderState(paramId); } catch (e) { state = null; }
+  if (!state) return;
+  const upd = () => { el.value = Math.round(lo + (hi - lo) * state.getNormalisedValue()); };
+  if (state.valueChangedEvent && state.valueChangedEvent.addListener) state.valueChangedEvent.addListener(upd);
+  upd();
+  el.addEventListener("change", () => {
+    let v = parseFloat(el.value); if (isNaN(v)) return;
+    v = Math.max(lo, Math.min(hi, v));
+    state.setNormalisedValue((v - lo) / (hi - lo));
+  });
+}
+function init() {
+  populateModSources();                               // fill mod-source dropdowns before binding
+  document.querySelectorAll("[data-toggle]").forEach((el) => {
+    bindToggle(el.getAttribute("data-toggle"), el);
+  });
+  document.querySelectorAll("[data-param]").forEach((el) => {
+    bindSlider(el.getAttribute("data-param"), el);
+  });
+  document.querySelectorAll("[data-combo]").forEach((el) => {
+    bindCombo(el.getAttribute("data-combo"), el);
+  });
+  bindButtonGroup('[data-wg="wf1"]', "o1_wave");    // waveform buttons OSC1
+  bindButtonGroup('[data-wg="wf2"]', "o2_wave");    // waveform buttons OSC2
+  bindButtonGroup('[data-og="o1t"]', "o1_octave");  // octave buttons OSC1
+  bindButtonGroup('[data-og="o2t"]', "o2_octave");  // octave buttons OSC2
+  bindRadioGroup('input[data-vm]', "voice_mode");      // Mono/Poly/Unison radios
+  bindRadioGroup('input[data-prio]', "note_priority"); // Last/High/Low/Duo radios
+  document.querySelectorAll('.mod-row').forEach(row => {          // +/- modulation sign toggles
+    const plus = row.querySelector('.pm-btn:not(.minus)'), minus = row.querySelector('.pm-btn.minus');
+    if (!plus || !minus) return;
+    let sib = row.nextElementSibling;
+    while (sib && !(sib.classList && sib.classList.contains('slider'))) sib = sib.nextElementSibling;
+    const dp = sib && sib.getAttribute && sib.getAttribute('data-param');
+    let st = null; if (dp) { try { st = getToggleState(dp + '_inv'); } catch (e) { st = null; } }
+    const ui = neg => { plus.classList.toggle('on', !neg); minus.classList.toggle('on', neg); };
+    if (st && st.valueChangedEvent) st.valueChangedEvent.addListener(() => ui(st.getValue()));
+    ui(st ? st.getValue() : false);
+    plus.addEventListener('click', () => { if (st) st.setValue(false); ui(false); });
+    minus.addEventListener('click', () => { if (st) st.setValue(true); ui(true); });
+  });
+  // Dynamic filter-slider labels per mode (matches VAZ: Unused/Bandwidth/Separation/Highpass …)
+  const FILTLABELS = [
+    ['Unused','Unused','Resonance Modulation'],['Bandwidth','Unused','Resonance Modulation'],
+    ['Unused','Highpass Cutoff','Resonance Modulation'],['Separation','Highpass Cutoff','Resonance Modulation'],
+    ['Unused','Unused','Resonance Modulation'],['Unused','Unused','Resonance Modulation'],
+    ['Bandwidth','Unused','Resonance Modulation'],['Bandwidth','Unused','Resonance Modulation'],
+    ['Separation','Highpass Cutoff','Separation Modulation'],['Separation','Highpass Cutoff','Highpass Modulation'],
+    ['Unused','Unused','Resonance Modulation'],['Unused','Unused','Resonance Modulation'],
+    ['Unused','Unused','Resonance Modulation'],['Separation','Unused','Separation Modulation'],
+    ['Unused','Highpass Cutoff','Highpass Modulation'],['Unused','Unused','Resonance Modulation'],
+    ['Highpass Resonance','Highpass Cutoff','Highpass Modulation'],['Unused','Highpass Cutoff','Resonance Modulation'],
+    ['Unused','Highpass Cutoff','Highpass Modulation'],['Unused','Highpass Cutoff','Resonance Modulation'],
+    ['Unused','Highpass Cutoff','Highpass Modulation'],['Damping','In/Out Mix','Resonance Modulation']
+  ];
+  const fmEl = document.getElementById('filterMode'), auxL = document.getElementById('auxLbl'),
+        hpL = document.getElementById('hpLbl'), rmL = document.getElementById('resModLbl');
+  const updFiltLabels = () => {
+    const L = FILTLABELS[fmEl ? fmEl.selectedIndex : 19] || FILTLABELS[19];
+    if (auxL) auxL.textContent = L[0]; if (hpL) hpL.textContent = L[1]; if (rmL) rmL.textContent = L[2];
+  };
+  if (fmEl) fmEl.addEventListener('change', updFiltLabels);
+  try { const fst = getComboBoxState('filter_mode'); if (fst && fst.valueChangedEvent) fst.valueChangedEvent.addListener(updFiltLabels); } catch (e) {}
+  updFiltLabels();
+  bindNumInput('bendInput', "bend_range", 1, 24);      // pitch-bend range in semitones
+  bindNumInput('univInput', "uni_voices", 1, 16);      // unison voice count
+}
+
+// Modules load async via the resource provider — DOMContentLoaded may already have fired
+// by the time we run, so init immediately if the DOM is already parsed.
+if (document.readyState === "loading")
+  document.addEventListener("DOMContentLoaded", init);
+else
+  init();
+
+</script>
+</body>
+</html>
