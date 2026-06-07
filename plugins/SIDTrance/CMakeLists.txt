@@ -1,6 +1,18 @@
 cmake_minimum_required(VERSION 3.15)
 
+# SIDTrance uses the Visage UI framework. When Visage isn't enabled the
+# visage::visage target doesn't exist — skip this plugin entirely (same guard
+# as gnarly3) so it doesn't break the whole-project CMake configure/generate.
+if(NOT TARGET visage::visage)
+    message(STATUS "Skipping SIDTrance: Visage not enabled (set APC_ENABLE_VISAGE=ON to build)")
+    return()
+endif()
+
 # ── Plugin definition ──────────────────────────────────────
+# NEEDS_WEBVIEW2     → Windows: statically links WebView2 SDK
+# NEEDS_WEB_BROWSER  → Linux: pulls in webkit2gtk + GTK include paths
+#                      (no-op on Windows/macOS).  macOS uses WKWebView via
+#                      the system framework — no extra flag required.
 juce_add_plugin(SIDTrance
     COMPANY_NAME            "CMOSAudio"
     BUNDLE_ID               "com.cmos-audio.sidyssey"
@@ -14,27 +26,36 @@ juce_add_plugin(SIDTrance
     NEEDS_MIDI_OUTPUT       FALSE
     IS_MIDI_EFFECT          FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
+    NEEDS_WEBVIEW2          TRUE
+    NEEDS_WEB_BROWSER       TRUE
     VST3_CATEGORIES         Instrument Synth
 )
 
 juce_generate_juce_header(SIDTrance)
 
-# ── Binary assets (Lato font + GUI skeleton for Visage) ──
-# TranSID GUI.jpg is the new (current) skeleton; the previous PNG is
-# kept embedded only because removing it would force a clean rebuild.
+# ── Binary assets ──────────────────────────────────────────
+# Embeds:
+#   - web/index.html — TranceSID v3 UI (the entire visible GUI)
+#   - web/js/juce/juce_index.js — JUCE WebView interop frontend library
+#   - web/js/juce/check_native_interop.js — companion checker
+#
+# juce_add_binary_data flattens directory paths to file basenames.  The
+# editor's resource provider looks up by basename via getNamedResource.
 juce_add_binary_data(SIDTrance_Assets
     SOURCES
-        ${CMAKE_CURRENT_SOURCE_DIR}/../../_tools/visage/visage_graphics/fonts/Lato-Regular.ttf
-        "${CMAKE_CURRENT_SOURCE_DIR}/Resources/TranSID GUI.jpg"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Resources/web/index.html"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Resources/web/js/juce/juce_index.js"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Resources/web/js/juce/check_native_interop.js"
     NAMESPACE BinaryData
 )
 
 # ── Source files ───────────────────────────────────────────
+# VisageControls.h removed — the WebView editor no longer references it,
+# and the visage::visage dependency was its only reason for being linked.
 target_sources(SIDTrance
     PRIVATE
         Source/PluginProcessor.cpp
         Source/PluginEditor.cpp
-        Source/VisageControls.h
         Source/PluginProcessor.h
         Source/PluginEditor.h
 )
@@ -43,14 +64,12 @@ target_sources(SIDTrance
 target_include_directories(SIDTrance
     PRIVATE
         Source
-        ${CMAKE_CURRENT_SOURCE_DIR}/../../common
 )
 
 # ── Link libraries ─────────────────────────────────────────
 target_link_libraries(SIDTrance
     PRIVATE
         SIDTrance_Assets
-        visage::visage
         juce::juce_audio_basics
         juce::juce_audio_devices
         juce::juce_audio_formats
@@ -63,6 +82,7 @@ target_link_libraries(SIDTrance
         juce::juce_events
         juce::juce_graphics
         juce::juce_gui_basics
+        juce::juce_gui_extra            # NEW — required for WebBrowserComponent
     PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags
@@ -70,9 +90,12 @@ target_link_libraries(SIDTrance
 )
 
 # ── Compile definitions ────────────────────────────────────
+# JUCE_WEB_BROWSER=1                              → enables WebBrowserComponent
+# JUCE_USE_WIN_WEBVIEW2_WITH_STATIC_LINKING=1     → Windows: static WebView2 SDK
 target_compile_definitions(SIDTrance
     PUBLIC
         JUCE_VST3_CAN_REPLACE_VST2=0
-        JUCE_WEB_BROWSER=0
+        JUCE_WEB_BROWSER=1
+        JUCE_USE_WIN_WEBVIEW2_WITH_STATIC_LINKING=1
         _USE_MATH_DEFINES=1
 )
