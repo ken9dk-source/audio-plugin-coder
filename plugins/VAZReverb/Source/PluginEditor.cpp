@@ -16,9 +16,18 @@ VAZReverbAudioProcessorEditor::VAZReverbAudioProcessorEditor (VAZReverbAudioProc
            #endif
             .withNativeIntegrationEnabled()
             .withResourceProvider ([this] (const auto& url) { return getResource (url); })
+            .withNativeFunction (juce::Identifier ("resetParam"),
+                [this] (const juce::Array<juce::var>& args, juce::WebBrowserComponent::NativeFunctionCompletion complete)
+                {
+                    if (args.size() > 0)
+                        if (auto* p = audioProcessor.apvts.getParameter (args[0].toString()))
+                            { p->beginChangeGesture(); p->setValueNotifyingHost (p->getDefaultValue()); p->endChangeGesture(); }
+                    complete (juce::var());
+                })
             .withOptionsFrom (reverbTimeRelay)
             .withOptionsFrom (toneRelay)
-            .withOptionsFrom (mixRelay));
+            .withOptionsFrom (mixRelay)
+            .withOptionsFrom (controlParamReceiver));
 
     addAndMakeVisible (*webView);
 
@@ -42,6 +51,11 @@ void VAZReverbAudioProcessorEditor::paint (juce::Graphics& g) { g.fillAll (juce:
 void VAZReverbAudioProcessorEditor::resized()
 {
     if (webView != nullptr) webView->setBounds (getLocalBounds());
+}
+
+int VAZReverbAudioProcessorEditor::getControlParameterIndex (juce::Component&)
+{
+    return controlParamReceiver.getControlParameterIndex();
 }
 
 const char* VAZReverbAudioProcessorEditor::getMimeForExtension (const juce::String& extension)

@@ -15,6 +15,7 @@ public:
 
     void paint (juce::Graphics&) override;
     void resized() override;
+    int  getControlParameterIndex (juce::Component&) override;
 
 private:
     VAZReverbAudioProcessor& audioProcessor;
@@ -23,6 +24,7 @@ private:
     juce::WebSliderRelay toneRelay       { ParameterIDs::tone };
     juce::WebSliderRelay mixRelay        { ParameterIDs::mix };
 
+    juce::WebControlParameterIndexReceiver controlParamReceiver;
     std::unique_ptr<juce::WebBrowserComponent> webView;
 
     std::unique_ptr<juce::WebSliderParameterAttachment> reverbTimeAtt, toneAtt, mixAtt;
