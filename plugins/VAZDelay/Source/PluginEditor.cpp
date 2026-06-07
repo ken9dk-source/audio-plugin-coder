@@ -17,6 +17,8 @@ VAZDelayAudioProcessorEditor::VAZDelayAudioProcessorEditor (VAZDelayAudioProcess
             .withNativeIntegrationEnabled()
             .withResourceProvider ([this] (const auto& url) { return getResource (url); })
             .withOptionsFrom (modeRelay)
+            .withOptionsFrom (noteLRelay)
+            .withOptionsFrom (noteRRelay)
             .withOptionsFrom (linkRelay)
             .withOptionsFrom (syncRelay)
             .withOptionsFrom (dlLRelay).withOptionsFrom (fbLRelay).withOptionsFrom (tnLRelay)
@@ -30,6 +32,8 @@ VAZDelayAudioProcessorEditor::VAZDelayAudioProcessorEditor (VAZDelayAudioProcess
     { return std::make_unique<juce::WebSliderParameterAttachment>(*audioProcessor.apvts.getParameter (id), r, nullptr); };
 
     modeAtt = std::make_unique<juce::WebComboBoxParameterAttachment>(*audioProcessor.apvts.getParameter (ParameterIDs::mode), modeRelay, nullptr);
+    noteLAtt = std::make_unique<juce::WebComboBoxParameterAttachment>(*audioProcessor.apvts.getParameter (ParameterIDs::note_l), noteLRelay, nullptr);
+    noteRAtt = std::make_unique<juce::WebComboBoxParameterAttachment>(*audioProcessor.apvts.getParameter (ParameterIDs::note_r), noteRRelay, nullptr);
     linkAtt = std::make_unique<juce::WebToggleButtonParameterAttachment>(*audioProcessor.apvts.getParameter (ParameterIDs::link), linkRelay, nullptr);
     syncAtt = std::make_unique<juce::WebToggleButtonParameterAttachment>(*audioProcessor.apvts.getParameter (ParameterIDs::sync), syncRelay, nullptr);
     dlLAtt = sl (ParameterIDs::delay_l, dlLRelay); fbLAtt = sl (ParameterIDs::fb_l, fbLRelay);

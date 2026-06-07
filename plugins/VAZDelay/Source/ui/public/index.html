@@ -13,6 +13,7 @@
   .title { color: #ff9a2e; font-weight: bold; font-size: 15px; text-shadow: 0 1px 0 #000; margin-bottom: 6px; }
   .top { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; }
   .top select { background: #1c0707; color: #e8d0c0; border: 1px solid #100; font-size: 11px; padding: 1px 4px; flex: 1; }
+  .note { font-size: 8px; background: #1c0707; color: #e8d0c0; border: 1px solid #100; max-width: 78px; vertical-align: 1px; }
   .tog { font-size: 10px; padding: 2px 10px; border: 1px solid #100; border-radius: 2px;
     background: #2c0d0d; color: #c89; cursor: pointer; }
   .tog.on { background: linear-gradient(#ffd9a0, #d98a3a); color: #1a0606; }
@@ -40,7 +41,7 @@
     <div class="cols">
       <div class="col">
         <div class="colhdr">Left</div>
-        <div class="row"><div class="lbl">Delay</div><div class="slider" data-param="delay_l"><div class="thumb"></div></div></div>
+        <div class="row"><div class="lbl">Delay <select class="note" data-combo="note_l"><option>32nd triplet</option><option>32nd note</option><option>16th triplet</option><option>16th note</option><option>8th triplet</option><option>16th dotted</option><option>8th note</option><option>1/4 triplet</option><option>8th dotted</option><option>1/4 note</option><option>1/4 dotted</option><option>2 beats</option><option>3 beats</option><option>4 beats</option></select></div><div class="slider" data-param="delay_l"><div class="thumb"></div></div></div>
         <div class="row"><div class="lbl">Feedback</div><div class="slider" data-param="fb_l"><div class="thumb"></div></div></div>
         <div class="row"><div class="lbl">Tone</div><div class="slider" data-param="tone_l"><div class="thumb"></div></div></div>
         <div class="row"><div class="lbl">Wet</div><div class="slider" data-param="wet_l"><div class="thumb"></div></div></div>
@@ -48,7 +49,7 @@
       </div>
       <div class="col">
         <div class="colhdr">Right</div>
-        <div class="row"><div class="lbl">Delay</div><div class="slider" data-param="delay_r"><div class="thumb"></div></div></div>
+        <div class="row"><div class="lbl">Delay <select class="note" data-combo="note_r"><option>32nd triplet</option><option>32nd note</option><option>16th triplet</option><option>16th note</option><option>8th triplet</option><option>16th dotted</option><option>8th note</option><option>1/4 triplet</option><option>8th dotted</option><option>1/4 note</option><option>1/4 dotted</option><option>2 beats</option><option>3 beats</option><option>4 beats</option></select></div><div class="slider" data-param="delay_r"><div class="thumb"></div></div></div>
         <div class="row"><div class="lbl">Feedback</div><div class="slider" data-param="fb_r"><div class="thumb"></div></div></div>
         <div class="row"><div class="lbl">Tone</div><div class="slider" data-param="tone_r"><div class="thumb"></div></div></div>
         <div class="row"><div class="lbl">Wet</div><div class="slider" data-param="wet_r"><div class="thumb"></div></div></div>

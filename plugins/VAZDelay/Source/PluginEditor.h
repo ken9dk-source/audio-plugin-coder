@@ -15,7 +15,9 @@ public:
 private:
     VAZDelayAudioProcessor& audioProcessor;
 
-    juce::WebComboBoxRelay     modeRelay { ParameterIDs::mode };
+    juce::WebComboBoxRelay     modeRelay  { ParameterIDs::mode };
+    juce::WebComboBoxRelay     noteLRelay { ParameterIDs::note_l };
+    juce::WebComboBoxRelay     noteRRelay { ParameterIDs::note_r };
     juce::WebToggleButtonRelay linkRelay { ParameterIDs::link };
     juce::WebToggleButtonRelay syncRelay { ParameterIDs::sync };
     juce::WebSliderRelay dlLRelay { ParameterIDs::delay_l }, fbLRelay { ParameterIDs::fb_l },
@@ -27,7 +29,7 @@ private:
 
     std::unique_ptr<juce::WebBrowserComponent> webView;
 
-    std::unique_ptr<juce::WebComboBoxParameterAttachment>     modeAtt;
+    std::unique_ptr<juce::WebComboBoxParameterAttachment>     modeAtt, noteLAtt, noteRAtt;
     std::unique_ptr<juce::WebToggleButtonParameterAttachment> linkAtt, syncAtt;
     std::unique_ptr<juce::WebSliderParameterAttachment>
         dlLAtt, fbLAtt, tnLAtt, wLAtt, dryLAtt,

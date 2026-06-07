@@ -26,6 +26,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout VAZDelayAudioProcessor::crea
     layout.add (boolp (ParameterIDs::link, "Link", false));
     layout.add (boolp (ParameterIDs::sync, "Sync", false));
 
+    const StringArray noteVals { "32nd triplet", "32nd note", "16th triplet", "16th note", "8th triplet",
+                                 "16th dotted", "8th note", "1/4 triplet", "8th dotted", "1/4 note",
+                                 "1/4 dotted", "2 beats", "3 beats", "4 beats" };
+    layout.add (std::make_unique<AudioParameterChoice>(ParameterID { ParameterIDs::note_l, 1 }, "Note L", noteVals, 9));  // 1/4 note
+    layout.add (std::make_unique<AudioParameterChoice>(ParameterID { ParameterIDs::note_r, 1 }, "Note R", noteVals, 9));
+
     layout.add (pct (ParameterIDs::delay_l, "Delay L",    0.65f));   // ~500 ms
     layout.add (pct (ParameterIDs::fb_l,    "Feedback L", 0.35f));
     layout.add (pct (ParameterIDs::tone_l,  "Tone L",     0.6f));
@@ -87,26 +93,30 @@ void VAZDelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
     float tnR = apvts.getRawParameterValue (ParameterIDs::tone_r)->load();
     float wR  = apvts.getRawParameterValue (ParameterIDs::wet_r)->load();
     float dryR = apvts.getRawParameterValue (ParameterIDs::dry_r)->load();
-    if (link) { dR = dL; fbR = fbL; tnR = tnL; wR = wL; dryR = dryL; }
+    int noteL = (int) apvts.getRawParameterValue (ParameterIDs::note_l)->load();
+    int noteR = (int) apvts.getRawParameterValue (ParameterIDs::note_r)->load();
+    if (link) { dR = dL; fbR = fbL; tnR = tnL; wR = wL; dryR = dryL; noteR = noteL; }
 
     double bpm = 120.0;
     if (auto* ph = getPlayHead())
         if (auto pos = ph->getPosition())
             if (auto b = pos->getBpm()) bpm = *b > 1.0 ? *b : 120.0;
 
-    auto delSamples = [&] (float p) -> double
+    // VAZ note divisions (in beats), matching the Delay note popup order (32nd-trip .. 4 beats)
+    static const double noteBeats[] = { 1.0/12.0, 0.125, 1.0/6.0, 0.25, 1.0/3.0, 0.375, 0.5,
+                                        2.0/3.0, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0 };
+    auto delSamples = [&] (float p, int noteIdx) -> double
     {
-        if (sync)
+        if (sync)   // note base × 50%..200% (100% at the slider centre)
         {
-            static const double beats[] = { 0.25, 1.0/3.0, 0.5, 2.0/3.0, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0 }; // 1/16T..1/1
-            const int nB = (int) (sizeof (beats) / sizeof (double));
-            const int idx = juce::jlimit (0, nB - 1, (int) std::lround ((double) p * (nB - 1)));
-            return beats[idx] * (60.0 / bpm) * sr;
+            const double beats = noteBeats[juce::jlimit (0, 13, noteIdx)];
+            const double mult  = 0.5 * std::pow (4.0, (double) p);     // 50% .. 200%
+            return beats * mult * (60.0 / bpm) * sr;
         }
-        return 5.0 * std::pow (1200.0, (double) p) * 0.001 * sr;   // 5 ms .. 6 s (log)
+        return 5.0 * std::pow (1200.0, (double) p) * 0.001 * sr;       // free: 5 ms .. 6 s (log)
     };
-    const double tgtL = juce::jlimit (1.0, (double) (bufLen - 2), delSamples (dL));
-    const double tgtR = juce::jlimit (1.0, (double) (bufLen - 2), delSamples (dR));
+    const double tgtL = juce::jlimit (1.0, (double) (bufLen - 2), delSamples (dL, noteL));
+    const double tgtR = juce::jlimit (1.0, (double) (bufLen - 2), delSamples (dR, noteR));
 
     auto toneCoef = [&] (float t) -> double
     {

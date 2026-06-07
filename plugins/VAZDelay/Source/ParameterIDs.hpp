@@ -6,7 +6,9 @@ namespace ParameterIDs
     constexpr auto link  = "link";   // bool: L/R controls linked (R uses L's values)
     constexpr auto sync  = "sync";   // bool: tempo-sync the delay times
 
-    constexpr auto delay_l = "delay_l";  // 0..1 → 5ms..6s (free) OR note division (sync)
+    constexpr auto note_l  = "note_l";   // choice: sync note value (base) for L
+    constexpr auto note_r  = "note_r";   // choice: sync note value (base) for R
+    constexpr auto delay_l = "delay_l";  // 0..1 → 5ms..6s (free) OR 50%..200% of the note base (sync)
     constexpr auto fb_l    = "fb_l";     // 0..1 feedback
     constexpr auto tone_l  = "tone_l";   // 0..1 Dark..Bright (1-pole LP in feedback)
     constexpr auto wet_l   = "wet_l";    // 0..1 wet level
