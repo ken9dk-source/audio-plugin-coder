@@ -11,6 +11,7 @@ public:
     ~VAZPhaserAudioProcessorEditor() override;
     void paint (juce::Graphics&) override;
     void resized() override;
+    int  getControlParameterIndex (juce::Component&) override;
 
 private:
     VAZPhaserAudioProcessor& audioProcessor;
@@ -25,6 +26,7 @@ private:
     juce::WebSliderRelay gainRelay     { ParameterIDs::gain };
     juce::WebToggleButtonRelay fbPhaseRelay { ParameterIDs::feedback_phase };
 
+    juce::WebControlParameterIndexReceiver controlParamReceiver;
     std::unique_ptr<juce::WebBrowserComponent> webView;
 
     std::unique_ptr<juce::WebSliderParameterAttachment>

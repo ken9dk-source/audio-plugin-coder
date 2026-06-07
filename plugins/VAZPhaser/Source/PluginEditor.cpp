@@ -16,6 +16,14 @@ VAZPhaserAudioProcessorEditor::VAZPhaserAudioProcessorEditor (VAZPhaserAudioProc
            #endif
             .withNativeIntegrationEnabled()
             .withResourceProvider ([this] (const auto& url) { return getResource (url); })
+            .withNativeFunction (juce::Identifier ("resetParam"),
+                [this] (const juce::Array<juce::var>& args, juce::WebBrowserComponent::NativeFunctionCompletion complete)
+                {
+                    if (args.size() > 0)
+                        if (auto* p = audioProcessor.apvts.getParameter (args[0].toString()))
+                            { p->beginChangeGesture(); p->setValueNotifyingHost (p->getDefaultValue()); p->endChangeGesture(); }
+                    complete (juce::var());
+                })
             .withOptionsFrom (stagesRelay)
             .withOptionsFrom (frequencyRelay)
             .withOptionsFrom (feedbackRelay)
@@ -24,7 +32,8 @@ VAZPhaserAudioProcessorEditor::VAZPhaserAudioProcessorEditor (VAZPhaserAudioProc
             .withOptionsFrom (lrPhaseRelay)
             .withOptionsFrom (mixRelay)
             .withOptionsFrom (gainRelay)
-            .withOptionsFrom (fbPhaseRelay));
+            .withOptionsFrom (fbPhaseRelay)
+            .withOptionsFrom (controlParamReceiver));
 
     addAndMakeVisible (*webView);
 
@@ -55,6 +64,11 @@ void VAZPhaserAudioProcessorEditor::paint (juce::Graphics& g) { g.fillAll (juce:
 void VAZPhaserAudioProcessorEditor::resized()
 {
     if (webView != nullptr) webView->setBounds (getLocalBounds());
+}
+
+int VAZPhaserAudioProcessorEditor::getControlParameterIndex (juce::Component&)
+{
+    return controlParamReceiver.getControlParameterIndex();
 }
 
 const char* VAZPhaserAudioProcessorEditor::getMimeForExtension (const juce::String& extension)

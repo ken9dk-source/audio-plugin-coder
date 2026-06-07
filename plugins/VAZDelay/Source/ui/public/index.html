@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>VAZ Delay</title>
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+  * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; -webkit-user-drag: none; -webkit-touch-callout: none; }
   html, body { width: 100%; height: 100%; overflow: hidden;
     font-family: Arial, Helvetica, sans-serif;
     background: linear-gradient(#3a1010, #240a0a); color: #e8d0c0; }
@@ -804,9 +804,18 @@ function bindSlider(paramId, el) {
     state.setNormalisedValue(p);
     if (thumb) thumb.style.left = (p * 92) + "%";
   };
-  el.addEventListener("mousedown", (e) => { dragging = true; setFromX(e.clientX); });
-  window.addEventListener("mousemove", (e) => { if (dragging) setFromX(e.clientX); });
-  window.addEventListener("mouseup", () => { dragging = false; });
+  const _setIdx = () => { const i = state.properties ? state.properties.parameterIndex : -1; if (i >= 0) el.setAttribute("controlparameterindex", i); };
+  if (state.propertiesChangedEvent && state.propertiesChangedEvent.addListener) state.propertiesChangedEvent.addListener(_setIdx);
+  _setIdx();
+  el.addEventListener("pointerdown", (e) => {
+    if (e.metaKey || e.ctrlKey) { try { getNativeFunction("resetParam")(paramId); } catch (err) {} e.preventDefault(); return; }
+    dragging = true;
+    try { el.setPointerCapture(e.pointerId); } catch (err) {}
+    setFromX(e.clientX); e.preventDefault();
+  });
+  el.addEventListener("pointermove", (e) => { if (dragging) setFromX(e.clientX); });
+  el.addEventListener("pointerup", (e) => { dragging = false; try { el.releasePointerCapture(e.pointerId); } catch (err) {} });
+  el.addEventListener("pointercancel", () => { dragging = false; });
 }
 
 function bindToggle(paramId, el) {
@@ -828,6 +837,7 @@ function bindCombo(paramId, el) {
 }
 
 function init() {
+  try { const _iu = new ControlParameterIndexUpdater("controlparameterindex"); window.addEventListener("mousemove", (e) => _iu.handleMouseMove(e)); } catch (e) {}
   document.querySelectorAll("[data-param]").forEach((el) => {
     bindSlider(el.getAttribute("data-param"), el);
   });

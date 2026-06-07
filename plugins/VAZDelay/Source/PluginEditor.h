@@ -11,6 +11,7 @@ public:
     ~VAZDelayAudioProcessorEditor() override;
     void paint (juce::Graphics&) override;
     void resized() override;
+    int  getControlParameterIndex (juce::Component&) override;
 
 private:
     VAZDelayAudioProcessor& audioProcessor;
@@ -27,6 +28,7 @@ private:
                          tnRRelay { ParameterIDs::tone_r },  wRRelay  { ParameterIDs::wet_r },
                          dryRRelay { ParameterIDs::dry_r };
 
+    juce::WebControlParameterIndexReceiver controlParamReceiver;
     std::unique_ptr<juce::WebBrowserComponent> webView;
 
     std::unique_ptr<juce::WebComboBoxParameterAttachment>     modeAtt, noteLAtt, noteRAtt;
