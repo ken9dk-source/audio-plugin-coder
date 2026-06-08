@@ -1,5 +1,7 @@
 #include "PluginProcessor.h"
-#include "PluginEditor.h"
+#ifndef VAZ_HEADLESS
+ #include "PluginEditor.h"
+#endif
 #include "ParameterIDs.hpp"
 #include "VAZInitTemplate.h"
 
@@ -181,6 +183,19 @@ juce::AudioProcessorValueTreeState::ParameterLayout VAZCloneAudioProcessor::crea
 void VAZCloneAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     currentSampleRate = sampleRate;
+
+    // A/B automation hook: load a .v2p named by env VAZCLONE_LOAD_PATCH (one-shot, after state restore).
+    if (! envPatchTried)
+    {
+        envPatchTried = true;
+        if (const char* pp = std::getenv ("VAZCLONE_LOAD_PATCH"))
+        {
+            juce::File f (juce::String::fromUTF8 (pp));
+            juce::MemoryBlock mb;
+            if (f.existsAsFile() && f.loadFileAsData (mb)) loadV2P (mb);
+        }
+    }
+
     synth.setCurrentPlaybackSampleRate (sampleRate);
     synth.setNoteStealingEnabled (true);
 
@@ -749,7 +764,11 @@ void VAZCloneAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
 //==============================================================================
 juce::AudioProcessorEditor* VAZCloneAudioProcessor::createEditor()
 {
+   #ifdef VAZ_HEADLESS
+    return nullptr;                                  // headless renderer: no WebView editor
+   #else
     return new VAZCloneAudioProcessorEditor (*this);
+   #endif
 }
 
 //==============================================================================

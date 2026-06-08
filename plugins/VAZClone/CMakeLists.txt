@@ -95,3 +95,30 @@ endif()
 if(UNIX AND NOT APPLE)
     target_compile_definitions(VAZClone PUBLIC JUCE_USE_CURL=0)
 endif()
+
+# ============================================
+# HEADLESS RENDERER (A/B testing) — VazRender
+# Compiles the processor + DSP fresh with VAZ_HEADLESS (no editor / WebView / BinaryData),
+# instantiates it directly and renders a .mid -> WAV. No audio/MIDI devices, deterministic.
+#   VazRender <preset.v2p|-> <midi.mid> <out.wav> [seconds] [sampleRate]
+# ============================================
+juce_add_console_app(VazRender PRODUCT_NAME "VazRender")
+target_sources(VazRender PRIVATE Source/render_main.cpp Source/PluginProcessor.cpp)
+target_include_directories(VazRender PRIVATE Source)
+target_compile_definitions(VazRender PRIVATE
+    VAZ_HEADLESS=1
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_MODAL_LOOPS_PERMITTED=0
+    _USE_MATH_DEFINES=1)
+target_link_libraries(VazRender PRIVATE
+    juce::juce_audio_basics
+    juce::juce_audio_formats
+    juce::juce_audio_processors
+    juce::juce_core
+    juce::juce_data_structures
+    juce::juce_dsp
+    juce::juce_events
+    juce::juce_graphics
+    juce::juce_gui_basics
+    juce::juce_recommended_config_flags)

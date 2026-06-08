@@ -69,6 +69,7 @@ private:
     void refreshVoiceParams();
 
     double currentSampleRate = 44100.0;
+    bool   envPatchTried = false;   // one-shot guard for the VAZCLONE_LOAD_PATCH A/B hook
 
     VoiceParams voiceParams;          // declared before synth → outlives the voices that ref it
     VAZSynth synth;

@@ -244,7 +244,9 @@ public:
             if      (filt.modRoute == 1) hpHzI = 20.0 * std::pow (100.0, (double) juce::jlimit (0.0f, 1.0f, p.hpNorm + m3));
             else if (filt.modRoute == 2) auxV  = juce::jlimit (0.0f, 1.0f, p.fltAux + m3);
             else                          res  = juce::jlimit (0.0f, 1.0f, p.baseRes + m3);
-            const double cutHz = juce::jlimit (20.0, (double) p.nyq, 20.0 * std::pow (900.0, (double) coNorm));
+            // VAZ-EXACT cutoff map (Core.dll coef-table builder @0x4D4720): the table is fc = e^(idx·0.01),
+            // idx = param·1024 → fc = e^(10.24·param). Steeper than the old 20·900^x guess (which was too bright mid-range).
+            const double cutHz = juce::jlimit (8.0, (double) p.nyq, std::exp (10.24 * (double) coNorm));
             filt.setParams (cutHz, (double) res, (double) auxV, hpHzI, (double) p.fltDrive);
             double fs = filt.process (s) + postSum;          // Post channels mixed in after the filter
             if (std::abs (p.ampAmt) > 0.0001f) fs *= juce::jlimit (0.0, 2.0, 1.0 + (double) p.ampAmt * (double) mv (p.ampSrc, idx)); // tremolo (±)

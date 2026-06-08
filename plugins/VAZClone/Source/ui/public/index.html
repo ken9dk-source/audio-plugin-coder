@@ -744,6 +744,7 @@ _initWaves(12);
 
 
 
+
 <script>
 /* ===== inlined JUCE interop ===== */
 /*
@@ -1494,10 +1495,12 @@ function bindSlider(paramId, el) {
     state.propertiesChangedEvent.addListener(setIdx);
   setIdx();
 
-  let dragging = false;
-  const setFromX = (clientX) => {
+  // RELATIVE dragging: clicking GRABS the current value (no jump to the click position) and
+  // the value changes by the drag DISTANCE. (Absolute "click-to-jump" made a click move the fader.)
+  let dragging = false, startX = 0, startVal = 0;
+  const applyDelta = (clientX) => {
     const r = el.getBoundingClientRect();
-    let p = (clientX - r.left) / r.width;
+    let p = startVal + (clientX - startX) / r.width;   // delta, not absolute position
     p = Math.max(0, Math.min(1, p));
     state.setNormalisedValue(p);
     if (thumb) thumb.style.left = (p * 92) + "%";
@@ -1511,10 +1514,11 @@ function bindSlider(paramId, el) {
     dragging = true;
     el.classList.remove("center");
     try { el.setPointerCapture(e.pointerId); } catch (err) {}   // keep tracking even if the pointer leaves the slider (Mac fix)
-    setFromX(e.clientX);
+    startX = e.clientX;
+    startVal = state.getNormalisedValue();        // grab current value — NO jump on click
     e.preventDefault();
   });
-  el.addEventListener("pointermove", (e) => { if (dragging) setFromX(e.clientX); });
+  el.addEventListener("pointermove", (e) => { if (dragging) applyDelta(e.clientX); });
   el.addEventListener("pointerup",   (e) => { dragging = false; try { el.releasePointerCapture(e.pointerId); } catch (err) {} });
   el.addEventListener("pointercancel", () => { dragging = false; });
 }
