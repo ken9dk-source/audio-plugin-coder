@@ -33,6 +33,8 @@ VAZPhaserAudioProcessorEditor::VAZPhaserAudioProcessorEditor (VAZPhaserAudioProc
             .withOptionsFrom (mixRelay)
             .withOptionsFrom (gainRelay)
             .withOptionsFrom (fbPhaseRelay)
+            .withOptionsFrom (modSyncRelay)
+            .withOptionsFrom (modPeriodRelay)
             .withOptionsFrom (controlParamReceiver));
 
     addAndMakeVisible (*webView);
@@ -52,9 +54,13 @@ VAZPhaserAudioProcessorEditor::VAZPhaserAudioProcessorEditor (VAZPhaserAudioProc
     gainAtt      = attach (ParameterIDs::gain,      gainRelay);
     fbPhaseAtt   = std::make_unique<juce::WebToggleButtonParameterAttachment>(
                        *audioProcessor.apvts.getParameter (ParameterIDs::feedback_phase), fbPhaseRelay, nullptr);
+    modSyncAtt   = std::make_unique<juce::WebToggleButtonParameterAttachment>(
+                       *audioProcessor.apvts.getParameter (ParameterIDs::mod_sync), modSyncRelay, nullptr);
+    modPeriodAtt = std::make_unique<juce::WebComboBoxParameterAttachment>(
+                       *audioProcessor.apvts.getParameter (ParameterIDs::mod_period), modPeriodRelay, nullptr);
 
     webView->goToURL (juce::WebBrowserComponent::getResourceProviderRoot());
-    setSize (250, 360);
+    setSize (250, 392);
 }
 
 VAZPhaserAudioProcessorEditor::~VAZPhaserAudioProcessorEditor() {}

@@ -26,6 +26,8 @@
   .tog { display:inline-block; font-size:9px; padding:0 5px; margin-left:6px; border:1px solid #100;
     border-radius:2px; background:#2c0d0d; color:#c89; cursor:pointer; vertical-align:1px; }
   .tog.on { background: linear-gradient(#ffd9a0, #d98a3a); color:#1a0606; }
+  .combo { font-size:9px; padding:0 2px; margin-left:6px; border:1px solid #100; border-radius:2px;
+    background:#2c0d0d; color:#ffd9a0; cursor:pointer; vertical-align:1px; height:14px; }
 </style>
 </head>
 <body>
@@ -46,6 +48,16 @@
       <div class="sld"><span class="end">0</span>
         <div class="slider" data-param="feedback"><div class="thumb"></div></div>
         <span class="end r">Max</span></div></div>
+
+    <div class="row"><div class="lbl">Modulation
+        <select class="combo" data-combo="mod_period">
+          <option>1/32T</option><option>1/32</option><option>1/16T</option><option>1/16</option>
+          <option>1/8T</option><option>1/8</option><option>1/4T</option><option>1/4</option>
+          <option>2</option><option>3</option><option>4</option><option>5</option><option>6</option>
+          <option>8</option><option>12</option><option>16</option><option>24</option><option>32</option>
+          <option>48</option><option>64</option><option>96</option><option>128</option><option>192</option><option>256</option>
+        </select>
+        <span class="tog" data-toggle="mod_sync" title="Tempo sync the modulation rate">Sync</span></div></div>
 
     <div class="row"><div class="lbl">Rate</div>
       <div class="sld"><span class="end">Slow</span>
@@ -842,6 +854,15 @@ function bindToggle(paramId, el) {
   el.addEventListener("click", () => st.setValue(!st.getValue()));
 }
 
+function bindCombo(paramId, el) {
+  let st; try { st = getComboBoxState(paramId); } catch (e) { st = null; }
+  if (!st) return;
+  const upd = () => { el.selectedIndex = st.getChoiceIndex(); };
+  if (st.valueChangedEvent && st.valueChangedEvent.addListener) st.valueChangedEvent.addListener(upd);
+  upd();
+  el.addEventListener("change", () => st.setChoiceIndex(el.selectedIndex));
+}
+
 function init() {
   try { const _iu = new ControlParameterIndexUpdater("controlparameterindex"); window.addEventListener("mousemove", (e) => _iu.handleMouseMove(e)); } catch (e) {}
   document.querySelectorAll("[data-param]").forEach((el) => {
@@ -849,6 +870,9 @@ function init() {
   });
   document.querySelectorAll("[data-toggle]").forEach((el) => {
     bindToggle(el.getAttribute("data-toggle"), el);
+  });
+  document.querySelectorAll("[data-combo]").forEach((el) => {
+    bindCombo(el.getAttribute("data-combo"), el);
   });
 }
 

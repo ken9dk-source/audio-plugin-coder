@@ -30,6 +30,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout VAZPhaserAudioProcessor::cre
     layout.add (pct (ParameterIDs::mix,       "Mix",       0.5f));
     layout.add (pct (ParameterIDs::gain,      "Gain",      0.70f));   // ≈ −3 dB (VAZ default)
     layout.add (std::make_unique<AudioParameterBool> (ParameterID { ParameterIDs::feedback_phase, 1 }, "Feedback Phase", false));
+    layout.add (std::make_unique<AudioParameterBool> (ParameterID { ParameterIDs::mod_sync, 1 }, "Sync", false));
+    const StringArray modPeriods { "1/32T","1/32","1/16T","1/16","1/8T","1/8","1/4T","1/4",
+        "2b","3b","4b","5b","6b","8b","12b","16b","24b","32b","48b","64b","96b","128b","192b","256b" };
+    layout.add (std::make_unique<AudioParameterChoice> (ParameterID { ParameterIDs::mod_period, 1 }, "Period", modPeriods, 10)); // default 4 beats
     return layout;
 }
 
@@ -70,7 +74,23 @@ void VAZPhaserAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
     const double fbSign   = fbPhase > 0.5f ? -1.0 : 1.0;              // Feedback Phase: − = inverted polarity
     const double mix      = (double) fMix;
     const double gain     = (double) fGain;
-    const double lfoInc   = (double) fRate * (double) fRate * 8.0 / sr;   // Rate fully DOWN → 0 Hz = STATIC notch (the VAZ signature, e.g. hardtrance); up to ~8 Hz
+    // Modulation rate: free (Rate² → 0..20 Hz, Rate fully DOWN = STATIC notch — the VAZ hardtrance signature)
+    // or tempo-synced (Sync on → host-BPM division from the 24-entry note table).
+    static constexpr double periodBeats[24] = { 1.0/12, 1.0/8, 1.0/6, 1.0/4, 1.0/3, 1.0/2, 2.0/3, 1.0,
+        2.0, 3.0, 4.0, 5.0, 6.0, 8.0, 12.0, 16.0, 24.0, 32.0, 48.0, 64.0, 96.0, 128.0, 192.0, 256.0 };
+    double rateHz;
+    if (apvts.getRawParameterValue (ParameterIDs::mod_sync)->load() > 0.5f)
+    {
+        double bpm = 120.0;
+        if (auto* ph = getPlayHead())
+            if (auto pos = ph->getPosition())
+                if (auto b = pos->getBpm()) bpm = *b;
+        const int p = juce::jlimit (0, 23, (int) apvts.getRawParameterValue (ParameterIDs::mod_period)->load());
+        rateHz = (bpm / 60.0) / periodBeats[p];               // tempo-synced Hz
+    }
+    else
+        rateHz = (double) fRate * (double) fRate * 20.0;      // free: 0..20 Hz
+    const double lfoInc   = rateHz / sr;
     if (lfoInc <= 0.0) lfoPhase = 0.0;            // static → freeze LFO at neutral so the Frequency knob alone sets the notch position
     const double nyq      = 0.45 * sr;
     const double lrOffset = (double) fLrPh * 0.5;          // up to half-cycle between channels

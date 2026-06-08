@@ -25,13 +25,16 @@ private:
     juce::WebSliderRelay mixRelay      { ParameterIDs::mix };
     juce::WebSliderRelay gainRelay     { ParameterIDs::gain };
     juce::WebToggleButtonRelay fbPhaseRelay { ParameterIDs::feedback_phase };
+    juce::WebToggleButtonRelay modSyncRelay { ParameterIDs::mod_sync };
+    juce::WebComboBoxRelay      modPeriodRelay { ParameterIDs::mod_period };
 
     juce::WebControlParameterIndexReceiver controlParamReceiver;
     std::unique_ptr<juce::WebBrowserComponent> webView;
 
     std::unique_ptr<juce::WebSliderParameterAttachment>
         stagesAtt, frequencyAtt, feedbackAtt, rateAtt, depthAtt, lrPhaseAtt, mixAtt, gainAtt;
-    std::unique_ptr<juce::WebToggleButtonParameterAttachment> fbPhaseAtt;
+    std::unique_ptr<juce::WebToggleButtonParameterAttachment> fbPhaseAtt, modSyncAtt;
+    std::unique_ptr<juce::WebComboBoxParameterAttachment>      modPeriodAtt;
 
     std::optional<juce::WebBrowserComponent::Resource> getResource (const juce::String& url);
     static const char* getMimeForExtension (const juce::String& extension);

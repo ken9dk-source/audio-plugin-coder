@@ -11,4 +11,6 @@ namespace ParameterIDs
     constexpr auto mix       = "mix";        // 0..1 → Dry..Wet
     constexpr auto gain      = "gain";       // 0..1 → output level (−inf..0 dB)
     constexpr auto feedback_phase = "feedback_phase";  // bool: − = inverted feedback polarity (VAZ Phase ±)
+    constexpr auto mod_sync   = "mod_sync";    // bool: tempo-sync the modulation rate (replaces Rate)
+    constexpr auto mod_period = "mod_period";  // choice 0..23: sync division (1/32T..256 beats)
 }
