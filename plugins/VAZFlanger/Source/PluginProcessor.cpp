@@ -39,8 +39,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout VAZFlangerAudioProcessor::cr
 void VAZFlangerAudioProcessor::prepareToPlay (double sampleRate, int)
 {
     sr = sampleRate;
-    const int maxSamples = (int) std::ceil (0.118 * sr) + 4;   // ≈118 ms line (covers VAZ's 115 ms @ any SR)
-    chL.prepare (maxSamples); chR.prepare (maxSamples);
+    chL.reset(); chR.reset();
     lfoPhase = 0.0;
 }
 
@@ -66,10 +65,13 @@ void VAZFlangerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     const float fGain   = apvts.getRawParameterValue (ParameterIDs::gain)->load();
     const float fbPhase = apvts.getRawParameterValue (ParameterIDs::feedback_phase)->load();
 
-    const double baseDelayMs   = 0.1 + (double) fDelay * (double) fDelay * 19.9;  // 0.1..20 ms comb base (squared = finer low end)
-    const double baseDelaySamp = baseDelayMs * sr / 1000.0;
-    const double depthAmt = (double) fDepth * 0.95;                    // proportional LFO sweep (±95% of base → always positive)
-    const double feedback = (double) fFb * 0.88;                       // resonant flange (HW-style clamp lives in process)
+    // Notch base freq — RE'd from Core.dll flanger coef setup @0x51EBB0:  f = 20 * exp(0.027 * X)
+    // (0x402ba8 = exp, ×20 from [0x51f0a4]).  X is delay-derived; keep the musical direction
+    // (longer Delay Time → lower notch) via (1-fDelay).  Real ×20 constant sets the ~20 Hz floor.
+    const double f0Base   = 20.0 * std::exp (0.027 * 200.0 * (1.0 - (double) fDelay));  // ~20 Hz (Max) .. ~4.4 kHz (Min)
+    const double depthOct = (double) fDepth * 1.5;                     // LFO sweep ±1.5 octaves
+    const double alpha    = 0.5;                                       // RBJ section α — VAZ uses 0.5 (modes 1-4) @0x51EC30
+    const double feedback = (double) fFb * 0.9;                        // resonance (HW-style clamp lives in process)
     const double fbSign   = fbPhase > 0.5f ? -1.0 : 1.0;              // Feedback Phase: − = inverted polarity
     const double mix      = (double) fMix;
     const double gain     = (double) fGain;
@@ -101,15 +103,15 @@ void VAZFlangerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     for (int i = 0; i < n; ++i)
     {
         const double lfoL = std::sin (2.0 * juce::MathConstants<double>::pi * lfoPhase);
-        const double dL   = baseDelaySamp * (1.0 + depthAmt * lfoL);   // sweep the delay around the base
-        L[i] = (float) chL.process ((double) L[i], dL, feedback, fbSign, mix, gain);
+        const double f0L  = f0Base * std::pow (2.0, depthOct * lfoL);   // sweep notch freq ±depthOct octaves
+        L[i] = (float) chL.process ((double) L[i], f0L, alpha, feedback, fbSign, mix, gain, sr);
 
         if (R != nullptr)
         {
             double pr = lfoPhase + lrOffset; if (pr >= 1.0) pr -= 1.0;
             const double lfoR = std::sin (2.0 * juce::MathConstants<double>::pi * pr);
-            const double dR   = baseDelaySamp * (1.0 + depthAmt * lfoR);
-            R[i] = (float) chR.process ((double) R[i], dR, feedback, fbSign, mix, gain);
+            const double f0R  = f0Base * std::pow (2.0, depthOct * lfoR);
+            R[i] = (float) chR.process ((double) R[i], f0R, alpha, feedback, fbSign, mix, gain, sr);
         }
 
         lfoPhase += lfoInc; if (lfoPhase >= 1.0) lfoPhase -= 1.0;
