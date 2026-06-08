@@ -745,6 +745,7 @@ _initWaves(12);
 
 
 
+
 <script>
 /* ===== inlined JUCE interop ===== */
 /*
@@ -1592,6 +1593,35 @@ function bindToggle(paramId, el) {
   el.addEventListener("click", () => state.setValue(!state.getValue()));
 }
 
+// +/- polarity buttons in each mod-row -> the matching *_amt_inv toggle (+ = positive, - = inverted).
+// (The buttons were static HTML with no binding; the backend relays already exist.)
+const SIGN_MAP = {
+  o1_fm_src: "o1_fm_amt_inv", o1_ws_src: "o1_ws_amt_inv",
+  o2_fm_src: "o2_fm_amt_inv", o2_ws_src: "o2_ws_amt_inv",
+  e2_mod_src: "e2_mod_amt_inv",
+  cut_mod1_src: "filt_env_amt_inv", cut_mod2_src: "lfo_amt_inv",
+  res_mod_src: "res_mod_amt_inv", amp_mod_src: "amp_mod_amt_inv",
+  pan_mod_src: "pan_mod_amt_inv", ma1_am_src: "ma1_am_amt_inv", ma2_am_src: "ma2_am_amt_inv",
+};
+function bindSigns() {
+  document.querySelectorAll(".mod-row").forEach((row) => {
+    const sel = row.querySelector("select[data-combo]");
+    const inv = sel && SIGN_MAP[sel.getAttribute("data-combo")];
+    if (!inv) return;
+    let st; try { st = getToggleState(inv); } catch (e) { st = null; }
+    if (!st) return;
+    const plus  = row.querySelector(".pm-btn:not(.minus)");
+    const minus = row.querySelector(".pm-btn.minus");
+    const upd = () => { const on = st.getValue();      // true = inverted (-)
+      if (plus)  plus.classList.toggle("on", !on);
+      if (minus) minus.classList.toggle("on", on); };
+    if (st.valueChangedEvent && st.valueChangedEvent.addListener) st.valueChangedEvent.addListener(upd);
+    upd();
+    if (plus)  plus.addEventListener("click", () => st.setValue(false));
+    if (minus) minus.addEventListener("click", () => st.setValue(true));
+  });
+}
+
 function init() {
   populateModSources();                               // fill mod-source dropdowns before binding
   document.querySelectorAll("[data-toggle]").forEach((el) => {
@@ -1603,6 +1633,7 @@ function init() {
   document.querySelectorAll("[data-combo]").forEach((el) => {
     bindCombo(el.getAttribute("data-combo"), el);
   });
+  bindSigns();                                      // +/- modulation-polarity buttons
   bindButtonGroup('[data-wg="wf1"]', "o1_wave");    // waveform buttons OSC1
   bindButtonGroup('[data-wg="wf2"]', "o2_wave");    // waveform buttons OSC2
   bindButtonGroup('[data-og="o1t"]', "o1_octave");  // octave buttons OSC1
