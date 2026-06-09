@@ -1,0 +1,29 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "vazui",
+      "runtimeExecutable": "py",
+      "runtimeArgs": ["-m", "http.server", "8753", "--directory", "plugins/VAZClone/Source/ui/public"],
+      "port": 8753
+    },
+    {
+      "name": "phaserui",
+      "runtimeExecutable": "py",
+      "runtimeArgs": ["-m", "http.server", "8754", "--directory", "plugins/VAZPhaser/Source/ui/public"],
+      "port": 8754
+    },
+    {
+      "name": "flangerui",
+      "runtimeExecutable": "py",
+      "runtimeArgs": ["-m", "http.server", "8755", "--directory", "plugins/VAZFlanger/Source/ui/public"],
+      "port": 8755
+    },
+    {
+      "name": "chorusui",
+      "runtimeExecutable": "py",
+      "runtimeArgs": ["-m", "http.server", "8756", "--directory", "plugins/VAZChorus/Source/ui/public"],
+      "port": 8756
+    }
+  ]
+}

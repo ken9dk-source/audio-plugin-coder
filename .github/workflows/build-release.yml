@@ -19,6 +19,7 @@ on:
           - VAZAutopan
           - VAZDelay
           - VAZFlanger
+          - VAZChorus
           - all
       platforms:
         description: 'Which platforms to build?'
@@ -62,7 +63,7 @@ jobs:
         id: set-matrix
         run: |
           if [ "${{ inputs.plugin }}" == "all" ]; then
-            echo 'matrix={"plugin":["CloudWash","gnarly2","nf_gnarly","VAZClone","VAZReverb","VAZPhaser","VAZDecimator","VAZAutopan","VAZDelay","VAZFlanger"]}' >> $GITHUB_OUTPUT
+            echo 'matrix={"plugin":["CloudWash","gnarly2","nf_gnarly","VAZClone","VAZReverb","VAZPhaser","VAZDecimator","VAZAutopan","VAZDelay","VAZFlanger","VAZChorus"]}' >> $GITHUB_OUTPUT
           else
             echo 'matrix={"plugin":["${{ inputs.plugin }}"]}' >> $GITHUB_OUTPUT
           fi
