@@ -39,7 +39,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout VAZFlangerAudioProcessor::cr
 void VAZFlangerAudioProcessor::prepareToPlay (double sampleRate, int)
 {
     sr = sampleRate;
-    chL.reset(); chR.reset();
+    chL.prepare (sampleRate); chR.prepare (sampleRate);
     lfoPhase = 0.0;
 }
 
@@ -65,16 +65,17 @@ void VAZFlangerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     const float fGain   = apvts.getRawParameterValue (ParameterIDs::gain)->load();
     const float fbPhase = apvts.getRawParameterValue (ParameterIDs::feedback_phase)->load();
 
-    // Notch base freq — RE'd from Core.dll flanger coef setup @0x51EBB0:  f = 20 * exp(0.027 * X)
-    // (0x402ba8 = exp, ×20 from [0x51f0a4]).  X is delay-derived; keep the musical direction
-    // (longer Delay Time → lower notch) via (1-fDelay).  Real ×20 constant sets the ~20 Hz floor.
-    const double f0Base   = 20.0 * std::exp (0.027 * 200.0 * (1.0 - (double) fDelay));  // ~20 Hz (Max) .. ~4.4 kHz (Min)
-    const double depthOct = (double) fDepth * 1.5;                     // LFO sweep ±1.5 octaves
-    const double alpha    = 0.5;                                       // RBJ section α — VAZ uses 0.5 (modes 1-4) @0x51EC30
-    const double feedback = (double) fFb * 0.9;                        // resonance (HW-style clamp lives in process)
-    const double fbSign   = fbPhase > 0.5f ? -1.0 : 1.0;              // Feedback Phase: − = inverted polarity
-    const double mix      = (double) fMix;
-    const double gain     = (double) fGain;
+    // Real flanger (RE'd from Core.dll TFXFlanger @0x5204F4): a delay-line flanger.
+    // Delay Time = minimum delay; the triangle LFO sweeps 'depth' samples on top of it.
+    const double baseMs    = 0.5 + (double) fDelay * 5.0;             // Delay Time → 0.5 .. 5.5 ms minimum delay
+    const double depthMs   = (double) fDepth * (baseMs * 1.6 + 1.0); // LFO sweep amount above the base
+    const double baseSamp  = baseMs  * 0.001 * sr;
+    const double depthSamp = depthMs * 0.001 * sr;
+    const double fbSign    = fbPhase > 0.5f ? -1.0 : 1.0;            // Feedback Phase: − inverts the feedback
+    const double feedback  = (double) fFb * 0.92 * fbSign;          // feedback comb gain (real [+0x264])
+    const double mix       = (double) fMix;
+    const double gain      = (double) fGain;
+    const double inGain    = 1.0;                                    // real [+0x294] (input into the delay line)
     // Modulation rate: free (Rate² → 0..20 Hz, Rate fully DOWN = STATIC notch — the VAZ hardtrance signature)
     // or tempo-synced (Sync on → host-BPM division from the 24-entry note table).
     static constexpr double periodBeats[24] = { 1.0/12, 1.0/8, 1.0/6, 1.0/4, 1.0/3, 1.0/2, 2.0/3, 1.0,
@@ -100,21 +101,23 @@ void VAZFlangerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     float* L = buffer.getWritePointer (0);
     float* R = numCh > 1 ? buffer.getWritePointer (1) : nullptr;
 
+    const bool stat = (lfoInc <= 0.0);                    // Rate fully down → frozen sweep (fixed comb)
+    auto triangle = [] (double ph) noexcept               // VAZ LFO = abs(phase) = triangle (real @0x520531)
+    { return ph < 0.5 ? 2.0 * ph : 2.0 - 2.0 * ph; };     // 0 → 1 → 0 over one cycle
+
     for (int i = 0; i < n; ++i)
     {
-        const double lfoL = std::sin (2.0 * juce::MathConstants<double>::pi * lfoPhase);
-        const double f0L  = f0Base * std::pow (2.0, depthOct * lfoL);   // sweep notch freq ±depthOct octaves
-        L[i] = (float) chL.process ((double) L[i], f0L, alpha, feedback, fbSign, mix, gain, sr);
+        const double dL = baseSamp + triangle (lfoPhase) * depthSamp;     // swept fractional delay
+        L[i] = (float) (chL.process ((double) L[i], dL, feedback, mix, inGain) * gain);
 
         if (R != nullptr)
         {
-            double pr = lfoPhase + lrOffset; if (pr >= 1.0) pr -= 1.0;
-            const double lfoR = std::sin (2.0 * juce::MathConstants<double>::pi * pr);
-            const double f0R  = f0Base * std::pow (2.0, depthOct * lfoR);
-            R[i] = (float) chR.process ((double) R[i], f0R, alpha, feedback, fbSign, mix, gain, sr);
+            double pr = lfoPhase + lrOffset; if (pr >= 1.0) pr -= 1.0;     // L/R Phase offset
+            const double dR = baseSamp + triangle (pr) * depthSamp;
+            R[i] = (float) (chR.process ((double) R[i], dR, feedback, mix, inGain) * gain);
         }
 
-        lfoPhase += lfoInc; if (lfoPhase >= 1.0) lfoPhase -= 1.0;
+        if (! stat) { lfoPhase += lfoInc; if (lfoPhase >= 1.0) lfoPhase -= 1.0; }
     }
 }
 
