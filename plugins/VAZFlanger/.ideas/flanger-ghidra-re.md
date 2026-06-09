@@ -38,6 +38,51 @@ b1   = -2·norm·[ (C+1)·α + (C-1) ]
 - `α = 0.5` (already matched).
 - 4 sections + geometric sweep (already matched).
 
-## Remaining (deeper, risky without effect-level A/B)
-- The 5 biquad MODES (LP/HP/notch/AP/shelf) selected by Feedback Phase — clone uses allpass+sign only.
-- Exact per-section freqs (come from a patch-stream filler not cleanly decompilable).
+## Full coefficient decode (all 5 modes) — `0x51EB34`
+
+### Setup (`0x51EBBB`–`0x51EC7E`) — stack-slot map
+```
+[esp]      P     = Power(delay·18/5080, 10)            ; delay-derived, 0..~0.37
+[esp+0x18] S     = sin(ω)            ω = 2π·f/sr (clamped 0.45), f = 20·exp(0.027·param)
+[esp+0x20] C     = cos(ω)
+[esp+0x28] alpha = 0.5 (modes 1-4)  |  exp(param·0.018)·0.05 (mode 0)
+[esp+0x30] A30   = S / (2·alpha)     = sin(ω)            (RBJ bandwidth term, alpha=0.5)
+[esp+0x38] A38   = sqrt(P) / alpha   = 2·sqrt(P)
+```
+### Mode select (`esi`): [ebx+8]∈{1,2} (section base type) × [ebx+0x14]∈{0,0xff} (**Feedback Phase**)
+`(1,0)→m1  (1,0xff)→m4  (2,0)→m2  (2,0xff)→m3  else→m0`.  So Feedback Phase swaps m1↔m4 / m2↔m3;
+m0 is a fallback (likely unused). The 4 main modes are RBJ-family variants of the (P±1)C ± A38·S form.
+
+### Mode 0 (`0x51EFB7`, fully decoded) — resonant biquad
+```
+norm = 1/(1 + A30/P)
+b = [ (1+A30·P)·norm , -2C·norm , (1-A30·P)·norm ]      a = [1, -2C·norm·…, (1-A30/P)·norm]
+```
+### Mode 1 (`0x51EC9C`, fully decoded)
+```
+a0   = (P-1)·C + (P+1) + A38·S ;  norm = 1/a0
+c1   = -2·norm·[ (P+1)·C + (P-1) ]
+c2   = norm·[ (P-1)·C + (P+1) - A38·S ]            ; (P+1±A38·S form, P±1 on the C terms)
+…3 coefs ×2^20 → Q20 int [ebx+0x20/24/28]
+```
+Modes 2/3/4 (`0x51EDAE / 0x51EEC0 / 0x51EF3C`) = the same family with sign permutations on the C / A38·S terms.
+
+## ⛔ IMPLEMENTATION BLOCKER (why this is NOT ported to the clone)
+The **per-sample process loop is NOT in the dump** (`vaz_fx_all.c` has the SETUP/init only; the hot
+DSP is a separate fixed-point routine). So the *topology* — how the 3 Q20 coefs `[ebx+0x20/24/28]`
+combine per sample (makeup gain? feedback comb? subtraction notch?) — is unknown.
+
+**Python check (tools, 2026-06-09):** modelling the decoded coefs as a naive biquad cascade
+(4 harmonic sections) is STABLE (pole r≈0.999) but gives **−46 to −83 dB insertion loss** at P=0.2
+(−6..−12 dB at P=0.8) — a real flanger is ~unity-gain with notches. So the decoded coefs are
+applied in a *different* topology (makeup/feedback), which is not recoverable from the available code.
+
+→ **Decision:** keep the current working flanger (allpass comb — RE-confirmed correct family: 4 RBJ
+sections, α=0.5, geometric `f=20·exp(0.027·X)` freq). Do NOT ship the reconstruction (would make it
+near-silent). The freq-mapping fix (commit fd411fe) stands. A faithful port needs the fixed-point
+per-sample routine (not in this dump) or real-VAZ effect A/B (not available — effects can't be
+headless-rendered like the synth).
+
+## Remaining (blocked)
+- The 5 modes' per-sample topology (the makeup-gain/feedback structure) — un-dumped fixed-point.
+- Exact per-section freqs (patch-stream filler, not cleanly decompilable).
