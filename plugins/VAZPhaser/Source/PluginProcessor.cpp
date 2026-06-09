@@ -68,8 +68,10 @@ void VAZPhaserAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
     const float fbPhase = apvts.getRawParameterValue (ParameterIDs::feedback_phase)->load();
 
     const int    stages   = juce::jlimit (2, 12, 2 + 2 * (int) std::lround (fStages * 5.0f));
-    const double fcBase   = 200.0 * std::pow (10.0, (double) fFreq);   // all-pass break freq 200 Hz..2 kHz (log) — classic phaser band
-    const double depthOct = (double) fDepth * 1.5;                     // LFO sweep ±1.5 octaves
+    // RE'd from Core.dll TFXPhaser @0x5218D8: the LFO is a UNIPOLAR triangle (abs of the phase
+    // accumulator) that sweeps the all-pass freq UP from a base (idx = base + |phase|·depth @0x52190A).
+    const double fcBase   = 80.0 * std::pow (25.0, (double) fFreq);    // sweep FLOOR: 80 Hz..2 kHz
+    const double depthOct = (double) fDepth * 2.5;                     // triangle sweep: 0..+2.5 octaves above the floor
     const double feedback = (double) fFb * 0.72;                       // resonance/intensity (kept musical → no screech)
     const double fbSign   = fbPhase > 0.5f ? -1.0 : 1.0;              // Feedback Phase: − = inverted polarity
     const double mix      = (double) fMix;
@@ -100,9 +102,12 @@ void VAZPhaserAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
     float* L = buffer.getWritePointer (0);
     float* R = numCh > 1 ? buffer.getWritePointer (1) : nullptr;
 
+    auto triangle = [] (double ph) noexcept                // VAZ LFO = abs(phase) = triangle (real @0x521902), 0→1→0
+    { return ph < 0.5 ? 2.0 * ph : 2.0 - 2.0 * ph; };
+
     for (int i = 0; i < n; ++i)
     {
-        const double lfoL = std::sin (2.0 * juce::MathConstants<double>::pi * lfoPhase);
+        const double lfoL = triangle (lfoPhase);           // unipolar 0..1 (was bipolar sine)
         const double fcL  = juce::jlimit (20.0, nyq, fcBase * std::pow (2.0, depthOct * lfoL));
         const double tL   = std::tan (juce::MathConstants<double>::pi * fcL / sr);
         const double aL   = juce::jlimit (-0.98, 0.98, (1.0 - tL) / (1.0 + tL));   // 1st-order all-pass coeff (positive → notch in the audible band)
@@ -111,7 +116,7 @@ void VAZPhaserAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
         if (R != nullptr)
         {
             double pr = lfoPhase + lrOffset; if (pr >= 1.0) pr -= 1.0;
-            const double lfoR = std::sin (2.0 * juce::MathConstants<double>::pi * pr);
+            const double lfoR = triangle (pr);             // unipolar triangle (L/R phase offset)
             const double fcR  = juce::jlimit (20.0, nyq, fcBase * std::pow (2.0, depthOct * lfoR));
             const double tR   = std::tan (juce::MathConstants<double>::pi * fcR / sr);
             const double aR   = juce::jlimit (-0.98, 0.98, (1.0 - tR) / (1.0 + tR));
