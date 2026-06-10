@@ -36,10 +36,18 @@ toward functional 1:1 with `Vaz2010Core.dll`. This is a **multi-session RE progr
     - The process is a **large dispatched function** (~0x4DD7xx–0x4DDExx) with a **jump table over the 22
       filter modes** (`cmp eax,0x28/0x2c…` @0x4DD83B+, `jmp 0x4de286`), per-mode input one-pole smoothers
       (0x4DD7ED-0x4DD811, states [esi+0x17c]/[esi+0x180]) feeding the shared biquad+cubic core above.
-    - TODO (continuing P1): map the 22-mode jump table → each engine's coef use; decode the OTHER 2 coef-table
-      builders (0x6145e4/0x6545e4); find the **resonance** path (the input smoothers @0x4DD7ED or a feedback
-      coef); nail the Q-format + pass count; then reimplement the filter to this exact structure + bit-null.
-      (This is the bulk of P1 — the whole multimode filter is one big fixed-point function.)
+    - **RESONANCE found** (@0x4DD736-0x4DD7DC): a **4th coef table `0x5535e4`** (cutoff-indexed) = the
+      integrator/resonance coef `ecx`. **Resonance amount = [esi+0x164]** (Q9, `<<23`), applied as a feedback
+      gain `edi += 2·reso·(fb − edi)` (the `add ebp,ebp`=×2) → the resonant peak. **≠ clone's `reso·4.2·cubic(s3)`**
+      — real scales `2·reso` and the cubic sits on the integrator state, not the ladder tap.
+    - **Sub-mode = [ebx+0x258] & 3** = the modRoute (0 Resonance / 1 Highpass / 2 Separation) — matches the
+      clone's `modRoute`. Submode 1 also applies **1.5× input gain** (`edi+edi/2` @0x4DD7A3).
+    - So the real "R" filter = **state-variable / integrator-cascade with `2·reso·(fb−in)` feedback + cubic
+      `x−x³/2` on the state**, 4 cutoff-indexed coef tables (0x5535e4 reso, 0x6145e4/6545e4/6945e4 biquad),
+      ≈2× oversampled, fixed-point. Clone's ladder topology + `reso·4.2` + `1.5(x−x³/3)` all differ.
+    - TODO (continuing P1): map the 22-mode jump table → each engine; decode the 4 coef-table builders' exact
+      formulas; nail the Q-format (Q30 pole, Q9 reso, the <<2/<<3/<<23 shifts) + pass count; then reimplement
+      the filter to this exact structure + bit-null. (Bulk of P1 — one big fixed-point function.)
 - **P2 Oscillator**: find the wavetable read (32-bit phase, top-bits index, interp) → **extract the wave
   LUTs** (saw/tri/sine/pulse, sizes 256/512, mip levels) → reimpl phase+interp fixed-point. (Highest raw-timbre value.)
 - **P3 Envelope**: ADSR fixed-point — attack/decay/release curves + Multi/Reset/Cycle/Curve. (Resolves the parity-audit B1-B4.)
