@@ -1,0 +1,45 @@
+# VAZ 2010 — Bit-Exact Reimplementation Program (roadmap)
+
+Goal: replace the clone's float approximations with VAZ's **actual fixed-point DSP + extracted LUTs**,
+toward functional 1:1 with `Vaz2010Core.dll`. This is a **multi-session RE program**, not a single task.
+
+## Methodology (per subsystem)
+1. **Locate** the function(s) in Core.dll — `tools/disasm-region.py` (capstone), VMT/RTTI via
+   `tools/find-fx-classes.py` / `tools/find-callers.py` (note: code section = `CODE`, not `.text`).
+2. **Decode** the fixed-point math (Q-format, per-sample loop) + **extract LUTs** (dump raw arrays).
+3. **Reimplement** in the clone (exact float-equivalent of the fixed-point, or fixed-point where needed).
+4. **Bit-compare** to null: render identical MIDI/preset through the **real VAZ** (File→Capture,
+   `tools/vaz_auto`) and the **clone** (`VazRender`), diff with `tools/abtest/analyze.py`. Iterate.
+
+   → The bit-comparison harness **already exists** (built during the A/B work): headless real render
+   (clean Capture) + headless clone render + the analyzer. This is the key asset for this program.
+
+## Confirmed anchors (ground truth so far)
+| Address | Fact | Clone status |
+|---|---|---|
+| `0x4D4720` | Filter cutoff coef builder: `fc = exp(10.24·idx/1024)` (idx=cutoff param 0-1024) | ✅ applied (D1, ±4%) |
+| `0x4D47A3` | Pole coef `a = (2−cosω) − √((2−cosω)²−1)`, stored **Q30** (×2³⁰) | ✅ exact (D2) |
+| helpers | `0x402ba8`=exp · `0x402b98`=cos · `0x402bc0`=sin · `0x402bf4`=round→int · `0x42c220`=pow | — |
+| effects | Flanger `0x5204F4` · Phaser `0x5218D8` · Chorus `0x518AD8` · EQ `0x51EB34` fully RE'd | ✅ matched |
+| `.v2p` | param→byte map | partial (45/115) |
+
+## Phases (audibility order — each = locate → decode → extract → reimpl → bit-null)
+- **P1 Filter** (in progress): cutoff+pole ✅. TODO: the per-sample **process** fn — resonance/feedback
+  coef + the 6 engines (A/B/C/D/K/R) exact topology + saturation. *Next concrete step.*
+- **P2 Oscillator**: find the wavetable read (32-bit phase, top-bits index, interp) → **extract the wave
+  LUTs** (saw/tri/sine/pulse, sizes 256/512, mip levels) → reimpl phase+interp fixed-point. (Highest raw-timbre value.)
+- **P3 Envelope**: ADSR fixed-point — attack/decay/release curves + Multi/Reset/Cycle/Curve. (Resolves the parity-audit B1-B4.)
+- **P4 LFO**: 8 waveforms + shape morph + rate/sync.
+- **P5 Modulation matrix**: 22 sources, bipolar-depth math, FM (incl. the 2nd FM slot/osc), Mod Amps, Lag.
+- **P6 Voice mgmt**: allocation/stealing, Unison, Portamento, pitch quantise.
+- **P7 MIDI + presets + timing**: note/vel/bend, full .v2p decode, block/sample timing.
+
+## Immediate next step
+Find the filter **per-sample PROCESS** function (consumes the Q30 pole coef + applies resonance feedback
++ the engine topology). Search: callers/readers of the coef table built @0x4D4720. → RE the resonance
+map (parity-audit D3) → P1 becomes the first fully bit-RE'd subsystem, validated by the A/B harness.
+
+## Honest note
+This program is large (the synth engine is far bigger than any single effect). Progress is incremental
+and resumable via this doc + the parity-audit.md deviation queue. Each session should close one or more
+locate→decode→reimpl→bit-null loops.
