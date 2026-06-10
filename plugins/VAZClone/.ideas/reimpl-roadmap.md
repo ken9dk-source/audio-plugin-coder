@@ -59,11 +59,19 @@ toward functional 1:1 with `Vaz2010Core.dll`. This is a **multi-session RE progr
         - The builder has **multiple sections** (next @0x4D4A40 uses a 0.25 freq clamp instead of 0.45 → a
           different pole-config/engine) → it precomputes ALL engines' coef tables. Big precompute.
       Magic constants found: **22.7** (gain), Q30 (pole), Q28 (resonator coef), Q9 (reso feedback <<23).
-    - TODO (continuing P1): decode the remaining resonator coefs (a1/a2/b0) in this builder loop; map the
-      22-mode jump table → each engine; then reimplement the R filter (default mode 19) to this exact 2D-table
-      + biquad + cubic structure and **bit-null vs the A/B harness** (first closed reimpl loop). The other 5
-      engines (A/B/C/D/K) + Comb follow. NOTE: the filter is intricate enough (4 tables, 2D reso, magic consts,
-      Q-formats, 22 modes, oversampling) that exact reimpl is several more decode loops then a careful rewrite.
+    - **PER-SAMPLE ASSEMBLY decoded + VALIDATED (R engine fully spec'd):** the process @0x4DD897 is a
+      direct-form **resonator biquad** `y[n] = b0·x[n] + a1·y[n-1] + a2·y[n-2]` (acc 64-bit; out = acc>>32<<2),
+      with **cubic `x−x³/2` on the fed-back state** (`s1 = cubic(out)`, `s2 = s1_old`), **2× oversampled**,
+      coefs from the 2D tables indexed `cutoffIdx + resoIdx·1024`. (t3=b0, t1=a1, t2=a2.)
+    - **Python-validated** (tools): the decoded biquad is **stable** (pole radius 0.991→0.9998 as reso 0→63,
+      i.e. → near self-oscillation at max), **peaks exactly at the cutoff** (499 Hz @fc=500, 1998 @fc=2000),
+      and **resonance sharpens the peak** (8.5×→104× @fc=500). Exactly correct VAZ filter behaviour → **the
+      whole R-engine decode is confirmed correct.** DC gain ≈2.1× (a scaling to calibrate).
+    - **R-ENGINE STATUS: fully decoded + validated.** Only remaining detail = the exact fixed-point Q-scaling
+      so the cubic operates in-range (the `<<2`/`>>32` shifts) — best nailed by **reimplementing + iterating
+      against the bit-null harness** (the harness shows scaling as level/timbre error). That is the next loop:
+      replace the clone's R ladder (VAZLadder) with this resonator-biquad+cubic, calibrate scaling, bit-null.
+    - Then the other engines (A/B/C/D/K via the 22-mode jump table) + the 0x5535e4 reso/integrator table's role.
 - **P2 Oscillator**: find the wavetable read (32-bit phase, top-bits index, interp) → **extract the wave
   LUTs** (saw/tri/sine/pulse, sizes 256/512, mip levels) → reimpl phase+interp fixed-point. (Highest raw-timbre value.)
 - **P3 Envelope**: ADSR fixed-point — attack/decay/release curves + Multi/Reset/Cycle/Curve. (Resolves the parity-audit B1-B4.)
