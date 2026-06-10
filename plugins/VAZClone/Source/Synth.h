@@ -304,7 +304,10 @@ struct VAZEnv
             case Release: level += (0.0 - level) * rCoef; if (level < 0.0004) { level = 0.0; stage = Idle; } break;
             default: break;
         }
-        return mCurve ? (float) (level * level) : (float) level;   // Curve → exponential shape
+        // Curve → exact VAZ exponential. Dumped curve-LUT 0x5445e0 (runtime ReadProcessMemory) is a clean
+        // 60 dB exp: curve(x)=1024^(x-1), k=ln(1024)=6.931472 (verified to 5 dp vs the live table). Anchored
+        // here as (e^{kx}-1)/(e^k-1) so curve(0)=0 (no idle floor) — was a poor level² approximation before.
+        return mCurve ? (float) ((std::exp (6.931472 * level) - 1.0) / 1023.0) : (float) level;
     }
 };
 

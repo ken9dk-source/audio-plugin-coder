@@ -44,6 +44,23 @@ them from a running Vaz2010.exe** (OpenProcess + ReadProcessMemory at the Core.d
 `0x5445e0` (curve/env LUT), `0x6dd2c0`+ (wavetables), `0x5535e4`/`0x69×5e4` (filter coef tables, to
 cross-check the decoded biquad). That yields the EXACT built data (not the formula) — the cleanest route.
 
+## ✅ EXACT envelope curve EXTRACTED + INTEGRATED (2026-06-10)
+Dumped curve LUT `0x5445e0` (15360 int32, runtime ReadProcessMemory) is a **clean 60 dB exponential**:
+`curve(x) = 1024^(x-1) = exp(ln(1024)·(x-1))`, **k = ln(1024) = 6.931472** (verified to 5 dp: x=0→0.001,
+0.5→0.0313, 1→1). 20·log₁₀(1024)=60.2 dB = the classic analog ADSR exp range. → **Integrated into the
+clone's VAZEnv curve mode** (Synth.h:307), replacing the bad `level²` approximation (which was ~8× off at
+mid: level²=0.25 vs exact 0.031), anchored as `(e^{kx}-1)/1023` so curve(0)=0 (no idle floor).
+**Architecture caveat (future):** the real env runs a LINEAR phase through this LUT (curve toggle = linear
+vs exp *segments*); the clone uses a one-pole exp base + this curve shaping. The clone's base is
+measurement-validated (attack/release); the curve SHAPE is now bit-exact. A full architecture match
+(linear-segment base + LUT) is a documented future option, not required for the measured-matched patches.
+
+## ✅ Filter biquad pole-decode VALIDATED vs exact coef tables (2026-06-09/10)
+Cross-checked my decoded resonator formula against the live coef tables (see reimpl-roadmap.md): **a1/a2
+match EXACTLY** (a1=4EC/(E+1), a2=−E, format **Q30**), but **b0 was ~8× too large** in my formula →
+the explosion cause. b0 ∝ sin²(π·f₂)·K(reso) (K≈0.27 at reso 32, falls with reso). Filter redo is now
+de-risked: use the exact 2D tables (b0=0x6945e4, a1=0x6145e4, a2=0x6545e4, idx=reso·1024+cutIdx, Q30).
+
 ## Status / next exact-extraction targets
 - **Envelope decay (the failed measurement):** the segmented generator @0x4DD2D0 + its curve LUT
   `0x5445e0` (built @0x4D46xx). Decode the builder's curve-fill + the generator's segment rates →

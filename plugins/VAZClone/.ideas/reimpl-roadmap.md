@@ -102,6 +102,15 @@ toward functional 1:1 with `Vaz2010Core.dll`. This is a **multi-session RE progr
       the 2×-pass-same-input over-builds the resonance, and the x·0.5 output keeps the cubic too small to compress).
       **NEXT (calibration, now measurable):** fix the 2-pass structure + scale the feedback state so the cubic
       actually compresses near self-osc → match the real's 21/20/28/47 dB curve via this harness.
+    - **CROSS-CHECK vs EXACT dumped coef tables (2026-06-09, via tools/dump_vaz_tables.py ReadProcessMemory):**
+      read the live filter coef tables at known (cutIdx,reso) indices and compared to my formula. **RESULT —
+      the POLE decode is VALIDATED exactly:** table a1(0x6145e4)=+1.99 = my B1, a2(0x6545e4)=−0.99 = my −E
+      (the Q-format is **Q30**, not the Q28 I'd assumed). **But b0(0x6945e4) was ~8× too large in my formula**
+      (table ≈0.0009 vs my 0.0076) → almost certainly the cause of the resonance EXPLOSION (8× hotter input into
+      a high-Q resonator). **So the biquad math was right except the b0 gain + the Q30 scaling.** → A correct
+      filter redo is now de-risked: use the EXACT dumped 2D coef tables (b0/a1/a2 at 0x6945e4/0x6545e4/0x6145e4,
+      reso·1024+cutIdx, Q30) directly, OR fix b0 (÷~8) + use Q30. Index by cutIdx (fc=exp(10.24·cutIdx/1024)) and
+      resoIdx. The cubic + 2-pass structure then need re-checking against the harness with the correct b0.
 - **P2 Oscillator**: find the wavetable read (32-bit phase, top-bits index, interp) → **extract the wave
   LUTs** (saw/tri/sine/pulse, sizes 256/512, mip levels) → reimpl phase+interp fixed-point. (Highest raw-timbre value.)
 - **P3 Envelope**: ADSR fixed-point — attack/decay/release curves + Multi/Reset/Cycle/Curve. (Resolves the parity-audit B1-B4.)
