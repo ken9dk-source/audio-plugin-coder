@@ -24,8 +24,22 @@ toward functional 1:1 with `Vaz2010Core.dll`. This is a **multi-session RE progr
 | `.v2p` | param→byte map | partial (45/115) |
 
 ## Phases (audibility order — each = locate → decode → extract → reimpl → bit-null)
-- **P1 Filter** (in progress): cutoff+pole ✅. TODO: the per-sample **process** fn — resonance/feedback
-  coef + the 6 engines (A/B/C/D/K/R) exact topology + saturation. *Next concrete step.*
+- **P1 Filter** (in progress): cutoff+pole ✅. **Per-sample PROCESS fn LOCATED @0x4DD870** (reads the
+  coef tables; found via BSS table 0x6945e4 readers). Decoded so far:
+    - **3 cutoff-indexed coef tables**: `0x6145e4`, `0x6545e4`, `0x6945e4` (0x4000 apart = 4096 int32 each,
+      used 1024; idx = cutoff clamped 0..0x3ff + a mod offset [esi+0x164]). Built by the @0x4D4720-style builders.
+    - **Fixed-point**: 64-bit accumulate (`ebx:ebp`), `acc = t3·in + t2·s2 + t1·s1`; state shift s2←s1.
+    - **Saturation = cubic `y = x − x³/2`** (@0x4DD8E3-F1, no makeup) — **≠ clone's `1.5·(x−x³/3)`** (clone
+      adds 1.5× linear makeup; cubic coef 0.5 matches). Real applies it to the feedback **state**, in Q-format.
+    - **Topology = multi-pass (≈2× oversampled) 2nd-order section(s) with cubic state-feedback** — NOT the
+      clone's 4-pole one-pole ladder. → For bit-exactness the filter needs **reimplementation** to this form.
+    - The process is a **large dispatched function** (~0x4DD7xx–0x4DDExx) with a **jump table over the 22
+      filter modes** (`cmp eax,0x28/0x2c…` @0x4DD83B+, `jmp 0x4de286`), per-mode input one-pole smoothers
+      (0x4DD7ED-0x4DD811, states [esi+0x17c]/[esi+0x180]) feeding the shared biquad+cubic core above.
+    - TODO (continuing P1): map the 22-mode jump table → each engine's coef use; decode the OTHER 2 coef-table
+      builders (0x6145e4/0x6545e4); find the **resonance** path (the input smoothers @0x4DD7ED or a feedback
+      coef); nail the Q-format + pass count; then reimplement the filter to this exact structure + bit-null.
+      (This is the bulk of P1 — the whole multimode filter is one big fixed-point function.)
 - **P2 Oscillator**: find the wavetable read (32-bit phase, top-bits index, interp) → **extract the wave
   LUTs** (saw/tri/sine/pulse, sizes 256/512, mip levels) → reimpl phase+interp fixed-point. (Highest raw-timbre value.)
 - **P3 Envelope**: ADSR fixed-point — attack/decay/release curves + Multi/Reset/Cycle/Curve. (Resolves the parity-audit B1-B4.)
