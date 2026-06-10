@@ -265,9 +265,10 @@ public:
 private:
     void updateAmp() noexcept
     {
-        auto t    = [] (float x) { return 0.001f + x * x * 3.0f; };          // decay/release time (quadratic)
-        auto atkT = [] (float x) { return 0.001f + x*x*x*x * 3.6f; };         // attack time — harness-RE'd: real ≈ x^4·3.6 (far steeper than x²)
-        amp.setADSR (atkT (p.atk), t (p.dec), p.sus, t (p.rel));
+        auto t    = [] (float x) { return 0.001f + x * x * 3.0f; };           // decay time (quadratic — not yet harness-isolated)
+        auto atkT = [] (float x) { return 0.001f + x*x*x*x * 3.6f; };          // attack time — harness-RE'd: real ≈ x^4·3.6
+        auto relT = [] (float x) { float x3 = x*x*x; return 0.001f + x3*x3 * 7.5f; };  // release — harness-RE'd: real ≈ x^6 (far steeper than x²)
+        amp.setADSR (atkT (p.atk), t (p.dec), p.sus, relT (p.rel));
         amp.setModes (p.e1Reset, p.e1Cycle, p.e1Curve);
     }
     static float ftime (float x) noexcept { return 0.0002f + x * x * 4.0f; }   // filter-env time map
