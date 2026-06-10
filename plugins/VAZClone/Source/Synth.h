@@ -338,7 +338,8 @@ struct VAZLadder
         const double B1 = 4.0 * E * C / (E + 1.0);
         const double disc = ((E + 1.0) * (E + 1.0) - B1 * B1) * (1.0 - E) / (E + 1.0);
         const double b0 = std::sin (M_PI * f2) * std::sqrt (disc > 0.0 ? disc : 0.0) * 22.7 * (double) (ri + 64) / 64.0;
-        const double a1 = B1, a2 = -E;
+        const double dmp = 0.985;          // resonance-damping calibration (bit-null #1: clone Q ~17-20 dB too high);
+        const double a1 = B1 * dmp, a2 = -E * dmp * dmp;   // scale pole radius inward by dmp, keep the peak angle/freq
 
         const double x  = in * drive;
         const int passes = (mode == 1) ? 1 : 2;                      // 2-pole = 1 pass, 4-pole = 2

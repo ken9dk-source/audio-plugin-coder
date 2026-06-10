@@ -82,6 +82,16 @@ toward functional 1:1 with `Vaz2010Core.dll`. This is a **multi-session RE progr
       match. Then the other engines (A/B/C/D/K via the 22-mode jump table) + the 0x5535e4 integrator table.
     - (The new biquad is kept deployed — its peak now matches the real, more faithful than the old ladder; the
       Q is bounded/stable, just hotter than the real until the input stages are added. Revertible via git.)
+    - **CORRECTION + measurement finding (2026-06-09):** the biquad IS R (it has the cubic `x−x³/2` = the
+      distorted resonance; the one-pole path @0x4DD7ED is CLEAN = the A/B engines). So the mapping was right —
+      the Q gap is a **calibration**, not a mis-map. BUT: a resonance-damping test (`a1·=dmp, a2·=dmp²`, dmp=0.985)
+      did **NOT move the bit-null Q metric** (peak/median stayed +17/+20 dB). **Root cause: the synth render can't
+      cleanly isolate FILTER Q** — the oscillator harmonics + the note fundamental dominate the spectrum (at reso 50
+      the "peak" is the 129 Hz note fundamental, not the resonance). So **filter-Q calibration via the synth
+      render is not viable**; it needs a dedicated **filter-impulse/noise harness** (drive the filter with flat
+      input, measure its frequency response directly) — a tooling task. A mild dmp=0.985 nudge is left in as a
+      conservative anti-scream safety (not precisely calibrated). **R status: peak-matched + structurally correct
+      (cubic resonator biquad); exact Q pending a filter-impulse harness.** This is the cleanest verifiable state.
 - **P2 Oscillator**: find the wavetable read (32-bit phase, top-bits index, interp) → **extract the wave
   LUTs** (saw/tri/sine/pulse, sizes 256/512, mip levels) → reimpl phase+interp fixed-point. (Highest raw-timbre value.)
 - **P3 Envelope**: ADSR fixed-point — attack/decay/release curves + Multi/Reset/Cycle/Curve. (Resolves the parity-audit B1-B4.)
