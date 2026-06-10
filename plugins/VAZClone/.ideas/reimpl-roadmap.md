@@ -92,6 +92,16 @@ toward functional 1:1 with `Vaz2010Core.dll`. This is a **multi-session RE progr
       input, measure its frequency response directly) — a tooling task. A mild dmp=0.985 nudge is left in as a
       conservative anti-scream safety (not precisely calibrated). **R status: peak-matched + structurally correct
       (cubic resonator biquad); exact Q pending a filter-impulse harness.** This is the cleanest verifiable state.
+    - **FILTER-IMPULSE HARNESS BUILT (tools/abtest/filter_response.py, 2026-06-09).** Trick: render the saw at a
+      fixed cutoff but several reso settings incl. reso=0, then `spectrum(reso_X)/spectrum(reso_0)` cancels the
+      osc + base-LP → **pure resonance shape**, osc-independent. Real-vs-clone resonance-peak (dB over reso=0):
+      reso60: 21 vs 10 · reso120: 20 vs 21 · reso180: 28 vs **86** · reso240: 47 vs **93**.
+      **FINDINGS:** (1) the REAL resonance is **controlled** — caps ~47 dB even at max (the cubic compresses HARD
+      near self-osc); its curve is **flat ~20 dB at low-mid reso, steep only at the very top**. (2) The clone's
+      curve is the **wrong shape** — too weak at bottom, **explodes to 86-93 dB at top** (clone-dB ≈ 2× real-dB →
+      the 2×-pass-same-input over-builds the resonance, and the x·0.5 output keeps the cubic too small to compress).
+      **NEXT (calibration, now measurable):** fix the 2-pass structure + scale the feedback state so the cubic
+      actually compresses near self-osc → match the real's 21/20/28/47 dB curve via this harness.
 - **P2 Oscillator**: find the wavetable read (32-bit phase, top-bits index, interp) → **extract the wave
   LUTs** (saw/tri/sine/pulse, sizes 256/512, mip levels) → reimpl phase+interp fixed-point. (Highest raw-timbre value.)
 - **P3 Envelope**: ADSR fixed-point — attack/decay/release curves + Multi/Reset/Cycle/Curve. (Resolves the parity-audit B1-B4.)
