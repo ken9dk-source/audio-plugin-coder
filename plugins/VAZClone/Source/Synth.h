@@ -272,13 +272,14 @@ struct VAZEnv
     enum { Idle = 0, Attack, Decay, Sustain, Release };
     int    stage = Idle;
     double sr = 44100.0, level = 0.0;
-    double aInc = 1.0, dCoef = 1.0, sLvl = 1.0, rCoef = 1.0;
+    double aCoef = 1.0, dCoef = 1.0, sLvl = 1.0, rCoef = 1.0;
+    static constexpr double atkTarget = 1.2;   // exp-attack overshoot target → reaches 1.0 concavely (real VAZ is RC, not linear)
     bool   mReset = false, mCycle = false, mCurve = false;
 
     void setSampleRate (double s) noexcept { sr = s > 0.0 ? s : 44100.0; }
-    void setADSR (float a, float d, float s, float r) noexcept
+    void setADSR (float a, float d, float s, float r) noexcept   // a = attack time-to-1.0 (s); harness-RE'd: real attack is exponential
     {
-        aInc  = 1.0 / std::max (1.0, (double) a * sr);
+        aCoef = 1.0 - std::exp (-1.79 / std::max (1.0, (double) a * sr));   // ln(1.2/0.2)=1.79 → reaches 1.0 in ~a sec
         dCoef = 1.0 - std::exp (-1.0 / std::max (1.0, (double) d * sr * 0.35));
         sLvl  = (double) s;
         rCoef = 1.0 - std::exp (-1.0 / std::max (1.0, (double) r * sr * 0.35));
@@ -293,7 +294,7 @@ struct VAZEnv
     {
         switch (stage)
         {
-            case Attack:  level += aInc; if (level >= 1.0) { level = 1.0; stage = Decay; } break;
+            case Attack:  level += (atkTarget - level) * aCoef; if (level >= 1.0) { level = 1.0; stage = Decay; } break;   // exponential (concave) attack
             case Decay:   level += (sLvl - level) * dCoef; if (std::abs (level - sLvl) < 0.0008) { level = sLvl; stage = Sustain; } break;
             case Sustain: if (mCycle) { if (mReset) level = 0.0; stage = Attack; } break;   // Cycle → loop (LFO)
             case Release: level += (0.0 - level) * rCoef; if (level < 0.0004) { level = 0.0; stage = Idle; } break;
