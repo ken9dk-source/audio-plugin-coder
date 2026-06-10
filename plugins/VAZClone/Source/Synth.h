@@ -304,53 +304,56 @@ struct VAZEnv
 };
 
 // ============================================================================
-// VAZ "R" engine — REVERSE-ENGINEERED resonator biquad (Core.dll: per-sample process
-// @0x4DD897, coef builder @0x4D4844). Replaces the earlier 4-pole-ladder approximation.
-// It is a 2nd-order resonator  y = b0·x + a1·y[-1] + a2·y[-2]  with the VAZ cubic x−x³/2
-// on the fed-back state, run 2× per sample (the 4-pole config). Coefs (from the builder):
-//   f2 = fc/sr (≤0.45);  resoVal = (64−resoIdx)·4+1;  E = exp(−π·resoVal/sr);  C = cos(2π·f2);
-//   B1 = 4·E·C/(E+1);  b0 = sin(π·f2)·√(((E+1)²−B1²)·(1−E)/(E+1))·22.7·(resoIdx+64)/64;
-//   a1 = B1;  a2 = −E.   (Q28 in VAZ; float here. Python-validated: stable, peaks at cutoff,
-//   resonance sharpens 8.5×→104×. Exact Q-scaling/level pending bit-null harness calibration.)
+// VAZ-style filter: 4-pole ladder ("integrator cascade" = VAZ default Type R) with
+// CUBIC-saturated resonance (the "distorted resonance" found in the Ghidra decompile).
+// Cutoff is applied per-sample with NO smoothing → the filter envelope snaps instantly
+// (juce::dsp::LadderFilter forces a 50 ms cutoff smoother, which caused the attack "fade").
 // ============================================================================
 struct VAZLadder
 {
     double sr = 44100.0;
-    double s1 = 0.0, s2 = 0.0;             // biquad states (previous outputs)
+    double s[4] = { 0.0, 0.0, 0.0, 0.0 };
     double cutoffHz = 1000.0, reso = 0.0, drive = 1.0;
-    int    mode = 0;                       // 0 = 4-pole (2 passes), 1 = 2-pole (1 pass)
+    int    mode = 0;                       // 0 = LP24, 1 = LP12, 2 = HP, 3 = BP
 
     void prepare (double sampleRate) noexcept { sr = sampleRate; reset(); }
-    void reset() noexcept { s1 = s2 = 0.0; }
+    void reset() noexcept { s[0] = s[1] = s[2] = s[3] = 0.0; }
     void setCutoffHz  (double hz) noexcept { cutoffHz = hz; }
     void setResonance (double r)  noexcept { reso = r; }
     void setDrive     (double d)  noexcept { drive = d; }
     void setMode      (int m)     noexcept { mode = m; }
 
+    // Cubic soft-clip normalised to ±1 (VAZ distorted-resonance shape).
+    static double cubic (double x) noexcept
+    {
+        if (x >  1.0) return  1.0;
+        if (x < -1.0) return -1.0;
+        return 1.5 * (x - x * x * x * (1.0 / 3.0));
+    }
+
     double process (double in) noexcept
     {
-        const double fc = juce::jlimit (20.0, sr * 0.45, cutoffHz);
-        const double f2 = fc / sr;                                   // normalised, ≤ 0.45
-        const int    ri = (int) std::lround (juce::jlimit (0.0, 1.0, reso) * 63.0);   // 64 reso steps
-        const double resoVal = (double) ((64 - ri) * 4 + 1);
-        const double E  = std::exp (-M_PI * resoVal / sr);
-        const double C  = std::cos (2.0 * M_PI * f2);
-        const double B1 = 4.0 * E * C / (E + 1.0);
-        const double disc = ((E + 1.0) * (E + 1.0) - B1 * B1) * (1.0 - E) / (E + 1.0);
-        const double b0 = std::sin (M_PI * f2) * std::sqrt (disc > 0.0 ? disc : 0.0) * 22.7 * (double) (ri + 64) / 64.0;
-        const double dmp = 0.985;          // resonance-damping calibration (bit-null #1: clone Q ~17-20 dB too high);
-        const double a1 = B1 * dmp, a2 = -E * dmp * dmp;   // scale pole radius inward by dmp, keep the peak angle/freq
+        // VAZ-exact one-pole coefficient (Ghidra @0x4D4720): pole a = (2−cosω) − √((2−cosω)²−1),
+        // g = 1−a. Cutoff clamped to 0.49·fs (VAZ's max). More accurate than 1−exp(−ω) up high.
+        const double fc = juce::jlimit (20.0, sr * 0.49, cutoffHz);
+        const double cw = std::cos (2.0 * M_PI * fc / sr);
+        const double xx = 2.0 - cw;
+        const double g  = 1.0 - (xx - std::sqrt (xx * xx - 1.0));
+        const double fb = reso * 4.2;                               // → self-oscillation near top
 
-        const double x  = in * drive;
-        const int passes = (mode == 1) ? 1 : 2;                      // 2-pole = 1 pass, 4-pole = 2
-        double y = 0.0;
-        for (int p = 0; p < passes; ++p)
+        const double x = in * drive - fb * cubic (s[3]);           // saturated resonance feedback
+        s[0] += g * (x    - s[0]);                                  // 4 cascaded one-pole LPs
+        s[1] += g * (s[0] - s[1]);
+        s[2] += g * (s[1] - s[2]);
+        s[3] += g * (s[2] - s[3]);
+
+        switch (mode)
         {
-            y  = b0 * x + a1 * s1 + a2 * s2;
-            s2 = s1;
-            s1 = y - y * y * y * 0.5;                                 // VAZ cubic x − x³/2 on the fed-back state
+            case 1:  return s[1];                                   // 2-pole LP
+            case 2:  return x - s[3];                               // high-pass (approx)
+            case 3:  return s[1] - s[3];                            // band-pass (approx)
+            default: return s[3];                                   // 4-pole LP (default Type R)
         }
-        return y * 0.5;     // rough level calibration (VAZ DC gain ≈2.1); exact value via the bit-null harness
     }
 };
 
