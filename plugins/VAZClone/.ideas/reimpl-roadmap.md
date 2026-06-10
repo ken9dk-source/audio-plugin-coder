@@ -45,9 +45,19 @@ toward functional 1:1 with `Vaz2010Core.dll`. This is a **multi-session RE progr
     - So the real "R" filter = **state-variable / integrator-cascade with `2·reso·(fb−in)` feedback + cubic
       `x−x³/2` on the state**, 4 cutoff-indexed coef tables (0x5535e4 reso, 0x6145e4/6545e4/6945e4 biquad),
       ≈2× oversampled, fixed-point. Clone's ladder topology + `reso·4.2` + `1.5(x−x³/3)` all differ.
-    - TODO (continuing P1): map the 22-mode jump table → each engine; decode the 4 coef-table builders' exact
-      formulas; nail the Q-format (Q30 pole, Q9 reso, the <<2/<<3/<<23 shifts) + pass count; then reimplement
-      the filter to this exact structure + bit-null. (Bulk of P1 — one big fixed-point function.)
+    - **COEF-TABLE BUILDER decoded further @0x4D4808-0x4D4988**: the coef tables are **2D = cutoff × 64
+      resonance steps** (inner loop `ebp = 0..63` = reso index). Per (cutoff, reso):
+        - bandwidth `resoVal = (64 − resoIdx)·4 + 1`  (5..257)
+        - damping `E = exp(−π·resoVal/sr)`  ;  angle `C = cos(2π·freq2)`  (freq2 = clamped cutoff norm, ≤0.45)
+        - `B1 = 4·E·C/(E+1)`
+        - one resonator coef = **`sin(π·freq2)·√(((E+1)² − B1²)·(1−E)/(E+1))·22.7·(resoIdx+64)/64`**, stored **Q28** (×2²⁸).
+        - (so the resonance is a **64-step 2D biquad table**, not the clone's continuous `reso·4.2`.)
+      Magic constants found: **22.7** (gain), Q30 (pole), Q28 (resonator coef), Q9 (reso feedback <<23).
+    - TODO (continuing P1): decode the remaining resonator coefs (a1/a2/b0) in this builder loop; map the
+      22-mode jump table → each engine; then reimplement the R filter (default mode 19) to this exact 2D-table
+      + biquad + cubic structure and **bit-null vs the A/B harness** (first closed reimpl loop). The other 5
+      engines (A/B/C/D/K) + Comb follow. NOTE: the filter is intricate enough (4 tables, 2D reso, magic consts,
+      Q-formats, 22 modes, oversampling) that exact reimpl is several more decode loops then a careful rewrite.
 - **P2 Oscillator**: find the wavetable read (32-bit phase, top-bits index, interp) → **extract the wave
   LUTs** (saw/tri/sine/pulse, sizes 256/512, mip levels) → reimpl phase+interp fixed-point. (Highest raw-timbre value.)
 - **P3 Envelope**: ADSR fixed-point — attack/decay/release curves + Multi/Reset/Cycle/Curve. (Resolves the parity-audit B1-B4.)
