@@ -50,8 +50,14 @@ toward functional 1:1 with `Vaz2010Core.dll`. This is a **multi-session RE progr
         - bandwidth `resoVal = (64 − resoIdx)·4 + 1`  (5..257)
         - damping `E = exp(−π·resoVal/sr)`  ;  angle `C = cos(2π·freq2)`  (freq2 = clamped cutoff norm, ≤0.45)
         - `B1 = 4·E·C/(E+1)`
-        - one resonator coef = **`sin(π·freq2)·√(((E+1)² − B1²)·(1−E)/(E+1))·22.7·(resoIdx+64)/64`**, stored **Q28** (×2²⁸).
+        - the resonator biquad has **3 coefs** (all Q28, ×2²⁸), stored as 3 separate **2D tables [reso 0..63][cutoff 0..1023]**
+          (inner loop advances each pointer `+0x1000` = one 1024-int32 cutoff row per reso step):
+            - **b0** = `sin(π·freq2)·√(((E+1)² − B1²)·(1−E)/(E+1))·22.7·(resoIdx+64)/64`   (@0x4D4979, gain)
+            - **a1** = `B1 = 4·E·C/(E+1)`                                                  (@0x4D498A)
+            - **a2** = `−E = −exp(−π·resoVal/sr)`                                           (@0x4D49A5, negated)
         - (so the resonance is a **64-step 2D biquad table**, not the clone's continuous `reso·4.2`.)
+        - The builder has **multiple sections** (next @0x4D4A40 uses a 0.25 freq clamp instead of 0.45 → a
+          different pole-config/engine) → it precomputes ALL engines' coef tables. Big precompute.
       Magic constants found: **22.7** (gain), Q30 (pole), Q28 (resonator coef), Q9 (reso feedback <<23).
     - TODO (continuing P1): decode the remaining resonator coefs (a1/a2/b0) in this builder loop; map the
       22-mode jump table → each engine; then reimplement the R filter (default mode 19) to this exact 2D-table
