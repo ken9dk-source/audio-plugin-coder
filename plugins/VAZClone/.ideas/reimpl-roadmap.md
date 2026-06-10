@@ -111,6 +111,26 @@ toward functional 1:1 with `Vaz2010Core.dll`. This is a **multi-session RE progr
       filter redo is now de-risked: use the EXACT dumped 2D coef tables (b0/a1/a2 at 0x6945e4/0x6545e4/0x6145e4,
       reso·1024+cutIdx, Q30) directly, OR fix b0 (÷~8) + use Q30. Index by cutIdx (fc=exp(10.24·cutIdx/1024)) and
       resoIdx. The cubic + 2-pass structure then need re-checking against the harness with the correct b0.
+    - **★ RESOLUTION — the filter has MULTIPLE engines; the MAIN one was decoded 2026-06-10 (disasm @0x4DD646):**
+      the per-sample filter dispatches on mode `eax=[ebx+0x258]`: `cmp eax,0x2d(45) jg` / `cmp eax,0x12(18) jg`
+      → **modes 0–18 = the MAIN engine** (the common LP/BP/HP), modes 19–45 = the cubic "R" engine decoded above
+      (tables 0x61/0x65/0x69), modes >45 = a third. **All my earlier P1 work (cubic, 86/93 dB explosion) was the
+      R engine — a DIFFERENT, less-common mode.** The MAIN engine is cleaner + correct:
+        - **TWO cascaded identical biquad sections** (@0x4DD689 and @0x4DD6DE), output = **average** of the two
+          (`ebp += ebx; sar ebp,1`). 4-pole total. **No cubic** in this path.
+        - Coef tables (NOT the 0x6x ones): **b0=`0x5545e4`, a1=`0x5945e4`, a2=`0x5d45e4`**, plus reso/mix table
+          **`0x5535e4`** (cutoff-indexed). Index = **`resoIdx·1024 + cutoffIdx`**, `cutoffIdx=cutoff>>19` (0..1023),
+          `resoIdx=reso>>2` (0..63). cutoffIdx↔Hz via `fc=exp(10.24·cutoffIdx/1024)`.
+        - Fixed-point per stage: 64-bit acc `= s2·a2 + s1·a1 + (in<<2)·b0`; `s1' = (acc>>32)<<4` (net **a1/a2 = Q28**,
+          b0 effective Q30 w/ the in<<2). State [esi+0x184]=s1, [esi+0x188]=s2, [esi+0x194]=acc-lo.
+        - Output mode mix = `[ebx+0x258]&3` (0/1/2/3 = LP/…); the cutoff has a **slew limiter** (max step 0x200000)
+          and there are per-mode input one-pole smoothers before the cascade.
+        - **VALIDATED (live coef dump + sim):** 2-cascade resonance peak rises **22.1 dB (reso0) → 49.7 dB (reso63)**,
+          poles all stable (R 0.991→0.9998), b0 falls at high reso (constant-peak normalization) — **matches the real's
+          ~47 dB character.** The earlier 86/93 dB was the wrong engine + wrong tables. → **This is the bit-exact core.**
+      **BUILD PLAN (de-risked, next focused arc):** dump full 2D tables 0x5545e4/0x5945e4/0x5d45e4 (+0x5535e4) →
+      embed in clone → implement 2-cascade biquad (exact int scaling) + cutoff/reso index maps + LP output mix →
+      harness-validate vs real (filter_response.py) → swap VAZLadder only once validated (ladder stays until then).
 - **P2 Oscillator**: find the wavetable read (32-bit phase, top-bits index, interp) → **extract the wave
   LUTs** (saw/tri/sine/pulse, sizes 256/512, mip levels) → reimpl phase+interp fixed-point. (Highest raw-timbre value.)
 - **P3 Envelope**: ADSR fixed-point — attack/decay/release curves + Multi/Reset/Cycle/Curve. (Resolves the parity-audit B1-B4.)
