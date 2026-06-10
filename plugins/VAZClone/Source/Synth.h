@@ -153,6 +153,10 @@ struct OscBlock
             case 1: {  // Pulse = saw(t) − saw(t−pw); pw set by waveshape (band-limited)
                 double ph  = adv (phase[0], inc);
                 double pw  = 0.5 - 0.49 * waveshape;            // 0.5 square → narrow pulse
+                // HARNESS FINDING (2026-06-09): the REAL pulse is SQUARE at waveshape 0.5 (shape byte 128), i.e.
+                // pw ≈ waveshape — NOT square at ws=0 like this map. BUT naively setting pw=waveshape (→0.5) makes
+                // saw(t)−saw(t−0.5) render flat/wrong here (a saw-pair pulse bug near pw=0.5). Reverted; needs a
+                // different pulse impl (e.g. centred PW or a polyBLEP pulse) before re-fixing the PW position.
                 double ph2 = ph - pw; if (ph2 < 0.0) ph2 += 1.0;
                 float a = WaveTables::read (wt.saw[mip], ph);
                 float b = WaveTables::read (wt.saw[mip], ph2);
