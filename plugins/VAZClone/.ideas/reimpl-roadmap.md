@@ -71,7 +71,17 @@ toward functional 1:1 with `Vaz2010Core.dll`. This is a **multi-session RE progr
       so the cubic operates in-range (the `<<2`/`>>32` shifts) — best nailed by **reimplementing + iterating
       against the bit-null harness** (the harness shows scaling as level/timbre error). That is the next loop:
       replace the clone's R ladder (VAZLadder) with this resonator-biquad+cubic, calibrate scaling, bit-null.
-    - Then the other engines (A/B/C/D/K via the 22-mode jump table) + the 0x5535e4 reso/integrator table's role.
+    - **BIT-NULL #1 (real VAZ Capture vs clone, 2026-06-09):** the reimplemented R filter's **resonant PEAK
+      FREQUENCY matches the real** (129 Hz↔129 Hz lo-reso; 393↔428 Hz hi-reso ≈9%) → the decode + structure
+      + cutoff map are **confirmed correct**. BUT the **resonance Q is ~17-20 dB too HIGH** (clone too resonant)
+      at both lo + hi reso. The cubic-drive only reduces Q ~2 dB (it limits amplitude, not sharpness) → NOT the
+      fix. **Diagnosis: the clone is missing the INPUT ONE-POLE LP stages** (real @0x4DD7ED: 2 one-poles with
+      the cutoff coef BEFORE the resonator biquad) — they broaden the response + lower the effective Q. (Also
+      possible: a different .v2p reso-byte→resoIdx map.) **NEXT loop:** decode the exact mode-19 per-sample
+      path (submode [ebx+0x258]&3=0), add the input one-pole stage(s), re-bit-null to confirm the Q drops to
+      match. Then the other engines (A/B/C/D/K via the 22-mode jump table) + the 0x5535e4 integrator table.
+    - (The new biquad is kept deployed — its peak now matches the real, more faithful than the old ladder; the
+      Q is bounded/stable, just hotter than the real until the input stages are added. Revertible via git.)
 - **P2 Oscillator**: find the wavetable read (32-bit phase, top-bits index, interp) → **extract the wave
   LUTs** (saw/tri/sine/pulse, sizes 256/512, mip levels) → reimpl phase+interp fixed-point. (Highest raw-timbre value.)
 - **P3 Envelope**: ADSR fixed-point — attack/decay/release curves + Multi/Reset/Cycle/Curve. (Resolves the parity-audit B1-B4.)
