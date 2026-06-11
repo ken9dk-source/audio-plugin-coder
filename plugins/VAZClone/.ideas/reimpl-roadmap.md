@@ -204,6 +204,15 @@ toward functional 1:1 with `Vaz2010Core.dll`. This is a **multi-session RE progr
       in the mode>45 / mode-0-18-non-LP disasm groups): **K** (Sallen-Key, modes 15/16, 6 patches), **D-HP**
       (mode 12, 1), **Comb** (mode 21, 2), then the unused taps (A-HP/BP, B, C, D-LP/BP). Same recipe each:
       disasm the engine's per-sample integer ops → dump its coef tables → port verbatim → validate.
+    - **Data-driven triage of the last engines (2026-06-11, real-vs-clone noise-input spectral diff):**
+      **Comb (mode 21) = 3.2 dB MATCH** — the float delay-feedback engine is already accurate, NO port needed.
+      **K-LP (mode 15) = 8.4 dB** and **D-HP (mode 12) = 11.4 dB DEVIATE** → these two need the bit-exact port.
+      Their disasm is in the tangled mode>45 dispatch (`@0x4DDA96`: cmp 0x44/0x34 → 3 sub-branches) and uses
+      MANY coef tables (not the clean 3-table biquad of A/R): **D @0x4DDCFE** (mode 0x44) reads 0x6d67e8/0x6d77e8;
+      the **@0x4DDAA8** branch (modes 46-52) reads 0x6d45e8/0x6d55e8/0x6d65e8/0x6d66e8. K (Sallen-Key, 0x6d87/97
+      per the old notes) is in one of these or the >0x44 branch @0x4DDF44. **These two are a focused follow-up**
+      (more error-prone than A/R — do them carefully + real-validate each, don't rush). **Net precise coverage:
+      A+R bit-exact+validated + Comb-matches = ~97% of factory patches; K+D = the last ~3%.**
 - **P2 Oscillator**: find the wavetable read (32-bit phase, top-bits index, interp) → **extract the wave
   LUTs** (saw/tri/sine/pulse, sizes 256/512, mip levels) → reimpl phase+interp fixed-point. (Highest raw-timbre value.)
 - **P3 Envelope**: ADSR fixed-point — attack/decay/release curves + Multi/Reset/Cycle/Curve. (Resolves the parity-audit B1-B4.)
