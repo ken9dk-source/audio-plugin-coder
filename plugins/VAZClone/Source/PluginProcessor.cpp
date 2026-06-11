@@ -362,7 +362,14 @@ bool VAZCloneAudioProcessor::loadV2P (const juce::MemoryBlock& mb)
     SC (ParameterIDs::pan_mod_src,  B(sec3+97)); S (ParameterIDs::pan_mod_amt,  B(sec3+101) / 255.0f);
     SC (ParameterIDs::o1_fm_src,    B(PS+140));  S (ParameterIDs::o1_fm_amt,    B(PS+144) / 255.0f);
     SC (ParameterIDs::o1_ws_src,    B(PS+156));  S (ParameterIDs::o1_ws_amt,    B(PS+160) / 255.0f);
-    S  (ParameterIDs::e1_reset,  B(PS+71) > 0 ? 1.0f : 0.0f);
+    // Env-mode bitfields (PS+71 = Env1, PS+91 = Env2). VAZ doc order Multi/Reset/Cycle (+Curve); the env2
+    // value distribution confirms Reset=bit1 (the most common single mode). Was a bug: only e1_reset, read as
+    // ">0" (= ANY bit) → 56 patches that use cycle/curve/multi wrongly loaded as Reset.
+    const int em1 = B(PS+71), em2 = B(PS+91);
+    S (ParameterIDs::e1_multi, (em1 & 1) ? 1.0f : 0.0f);  S (ParameterIDs::e1_reset, (em1 & 2) ? 1.0f : 0.0f);
+    S (ParameterIDs::e1_cycle, (em1 & 4) ? 1.0f : 0.0f);  S (ParameterIDs::e1_curve, (em1 & 8) ? 1.0f : 0.0f);
+    S (ParameterIDs::e2_multi, (em2 & 1) ? 1.0f : 0.0f);  S (ParameterIDs::e2_reset, (em2 & 2) ? 1.0f : 0.0f);
+    S (ParameterIDs::e2_cycle, (em2 & 4) ? 1.0f : 0.0f);  S (ParameterIDs::e2_curve, (em2 & 8) ? 1.0f : 0.0f);
     S  (ParameterIDs::lfo_sync,  B(PS+5)  > 0 ? 1.0f : 0.0f);
     S  (ParameterIDs::lfo2_rate, B(PS+28) / 255.0f);
 
