@@ -2,6 +2,7 @@
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <cmath>
 #include "VAZTypeA.h"   // bit-exact VAZ Type-A Lowpass (integer recurrence + dumped coef tables)
+#include "VAZTypeR.h"   // bit-exact VAZ Type-R (cubic 4-pole integrator cascade, self-oscillating)
 
 // ============================================================================
 // VAZClone synthesis engine — Phase A: band-limited oscillators + amp envelope.
@@ -383,20 +384,21 @@ struct VAZMultiFilter
     int    modRoute = 0;        // slot-3 modulation target: 0=Resonance 1=Highpass 2=Separation
     double cutoffHz = 1000.0, reso = 0.0, aux = 0.5, hpHz = 20.0, drive = 1.0;
 
-    VAZLadder ladderR;                                   // engine R
+    VAZLadder ladderR;                                   // engine R (legacy float ladder — fallback)
     VAZTypeA  typeA;                                      // engine A (bit-exact LP)
+    VAZTypeR  typeR;                                      // engine R (bit-exact cubic cascade)
     double a_ic1=0, a_ic2=0, c1_1=0, c1_2=0, c2_1=0, c2_2=0;
     double d_lp=0, d_bp=0, d2_lp=0, d2_bp=0;
     double k_s[4]={0,0,0,0}, k_hpX=0, k_hpY=0;
     double comb[4096]={0}; int combIdx=0; double combLP=0;
     double hpX=0, hpY=0;
 
-    void prepare (double s) noexcept { sr = s; ladderR.prepare (s); typeA.prepare (s); reset(); }
+    void prepare (double s) noexcept { sr = s; ladderR.prepare (s); typeA.prepare (s); typeR.prepare (s); reset(); }
     void reset() noexcept
     {
         a_ic1=a_ic2=c1_1=c1_2=c2_1=c2_2=0; d_lp=d_bp=d2_lp=d2_bp=0;
         k_s[0]=k_s[1]=k_s[2]=k_s[3]=0; k_hpX=k_hpY=hpX=hpY=0; combIdx=0; combLP=0;
-        for (int i=0;i<4096;++i) comb[i]=0.0; ladderR.reset(); typeA.reset();
+        for (int i=0;i<4096;++i) comb[i]=0.0; ladderR.reset(); typeA.reset(); typeR.reset();
     }
 
     static double cube (double x) noexcept
@@ -506,9 +508,10 @@ struct VAZMultiFilter
                 comb[combIdx]=x+juce::jlimit (0.0,0.97,reso*0.97)*cube (combLP);
                 combIdx=(combIdx+1)&4095; out=y;
             } break;
-            default: out=ladderR.process (in); break;                    // R: ladder applies its own drive
+            default: out=typeR.process (poles, x, fc, reso, hpHz); break;  // R: BIT-EXACT cubic cascade (+ own post-HP)
         }
-        if (usesHP) { const double rc=1.0/(2.0*M_PI*juce::jlimit (20.0,sr*0.45,hpHz)), dt=1.0/sr, a=rc/(rc+dt);
+        // engine R does its own exact integer highpass inside typeR; others use the float post-HP
+        if (usesHP && engine!=5) { const double rc=1.0/(2.0*M_PI*juce::jlimit (20.0,sr*0.45,hpHz)), dt=1.0/sr, a=rc/(rc+dt);
                       const double y=a*(hpY+out-hpX); hpX=out; hpY=y; out=y; }
         return out;
     }
