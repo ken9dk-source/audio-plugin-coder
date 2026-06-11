@@ -32,7 +32,11 @@ struct VAZTypeK
         ci = std::clamp (ci, 0, 1023);
         const int32_t coefA = VAZTypeKT::kCoefA[ci], coefB = VAZTypeKT::kCoefB[ci];
         const int r255 = (int) std::lround (std::clamp (reso, 0.0, 1.0) * 255.0);
-        const int32_t resoGain = shl (mulhi (coefB, shl (r255, 22)), 2);
+        // The decoded resoGain self-oscillates from ~reso 170, but real VAZ's K stays sub-self-oscillation
+        // through reso 255 (note-dominant) — the resonance loop gain reads ~1.5x too high vs the measured real.
+        // RESO_TRIM scales it so the self-osc threshold moves above 255 (matches real's strong-but-controlled K).
+        static constexpr int64_t RESO_NUM = 1, RESO_DEN = 2;   // x0.5 (calibration, like A's SCALE)
+        const int32_t resoGain = (int32_t) ((((int64_t) shl (mulhi (coefB, shl (r255, 22)), 2)) * RESO_NUM) / RESO_DEN);
 
         const int32_t inp = (int32_t) std::lround (std::clamp (in, -2.0, 2.0) * SCALE);
         int32_t tap = 0, fin = 0;
