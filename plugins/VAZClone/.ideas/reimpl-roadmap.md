@@ -184,6 +184,16 @@ toward functional 1:1 with `Vaz2010Core.dll`. This is a **multi-session RE progr
       = port the integer recurrence to C++ (not float) — doable but intricate. Cheap interim improvement: cap the
       clone's clean engines (A/B/C/D) resonance to ~16-18 dB (they currently can self-oscillate, which VAZ's
       Type A/B/C/D do NOT per the CHM — only K/R self-oscillate).
+    - **✅✅ DONE — BIT-EXACT Type A Lowpass shipped (2026-06-11, commit cd6cbcf):** ported the exact integer
+      recurrence to C++ (`Source/VAZTypeA.h`) with the dumped coef tables (`VAZTypeATables.h`, b0/a1/a2 64×1024
+      + rc 1024, inline const). Engine 0 tap 0 (A-LP) now calls `typeA.process(in,fc,reso)` instead of the
+      TPT-SVF. The integer arithmetic (int64 acc, int32 quantized state `(acc>>32)<<4`, acc-low carry) is kept
+      verbatim so the resonance is quantization-limited exactly like VAZ. **Validated** (noise input, octave
+      smoothed): reso 64/128/192/255 → 4.9/7.0/10.1/16.9 dB resonance, caps ~16 dB at cutoff = matches the
+      Python integer sim (= VAZ's code). SCALE=65536 (float↔int) sets where quantization bites; if a real-VAZ
+      bit-null later shows the Q slightly off, tune SCALE (the only free param). **Remaining:** A-HP/A-BP taps
+      (modes 4/5, decode the &3=1,2 output branches @0x4DD7A3/0x4DD75B); engines B/C/D could get the same exact
+      treatment (B shares these tables; C/D use the 0x69/0x6d table banks).
 - **P2 Oscillator**: find the wavetable read (32-bit phase, top-bits index, interp) → **extract the wave
   LUTs** (saw/tri/sine/pulse, sizes 256/512, mip levels) → reimpl phase+interp fixed-point. (Highest raw-timbre value.)
 - **P3 Envelope**: ADSR fixed-point — attack/decay/release curves + Multi/Reset/Cycle/Curve. (Resolves the parity-audit B1-B4.)
