@@ -131,6 +131,23 @@ toward functional 1:1 with `Vaz2010Core.dll`. This is a **multi-session RE progr
       **BUILD PLAN (de-risked, next focused arc):** dump full 2D tables 0x5545e4/0x5945e4/0x5d45e4 (+0x5535e4) →
       embed in clone → implement 2-cascade biquad (exact int scaling) + cutoff/reso index maps + LP output mix →
       harness-validate vs real (filter_response.py) → swap VAZLadder only once validated (ladder stays until then).
+    - **★★ COMPLETE clean-engine (modes 0–18) DECODED + EXACT-INTEGER-SIMULATED (2026-06-11):**
+      Re-reading the disasm: the two "stages" are NOT cascaded biquads — they share the same input + coefs and the
+      64-bit acc-low carries between them = a **2× oversampled single biquad** (2 sub-steps, ZOH input, output =
+      avg of the two). THEN the output mix (`mode&3`, @0x4DD7ED for ==0/LP): **two one-pole LPs** on the input
+      (state [esi+0x17c],[esi+0x180]; coef `rc`=0x5535e4[cutoffIdx], where rc·4/2³² = the pole, e.g. 0.944 @cutIdx600
+      = a 403 Hz LP ✓), then a **resonance mix** `out = LP2(in) + (reso<<23)/2³²·(biquad_out − LP2(in))`
+      (reso 0–255, so the mix gain ≤ ~0.49). State vars: s1/s2 (biquad), p1/p2 (one-poles), acc-lo. Submodes
+      `&3`: 0=LP(@0x4DD7ED), 1=@0x4DD7A3 (1.5× in-gain), 2/3=@0x4DD75B.
+      **EXACT integer sim of the complete LP** (live coefs, 32-bit-masked state, sine-sweep): resonance peak
+      **−3.4 / −2.1 / +2.0 / +10.3 / +15.8 dB** at reso 60/120/180/240/252 — i.e. **caps ~16 dB**, gentle.
+      **→ The earlier "real 21/20/28/47 dB" was CONFOUNDED** (the osc-cancel didn't remove the note fundamental
+      sitting at the cutoff) — the clean engine is mild. **The deployed clone ladder (~47 dB) is far TOO resonant
+      for this engine.** BUT: the cubic **R engine (modes 19–45)** self-oscillates (much hotter) and is likely what
+      acid/resonant patches actually select → **which engine the default `.v2p` uses is the open question** (needs
+      the filter-mode byte map). **The only reliable validation is the A/B bit-null** (render real Capture vs clone,
+      same patch/MIDI, diff) — the spectrum-ratio harness is unreliable here. Until the default-engine + a bit-null
+      confirm a target, the ladder stays deployed (a working approx).
 - **P2 Oscillator**: find the wavetable read (32-bit phase, top-bits index, interp) → **extract the wave
   LUTs** (saw/tri/sine/pulse, sizes 256/512, mip levels) → reimpl phase+interp fixed-point. (Highest raw-timbre value.)
 - **P3 Envelope**: ADSR fixed-point — attack/decay/release curves + Multi/Reset/Cycle/Curve. (Resolves the parity-audit B1-B4.)
