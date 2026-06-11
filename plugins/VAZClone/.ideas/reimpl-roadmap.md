@@ -172,6 +172,18 @@ toward functional 1:1 with `Vaz2010Core.dll`. This is a **multi-session RE progr
       normalization (biquad peak rises ~11->25 dB over reso). rc=0x5535e4[cut] one-pole coef 0.25->0.04, 1D.
       -> engine-0 build: poles from the formula; b0 needs a small 2D table (~16 KB) or 2-term fit; then the
       2x-oversampled recurrence + 2 one-poles + reso-mix; validate vs the Python integer sim (-3->16 dB).
+    - **★ KEY DISCOVERY — the clean-filter resonance is FIXED-POINT-QUANTIZATION-LIMITED (2026-06-11):** a
+      float port of the exact recurrence (same a1f/a2f/B0 coefs) **over-resonates by 13-23 dB** vs the integer
+      recurrence (reso 60-252: integer -4/-2/+2/+8/+6 dB, float +9/+17/+24/+31/+29 dB). Cause: VAZ stores the
+      biquad state as `s1 = (acc>>32)<<4` = **quantized to multiples of 16**, which damps the resonance
+      amplitude-dependently to the observed ~16 dB cap. There is NO explicit clamp — the fixed-point precision
+      IS the resonance limiter. **⇒ This is why the filter has been hard all along.** A float/double clone
+      engine (the current TPT-SVF, and engines C/D/K) has infinite precision ⇒ **over-resonates vs VAZ at high
+      reso.** A bit-exact clone needs VAZ's *exact integer arithmetic* (int64 acc, int32 quantized state, the
+      acc-low carry) AND a matched input signal scale (the Q is mildly amplitude-dependent). So engine-0 bit-exact
+      = port the integer recurrence to C++ (not float) — doable but intricate. Cheap interim improvement: cap the
+      clone's clean engines (A/B/C/D) resonance to ~16-18 dB (they currently can self-oscillate, which VAZ's
+      Type A/B/C/D do NOT per the CHM — only K/R self-oscillate).
 - **P2 Oscillator**: find the wavetable read (32-bit phase, top-bits index, interp) → **extract the wave
   LUTs** (saw/tri/sine/pulse, sizes 256/512, mip levels) → reimpl phase+interp fixed-point. (Highest raw-timbre value.)
 - **P3 Envelope**: ADSR fixed-point — attack/decay/release curves + Multi/Reset/Cycle/Curve. (Resolves the parity-audit B1-B4.)

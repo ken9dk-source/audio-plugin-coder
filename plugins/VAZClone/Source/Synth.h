@@ -461,7 +461,10 @@ struct VAZMultiFilter
             case 0: case 1: {                                            // A / B clean SVF
                 const double g=std::tan (M_PI*fc/sr);
                 double k=2.0-1.98*reso; if (engine==1) k*=(0.4+1.2*aux);
-                k=juce::jlimit (0.02,2.0,k);
+                // Type A/B do NOT self-oscillate (CHM: only K/R do). The real clean biquad's resonance is
+                // fixed-point-quantization-limited to ~16 dB (a float port over-resonates +13–23 dB); k_min
+                // here caps the SVF peak ≈1/k at ~18 dB to match, instead of the old 0.02 (~34 dB self-osc).
+                k=juce::jlimit (0.12,2.0,k);
                 double lp,bp,hp; svf (x,g,k,a_ic1,a_ic2,lp,bp,hp);
                 out=(tap==1?hp:tap==2?bp:lp);
             } break;
