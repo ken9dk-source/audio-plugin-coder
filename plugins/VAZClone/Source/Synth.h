@@ -4,6 +4,7 @@
 #include "VAZTypeA.h"   // bit-exact VAZ Type-A Lowpass (integer recurrence + dumped coef tables)
 #include "VAZTypeR.h"   // bit-exact VAZ Type-R (cubic 4-pole integrator cascade, self-oscillating)
 #include "VAZTypeK.h"   // bit-exact VAZ Type-K (Sallen-Key, distorted self-oscillating resonance)
+#include "VAZTypeD.h"   // bit-exact VAZ Type-D (state-variable / Chamberlin SVF)
 
 // ============================================================================
 // VAZClone synthesis engine — Phase A: band-limited oscillators + amp envelope.
@@ -389,18 +390,19 @@ struct VAZMultiFilter
     VAZTypeA  typeA;                                      // engine A (bit-exact LP)
     VAZTypeR  typeR;                                      // engine R (bit-exact cubic cascade)
     VAZTypeK  typeK;                                      // engine K (bit-exact Sallen-Key)
+    VAZTypeD  typeD;                                      // engine D (bit-exact state-variable)
     double a_ic1=0, a_ic2=0, c1_1=0, c1_2=0, c2_1=0, c2_2=0;
     double d_lp=0, d_bp=0, d2_lp=0, d2_bp=0;
     double k_s[4]={0,0,0,0}, k_hpX=0, k_hpY=0;
     double comb[4096]={0}; int combIdx=0; double combLP=0;
     double hpX=0, hpY=0;
 
-    void prepare (double s) noexcept { sr = s; ladderR.prepare (s); typeA.prepare (s); typeR.prepare (s); typeK.prepare (s); reset(); }
+    void prepare (double s) noexcept { sr = s; ladderR.prepare (s); typeA.prepare (s); typeR.prepare (s); typeK.prepare (s); typeD.prepare (s); reset(); }
     void reset() noexcept
     {
         a_ic1=a_ic2=c1_1=c1_2=c2_1=c2_2=0; d_lp=d_bp=d2_lp=d2_bp=0;
         k_s[0]=k_s[1]=k_s[2]=k_s[3]=0; k_hpX=k_hpY=hpX=hpY=0; combIdx=0; combLP=0;
-        for (int i=0;i<4096;++i) comb[i]=0.0; ladderR.reset(); typeA.reset(); typeR.reset(); typeK.reset();
+        for (int i=0;i<4096;++i) comb[i]=0.0; ladderR.reset(); typeA.reset(); typeR.reset(); typeK.reset(); typeD.reset();
     }
 
     static double cube (double x) noexcept
@@ -484,14 +486,18 @@ struct VAZMultiFilter
                     double lp2,bp2,hp2; svf (soft (lp),g2,k,c2_1,c2_2,lp2,bp2,hp2); out=lp2;
                 } else out=soft (lp);
             } break;
-            case 3: {                                                    // D Chamberlin SVF + soft-clip (tamed → no constant self-osc)
-                const double fcd=juce::jlimit (20.0,sr/6.0,fc);
-                const double f=2.0*std::sin (M_PI*fcd/sr), q=juce::jlimit (0.08,1.0,1.0-0.9*reso);
-                d_lp+=f*d_bp; const double hp=x-d_lp-q*d_bp; d_bp+=f*hp; d_bp=soft (d_bp);
-                if (hpLP) {                                              // HP→LP, gap = Separation (aux)
-                    const double f2=2.0*std::sin (M_PI*juce::jlimit (20.0,sr/6.0,fc*(0.2+1.4*aux))/sr);
-                    d2_lp+=f2*d2_bp; const double hp2=hp-d2_lp-q*d2_bp; d2_bp+=f2*hp2; out=d2_lp;
-                } else out=(tap==1?hp:tap==2?d_bp:d_lp);
+            case 3: {                                                    // D state-variable
+                if (!hpLP && tap==1) {                                   // D-HP → BIT-EXACT (the only factory D mode), validated 2.9 dB
+                    out = typeD.process (1, x, fc, reso);
+                } else {                                                 // D-LP/BP/HP+LP (no factory patch) → float Chamberlin
+                    const double fcd=juce::jlimit (20.0,sr/6.0,fc);
+                    const double f=2.0*std::sin (M_PI*fcd/sr), q=juce::jlimit (0.08,1.0,1.0-0.9*reso);
+                    d_lp+=f*d_bp; const double hp=x-d_lp-q*d_bp; d_bp+=f*hp; d_bp=soft (d_bp);
+                    if (hpLP) {                                          // HP→LP series, gap = Separation (aux)
+                        const double f2=2.0*std::sin (M_PI*juce::jlimit (20.0,sr/6.0,fc*(0.2+1.4*aux))/sr);
+                        d2_lp+=f2*d2_bp; const double hp2=hp-d2_lp-q*d2_bp; d2_bp+=f2*hp2; out=d2_lp;
+                    } else out=(tap==2?d_bp:d_lp);
+                }
             } break;
             case 4:                                                      // K = BIT-EXACT Sallen-Key (+ own post-HP)
                 out=typeK.process (x, fc, reso, hpHz); break;
