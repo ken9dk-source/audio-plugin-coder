@@ -298,7 +298,14 @@ bool VAZCloneAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts)
     return out == juce::AudioChannelSet::mono() || out == juce::AudioChannelSet::stereo();
 }
 
-// ── .v2p patch I/O (PRST + double-MSmp anchors; offsets from VAZ2010_Clone_Spec.md §10) ──
+// ── .v2p patch I/O ──────────────────────────────────────────────────────────────────────────
+// The .v2p is a nested chunk format [FourCC][u32 size][data]; inside PRST the parameters are a
+// SEQUENTIAL, VERSION-GATED stream (NOT fixed offsets). Faithful port of VAZ's real reader
+// FUN_004d6c3c @ 0x4d6c3c in Vaz2010Core.dll (verified field-by-field via the named/text reader
+// FUN_004d891c and validated against the factory bank — see tools/vaz_v2p_format.md). Read widths:
+// FUN_0049d5cc = u32, FUN_0049d620/5f4 = byte, FUN_0049d668 = u32, FUN_004d6c18 = u32 mod-source
+// (+1 when version<200 && val>6). Version gates explain the ~90-byte layout delta that made the
+// old fixed-offset loader misread 82% of the factory bank (the pre-2.0 v103-111 patches).
 static int findTag (const juce::uint8* d, int n, const char* t, int from)
 {
     for (int i = juce::jmax (0, from); i + 4 <= n; ++i)
@@ -306,72 +313,167 @@ static int findTag (const juce::uint8* d, int n, const char* t, int from)
     return -1;
 }
 
+namespace {
+struct V2PPatch
+{
+    int ver = 0;
+    int filterMode = 0, cutoff = 255, reso = 0, bandwidth = 0, hpCut = 0;
+    int fcut1s = 0, fcut1d = 0, fcut2s = 0, fcut2d = 0, fresS = 0, fresD = 0;
+    int am1s = 3, am3s = 0, am3d = 0, overdrive = 0;
+    int e1a = 0, e1d = 0, e1s = 0, e1r = 0, e2a = 0, e2d = 0, e2s = 0, e2r = 0, e1mode = 0, e2mode = 0;
+    int lfo1rate = 0, lfo2rate = 0, mono = 0;
+    int o1wave = 0, o1shape = 0, o1tune = -2400, o2wave = 0, o2tune = -2400;
+    int o1fm1s = 0, o1fm1d = 0, o1pwms = 0, o1pwmd = 0;
+    int noise = 0, o2level = 0, voiceMode = 0, portamento = 0, uniDetune = 0;
+};
+
+// Sequential cursor mirroring the VAZ stream primitives.
+struct V2PCursor
+{
+    const juce::uint8* d; int n; int pos;
+    int u32 ()  { int v = (pos + 4 <= n) ? (d[pos] | (d[pos+1] << 8) | (d[pos+2] << 16) | (d[pos+3] << 24)) : 0; pos += 4; return v; }
+    int byte()  { int v = (pos >= 0 && pos < n) ? (int) d[pos] : 0; pos += 1; return v; }
+    int modsrc(int ver) { int v = u32(); if (ver < 200 && v > 6) v += 1; return v; }
+    void strsample() { byte(); byte(); int ln = u32(); pos += ln; }              // v<0x69/0x6a name path
+    void skipMsmp()  { if (pos + 8 <= n && d[pos]=='M' && d[pos+1]=='S' && d[pos+2]=='m' && d[pos+3]=='p')
+                           pos += 8 + (d[pos+4] | (d[pos+5] << 8) | (d[pos+6] << 16) | (d[pos+7] << 24)); }
+};
+
+static V2PPatch parseV2P (const juce::uint8* d, int n, int prst)
+{
+    V2PPatch p;
+    p.ver = d[prst+8] | (d[prst+9] << 8) | (d[prst+10] << 16) | (d[prst+11] << 24);
+    const int v = p.ver;
+    V2PCursor c { d, n, prst + 12 };
+
+    if (v >= 0x67) p.mono = c.byte();                 // preset_enable flag (reused slot)
+    if (v >= 0x6d) c.u32();                            // voice_count
+    if (v >= 0xc9) c.byte();                           // mono
+    if (v >= 0xc9) c.u32();                            // +0x94
+    p.lfo1rate = c.u32(); c.u32(); c.u32(); c.byte();  // lfo1: rate, wave, waveshape, retrig
+    if (v >= 0xc9) c.byte();                            // ded84
+    if (v >= 0xc9) c.u32();                            // +0xe0
+    p.lfo2rate = c.u32();                              // lfo2 rate
+    if (v >= 200) { c.modsrc(v); c.u32(); }            // lfo2 trig src + depth
+    c.byte();                                          // lfo2 retrig
+    if (v >= 200) c.u32(); else c.byte();              // lfo2 S&H
+    c.u32(); c.u32(); c.byte();                        // lfo2 delay, lfo3 wave, lfo3 +0x10c
+    // env1
+    if (v < 0x6b) { p.e1a = c.u32(); p.e1d = c.u32(); p.e1s = c.u32(); p.e1r = c.u32(); c.byte(); c.byte(); }
+    else          { p.e1a = c.u32(); p.e1d = c.u32(); p.e1s = c.u32(); p.e1r = c.u32(); c.byte(); }
+    p.e1mode = c.byte();                               // env1 def40 (PS+71 @ v201)
+    if (v >= 0x6b) c.byte();
+    if (v >= 0xca) c.byte();
+    // env2
+    if (v < 0x6c) { p.e2a = c.u32(); p.e2d = c.u32(); p.e2s = c.u32(); p.e2r = c.u32(); c.byte(); c.byte(); }
+    else          { p.e2a = c.u32(); p.e2d = c.u32(); p.e2s = c.u32(); p.e2r = c.u32(); c.byte(); }
+    c.byte();                                          // env2 df140
+    if (v >= 0x6c) p.e2mode = c.byte(); else p.e2mode = 0;   // env2 def50 (PS+91 @ v201)
+    if (v >= 0xca) c.byte();
+    if (v >= 200) { c.modsrc(v); c.u32(); c.u32(); }   // +0x178 block
+    c.modsrc(v);                                       // e0460
+    if (v >= 200) c.byte();                            // e0470
+    c.modsrc(v); c.u32();                              // e0480, e0494
+    if (v >= 200) c.modsrc(v);                         // e04d4
+    if (v >= 200) c.modsrc(v);                         // e04e4
+    // osc1
+    p.o1tune = c.u32(); p.o1wave = c.u32(); p.o1shape = c.u32();
+    if (v >= 200) c.byte();                            // df430
+    p.o1fm1s = c.modsrc(v); p.o1fm1d = c.u32();        // osc1 FM1 src/depth
+    c.modsrc(v); c.u32();                              // osc1 FM2 src/depth
+    p.o1pwms = c.modsrc(v); p.o1pwmd = c.u32();        // osc1 PWM src/depth
+    if (v < 0x69) c.strsample(); else { c.skipMsmp(); c.byte(); }   // osc1 sample (MSmp1)
+    // osc2
+    p.o2tune = c.u32(); p.o2wave = c.u32(); c.byte(); c.u32();      // osc2 tune, wave, osc1 sync, osc2 mod
+    c.modsrc(v); c.u32(); c.modsrc(v); c.u32(); c.modsrc(v); c.u32();   // osc2 FM1/FM2/PWM
+    if (v < 0x6a) c.strsample(); else { c.skipMsmp(); c.byte(); }   // osc2 sample (MSmp2)
+    // filter / mixer / output (region C — anchored after MSmp2)
+    if (v >= 200) c.u32();                             // dfd2c
+    p.noise = 0;
+    c.u32(); c.byte();                                 // dfd5c (mixer), dfd4c
+    if (v >= 200) c.u32();                             // dfde4
+    p.o2level = c.u32(); c.byte();                     // dfe28 (osc2 level), dfe18
+    c.u32(); p.noise = c.u32(); c.byte();              // dfeb0, dfef4 (noise), dfee4
+    p.filterMode = c.u32(); c.byte(); p.cutoff = c.u32(); p.reso = c.u32(); p.bandwidth = c.u32();
+    if (v >= 200) p.hpCut = c.u32(); else p.hpCut = 0;
+    p.fcut1s = c.modsrc(v); p.fcut1d = c.u32();
+    p.fcut2s = c.modsrc(v); p.fcut2d = c.u32();
+    c.modsrc(v); c.u32();                              // cutoff mod 3
+    p.fresS = c.modsrc(v); p.fresD = c.u32();
+    p.am1s = c.modsrc(v); c.u32();                     // amp AM1
+    c.modsrc(v); c.u32();                              // amp AM2
+    if (v >= 200) { p.am3s = c.modsrc(v); p.am3d = c.u32(); }   // amp AM3 / pan mod
+    p.overdrive = c.u32();
+    if (v >= 0x65) c.modsrc(v);                        // e04f4
+    if (v >= 0x65) c.u32();                            // e0504
+    p.voiceMode = c.u32(); c.u32(); c.byte(); c.u32(); // e0530 (voice mode), e05f0, e0600, e0610
+    if (v >= 200) c.u32();                             // e095c
+    p.uniDetune = c.u32();                             // p2f4 (unison detune)
+    if (v >= 200) c.u32();                             // p2f0
+    p.portamento = c.u32();
+    return p;
+}
+} // namespace
+
 bool VAZCloneAudioProcessor::loadV2P (const juce::MemoryBlock& mb)
 {
     const auto* d = (const juce::uint8*) mb.getData();
     const int n = (int) mb.getSize();
     const int prst = findTag (d, n, "PRST", 0);
-    const int ms1  = findTag (d, n, "MSmp", 0);
-    const int ms2  = ms1 >= 0 ? findTag (d, n, "MSmp", ms1 + 4) : -1;
-    if (prst < 0 || ms2 < 0) return false;
-    const int PS = prst + 12, sec2 = ms1 + 8 + 548, sec3 = ms2 + 8 + 548;
-    auto B   = [&](int o){ return (o >= 0 && o < n) ? (int) d[o] : 0; };
-    auto L16 = [&](int o){ return B (o) | (B (o + 1) << 8); };
-    auto S   = [&](const char* id, float v){ if (auto* p = apvts.getParameter (id)) p->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, v)); };
+    if (prst < 0 || prst + 12 > n) return false;
 
-    S (ParameterIDs::filter_mode, B(sec3+28) / 21.0f);
-    S (ParameterIDs::cutoff,      B(sec3+33) / 255.0f);
-    S (ParameterIDs::resonance,   B(sec3+37) / 255.0f);
-    S (ParameterIDs::overdrive,   B(sec3+105) / 255.0f);
-    S (ParameterIDs::noise_level, B(sec3+23) / 255.0f);
-    S (ParameterIDs::o2_level,    B(sec3+14) / 255.0f);
-    S (ParameterIDs::voice_mode,  juce::jlimit (0, 2, B(sec3+117)) / 2.0f);
-    S (ParameterIDs::portamento,  B(sec3+142) / 255.0f);
-    S (ParameterIDs::uni_detune,  B(sec3+134) / 255.0f);
-    S (ParameterIDs::e1_attack,  L16(PS+54) / 425.0f);
-    S (ParameterIDs::e1_decay,   L16(PS+58) / 425.0f);
-    S (ParameterIDs::e1_sustain, B(PS+62) / 255.0f);
-    S (ParameterIDs::e1_release, L16(PS+66) / 425.0f);
-    S (ParameterIDs::e2_attack,  L16(PS+74) / 425.0f);
-    S (ParameterIDs::e2_decay,   L16(PS+78) / 425.0f);
-    S (ParameterIDs::e2_sustain, B(PS+82) / 255.0f);
-    S (ParameterIDs::e2_release, L16(PS+86) / 425.0f);
-    S (ParameterIDs::lfo_rate,   B(PS+10) / 255.0f);
-    S (ParameterIDs::o1_wave,    juce::jlimit (0, 4, B(PS+131)) / 4.0f);
-    S (ParameterIDs::o1_shape,   B(PS+135) / 255.0f);
-    auto SC = [&](const char* id, int byte){ S (id, juce::jlimit (0, 21, byte) / 21.0f); };   // mod-source byte → choice (same index as clone)
-    // OSC tune: one LE16 cents value (base 63136 = 8'/centre) encodes octave+coarse+fine combined.
-    auto setTune = [&](int off, const char* oct, const char* coarse, const char* fine)
+    const V2PPatch p = parseV2P (d, n, prst);
+    auto S  = [&](const char* id, float v){ if (auto* q = apvts.getParameter (id)) q->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, v)); };
+    auto SC = [&](const char* id, int idx){ S (id, juce::jlimit (0, 21, idx) / 21.0f); };       // mod-source index → choice
+    auto setTune = [&](int totalC, const char* oct, const char* coarse, const char* fine)
     {
-        const int totalC = L16(off) - 63136;
         const int octSteps = juce::jlimit (-2, 2, (int) std::lround (totalC / 1200.0));
         const int rem      = totalC - octSteps * 1200;
         const int semis    = juce::jlimit (-12, 12, (int) std::lround (rem / 100.0));
         const int cents    = juce::jlimit (-100, 100, rem - semis * 100);
         S (oct, (2 + octSteps) / 4.0f);  S (coarse, 0.5f + semis / 24.0f);  S (fine, 0.5f + cents / 200.0f);
     };
-    setTune (PS+127, ParameterIDs::o1_octave, ParameterIDs::o1_coarse, ParameterIDs::o1_fine);
-    setTune (sec2+1, ParameterIDs::o2_octave, ParameterIDs::o2_coarse, ParameterIDs::o2_fine);
-    S  (ParameterIDs::o2_wave,    juce::jlimit (0, 4, B(sec2+5)) / 4.0f);
-    S  (ParameterIDs::hp_cutoff,  B(sec3+45) / 255.0f);
-    S  (ParameterIDs::flt_aux,    B(sec3+41) / 255.0f);
-    SC (ParameterIDs::cut_mod1_src, B(sec3+49)); S (ParameterIDs::filt_env_amt, B(sec3+53) / 255.0f);
-    SC (ParameterIDs::cut_mod2_src, B(sec3+57)); S (ParameterIDs::lfo_amt,      B(sec3+61) / 255.0f);
-    SC (ParameterIDs::res_mod_src,  B(sec3+73)); S (ParameterIDs::res_mod_amt,  B(sec3+77) / 255.0f);
-    SC (ParameterIDs::amp_mod_src,  B(PS+111));
-    SC (ParameterIDs::pan_mod_src,  B(sec3+97)); S (ParameterIDs::pan_mod_amt,  B(sec3+101) / 255.0f);
-    SC (ParameterIDs::o1_fm_src,    B(PS+140));  S (ParameterIDs::o1_fm_amt,    B(PS+144) / 255.0f);
-    SC (ParameterIDs::o1_ws_src,    B(PS+156));  S (ParameterIDs::o1_ws_amt,    B(PS+160) / 255.0f);
-    // Env-mode bitfields (PS+71 = Env1, PS+91 = Env2). VAZ doc order Multi/Reset/Cycle (+Curve); the env2
-    // value distribution confirms Reset=bit1 (the most common single mode). Was a bug: only e1_reset, read as
-    // ">0" (= ANY bit) → 56 patches that use cycle/curve/multi wrongly loaded as Reset.
-    const int em1 = B(PS+71), em2 = B(PS+91);
+
+    S (ParameterIDs::filter_mode, juce::jlimit (0, 21, p.filterMode) / 21.0f);
+    S (ParameterIDs::cutoff,      p.cutoff / 255.0f);
+    S (ParameterIDs::resonance,   p.reso / 255.0f);
+    S (ParameterIDs::overdrive,   p.overdrive / 255.0f);
+    S (ParameterIDs::noise_level, p.noise / 255.0f);
+    S (ParameterIDs::o2_level,    p.o2level / 255.0f);
+    S (ParameterIDs::voice_mode,  juce::jlimit (0, 2, p.voiceMode) / 2.0f);
+    S (ParameterIDs::portamento,  p.portamento / 255.0f);
+    S (ParameterIDs::uni_detune,  p.uniDetune / 255.0f);
+    S (ParameterIDs::hp_cutoff,   p.hpCut / 255.0f);
+    S (ParameterIDs::flt_aux,     p.bandwidth / 255.0f);
+    S (ParameterIDs::e1_attack,   p.e1a / 425.0f);
+    S (ParameterIDs::e1_decay,    p.e1d / 425.0f);
+    S (ParameterIDs::e1_sustain,  p.e1s / 255.0f);
+    S (ParameterIDs::e1_release,  p.e1r / 425.0f);
+    S (ParameterIDs::e2_attack,   p.e2a / 425.0f);
+    S (ParameterIDs::e2_decay,    p.e2d / 425.0f);
+    S (ParameterIDs::e2_sustain,  p.e2s / 255.0f);
+    S (ParameterIDs::e2_release,  p.e2r / 425.0f);
+    S (ParameterIDs::lfo_rate,    p.lfo1rate / 255.0f);
+    S (ParameterIDs::lfo2_rate,   p.lfo2rate / 255.0f);
+    S (ParameterIDs::o1_wave,     juce::jlimit (0, 4, p.o1wave) / 4.0f);
+    S (ParameterIDs::o1_shape,    juce::jlimit (0, 255, p.o1shape) / 255.0f);
+    S (ParameterIDs::o2_wave,     juce::jlimit (0, 4, p.o2wave) / 4.0f);
+    setTune (p.o1tune + 2400, ParameterIDs::o1_octave, ParameterIDs::o1_coarse, ParameterIDs::o1_fine);
+    setTune (p.o2tune + 2400, ParameterIDs::o2_octave, ParameterIDs::o2_coarse, ParameterIDs::o2_fine);
+    SC (ParameterIDs::cut_mod1_src, p.fcut1s); S (ParameterIDs::filt_env_amt, p.fcut1d / 255.0f);
+    SC (ParameterIDs::cut_mod2_src, p.fcut2s); S (ParameterIDs::lfo_amt,      p.fcut2d / 255.0f);
+    SC (ParameterIDs::res_mod_src,  p.fresS);  S (ParameterIDs::res_mod_amt,  p.fresD / 255.0f);
+    SC (ParameterIDs::amp_mod_src,  p.am1s);
+    SC (ParameterIDs::pan_mod_src,  p.am3s);   S (ParameterIDs::pan_mod_amt,  p.am3d / 255.0f);
+    SC (ParameterIDs::o1_fm_src,    p.o1fm1s); S (ParameterIDs::o1_fm_amt,    p.o1fm1d / 255.0f);
+    SC (ParameterIDs::o1_ws_src,    p.o1pwms); S (ParameterIDs::o1_ws_amt,    p.o1pwmd / 255.0f);
+    // Env-mode bitfields (Multi=bit0, Reset=bit1, Cycle=bit2, Curve=bit3).
+    const int em1 = p.e1mode, em2 = p.e2mode;
     S (ParameterIDs::e1_multi, (em1 & 1) ? 1.0f : 0.0f);  S (ParameterIDs::e1_reset, (em1 & 2) ? 1.0f : 0.0f);
     S (ParameterIDs::e1_cycle, (em1 & 4) ? 1.0f : 0.0f);  S (ParameterIDs::e1_curve, (em1 & 8) ? 1.0f : 0.0f);
     S (ParameterIDs::e2_multi, (em2 & 1) ? 1.0f : 0.0f);  S (ParameterIDs::e2_reset, (em2 & 2) ? 1.0f : 0.0f);
     S (ParameterIDs::e2_cycle, (em2 & 4) ? 1.0f : 0.0f);  S (ParameterIDs::e2_curve, (em2 & 8) ? 1.0f : 0.0f);
-    S  (ParameterIDs::lfo_sync,  B(PS+5)  > 0 ? 1.0f : 0.0f);
-    S  (ParameterIDs::lfo2_rate, B(PS+28) / 255.0f);
+    S (ParameterIDs::lfo_sync,  p.mono > 0 ? 1.0f : 0.0f);
 
     lastPatchBytes = mb;     // keep the raw bytes as the Save template
     return true;
@@ -387,6 +489,11 @@ juce::MemoryBlock VAZCloneAudioProcessor::buildV2P()
     const int ms1  = findTag (d, n, "MSmp", 0);
     const int ms2  = ms1 >= 0 ? findTag (d, n, "MSmp", ms1 + 4) : -1;
     if (prst < 0 || ms2 < 0) return mb;
+    // These fixed write offsets are only correct for the v2.0 stream layout (ver 201/202). For the
+    // older version-gated layouts the offsets shift, so writing them would corrupt the patch — return
+    // the original bytes unchanged instead. (A full version-aware writer mirroring loadV2P is TODO.)
+    const int ver = d[prst+8] | (d[prst+9] << 8) | (d[prst+10] << 16) | (d[prst+11] << 24);
+    if (ver < 200) return mb;
     const int PS = prst + 12, sec3 = ms2 + 8 + 548;
     auto G   = [&](const char* id){ auto* p = apvts.getParameter (id); return p ? p->getValue() : 0.0f; };
     auto W   = [&](int o, int v){ if (o >= 0 && o < n) d[o] = (juce::uint8) juce::jlimit (0, 255, v); };
