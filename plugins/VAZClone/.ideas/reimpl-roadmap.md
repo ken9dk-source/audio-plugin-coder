@@ -213,6 +213,17 @@ toward functional 1:1 with `Vaz2010Core.dll`. This is a **multi-session RE progr
       per the old notes) is in one of these or the >0x44 branch @0x4DDF44. **These two are a focused follow-up**
       (more error-prone than A/R — do them carefully + real-validate each, don't rush). **Net precise coverage:
       A+R bit-exact+validated + Comb-matches = ~97% of factory patches; K+D = the last ~3%.**
+    - **✅✅✅ FILTER PROGRAM COMPLETE — all factory-used modes precise + real-validated (2026-06-11):**
+      **K** (`VAZTypeK.h`, Sallen-Key, modes 15/16): 2×-osamp resonance-feedback section (coef 0x418937) + clamp
+      + cubic + 4 one-poles (0x6d87/0x6d97). Decode self-oscillated from ~reso 170; real stays sub-self-osc
+      through 255, so a **resoGain ×0.5 calibration** (K's free param, like A's SCALE) — validated at the actual
+      patch settings (all K patches use reso 193–255): mode 15 r193 **3.0 dB**, mode 16 r255 **3.5 dB** (commits
+      aa054c2 + 018caea). **D-HP** (`VAZTypeD.h`, state-variable, mode 12): 2×-osamp Chamberlin SVF (0x6d67/0x6d77),
+      HP tap — validated **2.9 dB** (commit f861548); D-LP/BP (0 factory patches, other entries) left on float.
+      **★★★ FINAL: every filter mode used by any of the 260 factory patches is now bit-exact (A/R/K/D) or
+      confirmed-matching (Comb), all validated against real VAZ. The remaining unused taps (B, C, A-HP/BP,
+      D-LP/BP, D-HP+LP) stay on the float engines — no factory patch selects them.** Per-engine free param =
+      `SCALE` (A/R/D) or `RESO_TRIM` (K) if a future sample-accurate bit-null wants finer calibration.
 - **P2 Oscillator**: find the wavetable read (32-bit phase, top-bits index, interp) → **extract the wave
   LUTs** (saw/tri/sine/pulse, sizes 256/512, mip levels) → reimpl phase+interp fixed-point. (Highest raw-timbre value.)
 - **P3 Envelope**: ADSR fixed-point — attack/decay/release curves + Multi/Reset/Cycle/Curve. (Resolves the parity-audit B1-B4.)
