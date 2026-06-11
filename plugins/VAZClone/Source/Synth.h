@@ -3,6 +3,7 @@
 #include <cmath>
 #include "VAZTypeA.h"   // bit-exact VAZ Type-A Lowpass (integer recurrence + dumped coef tables)
 #include "VAZTypeR.h"   // bit-exact VAZ Type-R (cubic 4-pole integrator cascade, self-oscillating)
+#include "VAZTypeK.h"   // bit-exact VAZ Type-K (Sallen-Key, distorted self-oscillating resonance)
 
 // ============================================================================
 // VAZClone synthesis engine — Phase A: band-limited oscillators + amp envelope.
@@ -387,18 +388,19 @@ struct VAZMultiFilter
     VAZLadder ladderR;                                   // engine R (legacy float ladder — fallback)
     VAZTypeA  typeA;                                      // engine A (bit-exact LP)
     VAZTypeR  typeR;                                      // engine R (bit-exact cubic cascade)
+    VAZTypeK  typeK;                                      // engine K (bit-exact Sallen-Key)
     double a_ic1=0, a_ic2=0, c1_1=0, c1_2=0, c2_1=0, c2_2=0;
     double d_lp=0, d_bp=0, d2_lp=0, d2_bp=0;
     double k_s[4]={0,0,0,0}, k_hpX=0, k_hpY=0;
     double comb[4096]={0}; int combIdx=0; double combLP=0;
     double hpX=0, hpY=0;
 
-    void prepare (double s) noexcept { sr = s; ladderR.prepare (s); typeA.prepare (s); typeR.prepare (s); reset(); }
+    void prepare (double s) noexcept { sr = s; ladderR.prepare (s); typeA.prepare (s); typeR.prepare (s); typeK.prepare (s); reset(); }
     void reset() noexcept
     {
         a_ic1=a_ic2=c1_1=c1_2=c2_1=c2_2=0; d_lp=d_bp=d2_lp=d2_bp=0;
         k_s[0]=k_s[1]=k_s[2]=k_s[3]=0; k_hpX=k_hpY=hpX=hpY=0; combIdx=0; combLP=0;
-        for (int i=0;i<4096;++i) comb[i]=0.0; ladderR.reset(); typeA.reset(); typeR.reset();
+        for (int i=0;i<4096;++i) comb[i]=0.0; ladderR.reset(); typeA.reset(); typeR.reset(); typeK.reset();
     }
 
     static double cube (double x) noexcept
@@ -491,15 +493,8 @@ struct VAZMultiFilter
                     d2_lp+=f2*d2_bp; const double hp2=hp-d2_lp-q*d2_bp; d2_bp+=f2*hp2; out=d2_lp;
                 } else out=(tap==1?hp:tap==2?d_bp:d_lp);
             } break;
-            case 4: {                                                    // K = 2-pole Sallen-Key, dirty self-oscillating resonance (manual)
-                const double xk=in*drive;                                // K is drive-sensitive like R
-                const double g=1.0-std::exp (-2.0*M_PI*fc/(sr*2.0)), fb=reso*4.5;
-                for (int os=0; os<2; ++os) {                             // 2× oversample for stability at high reso
-                    const double x2=xk - fb*cube (k_s[1]);               // distorted resonance feedback (2-pole)
-                    k_s[0]+=g*(x2-k_s[0]); k_s[1]+=g*(k_s[0]-k_s[1]);
-                }
-                out=k_s[1];                                             // 2-pole lowpass output
-            } break;
+            case 4:                                                      // K = BIT-EXACT Sallen-Key (+ own post-HP)
+                out=typeK.process (x, fc, reso, hpHz); break;
             case 6: {                                                    // Comb delay-feedback
                 const int len=(int) juce::jlimit (8.0,4094.0, sr/juce::jlimit (40.0,2000.0,fc));
                 int rd=combIdx-len; if (rd<0) rd+=4096;
@@ -510,8 +505,8 @@ struct VAZMultiFilter
             } break;
             default: out=typeR.process (poles, x, fc, reso, hpHz); break;  // R: BIT-EXACT cubic cascade (+ own post-HP)
         }
-        // engine R does its own exact integer highpass inside typeR; others use the float post-HP
-        if (usesHP && engine!=5) { const double rc=1.0/(2.0*M_PI*juce::jlimit (20.0,sr*0.45,hpHz)), dt=1.0/sr, a=rc/(rc+dt);
+        // engines R and K do their own exact integer highpass; others use the float post-HP
+        if (usesHP && engine!=5 && engine!=4) { const double rc=1.0/(2.0*M_PI*juce::jlimit (20.0,sr*0.45,hpHz)), dt=1.0/sr, a=rc/(rc+dt);
                       const double y=a*(hpY+out-hpX); hpX=out; hpY=y; out=y; }
         return out;
     }
