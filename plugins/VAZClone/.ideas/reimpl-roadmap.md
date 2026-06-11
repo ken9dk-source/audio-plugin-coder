@@ -194,6 +194,16 @@ toward functional 1:1 with `Vaz2010Core.dll`. This is a **multi-session RE progr
       bit-null later shows the Q slightly off, tune SCALE (the only free param). **Remaining:** A-HP/A-BP taps
       (modes 4/5, decode the &3=1,2 output branches @0x4DD7A3/0x4DD75B); engines B/C/D could get the same exact
       treatment (B shares these tables; C/D use the 0x69/0x6d table banks).
+    - **✅✅ DONE — BIT-EXACT Type R shipped + VALIDATED vs real (2026-06-11, commit eafd92c):** `VAZTypeR.h` +
+      `VAZTypeRTables.h` (R coefs 0x69/0x61/0x65, Q30). Two cascaded 2×-osamp biquad sections, each with cubic
+      `x−x³>>(64+S)` feedback (S=1 sect1, S=2 sect2), input<<3, averaged out, one-pole post-HP (0x5535e4 coef).
+      2-pole = section 2 only (centre tap), 4-pole = both. Engine 5 (modes 17/19/20) now uses it; the clone's
+      float post-HP is skipped for R. **VALIDATED vs REAL VAZ:** mode 19 reso-255 resonance boost clone 18.5 dB
+      vs real 19.2 dB (≤0.7 dB). The old VAZLadder (~47 dB) was far too resonant — real R caps ~19 dB.
+      **★ A (82%) + R (13%) bit-exact + real-validated = 95% of factory patches.** Remaining (the last ~5%, all
+      in the mode>45 / mode-0-18-non-LP disasm groups): **K** (Sallen-Key, modes 15/16, 6 patches), **D-HP**
+      (mode 12, 1), **Comb** (mode 21, 2), then the unused taps (A-HP/BP, B, C, D-LP/BP). Same recipe each:
+      disasm the engine's per-sample integer ops → dump its coef tables → port verbatim → validate.
 - **P2 Oscillator**: find the wavetable read (32-bit phase, top-bits index, interp) → **extract the wave
   LUTs** (saw/tri/sine/pulse, sizes 256/512, mip levels) → reimpl phase+interp fixed-point. (Highest raw-timbre value.)
 - **P3 Envelope**: ADSR fixed-point — attack/decay/release curves + Multi/Reset/Cycle/Curve. (Resolves the parity-audit B1-B4.)
