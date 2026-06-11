@@ -261,8 +261,10 @@ public:
             const float vv = (float) fs * env1 * level * p.ampLevel * 0.6f;   // ampLevel = Amplitude-Mod slot-1 depth
             // ── Pan Modulation (per voice) — write stereo ──
             const double pan = (std::abs (p.panAmt) > 0.0001f) ? juce::jlimit (-1.0, 1.0, (double) p.panAmt * (double) mv (p.panSrc, idx)) : 0.0;
-            const float lG = pan <= 0.0 ? 1.0f : (float) (1.0 - pan);
-            const float rG = pan >= 0.0 ? 1.0f : (float) (1.0 + pan);
+            // VAZ pan = EQUAL-POWER law (output stage uses the pan LUT 0x6df2c0/0x6df2c4), not linear:
+            const double pa = (pan + 1.0) * 0.25 * M_PI;     // −1..+1 → 0..π/2
+            const float lG = (float) std::cos (pa);
+            const float rG = (float) std::sin (pa);
             if (out.getNumChannels() >= 2) { out.addSample (0, idx, vv * lG); out.addSample (1, idx, vv * rG); }
             else                            out.addSample (0, idx, vv);
 
