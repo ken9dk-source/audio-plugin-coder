@@ -61,3 +61,38 @@ render (oscillators incl. multisaw/ring/sync/FM/sample, the 3-channel pre/post m
 bit-exact, the output amp/pan/clip, noise, LFOs, envelopes, the full mod set, unison). **No missing modules.**
 The only deltas are (1) the base-cutoff smoothing (minor, automation-only) and (2) the env-curve mis-ID to clean
 up. Everything else is as it should be.
+
+## DEEP-DIVE (2026-06-11) — filter types · LFO · overdrive · portamento · unison · multisaw · ENV modes
+Static Ghidra only (vaz_big.c = FUN_004dbddc voice render; vaz_env.c = FUN_004dbd7c/004dfbf8 env handlers).
+
+- **Filter types:** dispatch on mode `[0x258]` (cmp 0x2d/0x12/2 → A/B/D vs R-cubic vs C/K/Comb). A/R/K/D bit-exact +
+  real-validated; B = fixed-bandwidth A; C = 2P/4P resonant LP + 1-pole HP. All 22 dropdown modes mapped. ✓
+- **LFO:** per-sample, table **`0x5441d4`** (triangle if `[0x10c]==0`, else LUT interp) → voice[0xc]; phase accum
+  `[0x110]+=[0x114]`. Clone: LFO1/2/3 ✓.
+- **OVERDRIVE:** VAZ = post-filter cubic `x−x³` with pre-gain (param `[0x2b4]`, clamp ±0xD105E8, @0x4de…output),
+  applied for **ALL** filter modes. **Clone BUG: the Overdrive knob did NOTHING** — it was read into a param but
+  never used (fltDrive came from the osc levels). **FIXED:** added the output cubic soft-clip driven by the knob
+  (SynthVoice.h, `p.overdrive`). 
+- **Portamento:** clone has exp/linear glide + Auto (legato-only), time = porta²·0.6 s. ✓
+- **Unison:** VAZ per-voice loop (`[0x70]` count); clone has per-voice `voiceDetune × detuneCents`. ✓
+- **MULTISAW detune:** VAZ = **exactly 4 saws**, phases 0x118/11c/120/124, rates spread **SYMMETRICALLY**
+  base−1.5d, −0.5d, +0.5d, +1.5d (`d = waveshape>>0x12`), summed ÷4. Clone = symmetric 4 saws (d=−1..+1) ✓ — the
+  old "one-sided 0/+24/+48/+72c" comment was a WAV-FFT mismeasurement; Ghidra confirms symmetric.
+- **ENV MULTI/RESET/CYCLE/CURVE:**
+  - **RESET** = env restarts from 0 on note-on. Clone ✓ (noteOn: level=0).
+  - **CYCLE** = the env loops (extra LFO) AND VAZ **syncs the oscillator phase each cycle** (FUN_004dfbf8 resets
+    osc phases 0x118–124 to 0xc4) → a clean periodic tone. **Clone bug: it looped with `if(mReset) level=0`** =
+    an abrupt per-cycle jump to 0 → discontinuity → **bit-crush at audio rate** (the user's report). **FIXED:**
+    loop smoothly from the current level (no 0-jump). (Full match would also sync the osc — a refinement.)
+  - **CURVE** = exponential env segments. Clone's `1024^(x-1)` is a fine 60 dB exp (note: 0x5445e0 is actually the
+    OSC PITCH table, not the env curve — the LUT was mis-ID'd, but the exp VALUE is a reasonable env curve).
+  - **MULTI** = clone **does NOT implement it** (e1Multi/e2Multi params exist but VAZEnv ignores them). Likely
+    multi-trigger (retrigger on every note even in mono/legato). GAP — not yet implemented.
+  - **`.v2p` loading gap:** the clone reads only `e1_reset` (B(PS+71)); **cycle/curve/multi are NOT loaded** from
+    patches (they stay off). Needs the env-mode bitfield decode.
+
+### Fixes applied this pass
+1. **Overdrive** now works (output cubic, all modes). 2. **Env Cycle** no longer bit-crushes (smooth loop).
+### Still open (need the env-config + pan decode)
+- Env Cycle full osc-sync; **Env MULTI** behaviour + impl; load env cycle/curve/multi from `.v2p`; equal-power
+  **pan law** (VAZ LUT 0x6df2c0 vs clone linear); the clone's pre-filter `tilt` (no VAZ equivalent — consider removing).

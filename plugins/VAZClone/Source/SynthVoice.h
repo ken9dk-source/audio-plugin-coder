@@ -63,6 +63,7 @@ struct VoiceParams
     // Per-voice filter (osc → filter → amp)
     int   filterMode = 19;
     float baseCut = 1.0f, baseRes = 0.0f, fltAux = 0.5f, hpNorm = 0.0f, fltDrive = 1.0f, nyq = 19845.0f;
+    float overdrive = 0.0f;                        // Overdrive knob → output cubic soft-clip (VAZ: post-filter, all modes)
     int   cutSrc1 = 0, cutSrc2 = 0, resSrc = 0, ampSrc = 0, panSrc = 0;
     float cutAmt1 = 0.0f, cutAmt2 = 0.0f, resAmt = 0.0f, ampAmt = 0.0f, panAmt = 0.0f, ampLevel = 0.8f;
     float e2Atk = 0.0f, e2Dec = 0.3f, e2Sus = 1.0f, e2Rel = 0.2f;
@@ -249,6 +250,13 @@ public:
             const double cutHz = juce::jlimit (8.0, (double) p.nyq, std::exp (10.24 * (double) coNorm));
             filt.setParams (cutHz, (double) res, (double) auxV, hpHzI, (double) p.fltDrive);
             double fs = filt.process (s) + postSum;          // Post channels mixed in after the filter
+            // VAZ output OVERDRIVE (Core.dll output stage @0x4de…, pre-gain param 0x2b4 → cubic x−x³): a cubic
+            // soft-clip driven by the Overdrive knob, post-filter, ALL modes. Was missing — the knob did nothing.
+            if (p.overdrive > 0.0001f) {
+                const double g  = 1.0 + (double) p.overdrive * 8.0;
+                const double od = juce::jlimit (-1.0, 1.0, fs * g);
+                fs = 1.5 * od - 0.5 * od * od * od;          // cubic soft-clip, ≈ VAZ's x−x³ (unity slope at small signal)
+            }
             if (std::abs (p.ampAmt) > 0.0001f) fs *= juce::jlimit (0.0, 2.0, 1.0 + (double) p.ampAmt * (double) mv (p.ampSrc, idx)); // tremolo (±)
             const float vv = (float) fs * env1 * level * p.ampLevel * 0.6f;   // ampLevel = Amplitude-Mod slot-1 depth
             // ── Pan Modulation (per voice) — write stereo ──

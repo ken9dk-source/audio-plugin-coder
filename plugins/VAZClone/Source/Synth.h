@@ -304,7 +304,9 @@ struct VAZEnv
         {
             case Attack:  level += (atkTarget - level) * aCoef; if (level >= 1.0) { level = 1.0; stage = Decay; } break;   // exponential (concave) attack
             case Decay:   level += (sLvl - level) * dCoef; if (std::abs (level - sLvl) < 0.0008) { level = sLvl; stage = Sustain; } break;
-            case Sustain: if (mCycle) { if (mReset) level = 0.0; stage = Attack; } break;   // Cycle → loop (LFO)
+            case Sustain: if (mCycle) stage = Attack; break;   // Cycle → loop (LFO). VAZ loops smoothly + syncs the
+            // osc on each cycle (FUN_004dfbf8); the old `if(mReset) level=0` jumped the level to 0 → a per-cycle
+            // discontinuity that bit-crushed at audio rate. Loop from the current level instead (smooth tremolo).
             case Release: level += (0.0 - level) * rCoef; if (level < 0.0004) { level = 0.0; stage = Idle; } break;
             default: break;
         }

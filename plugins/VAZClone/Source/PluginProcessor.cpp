@@ -286,6 +286,7 @@ void VAZCloneAudioProcessor::refreshVoiceParams()
     voiceParams.e1Multi  = f (ParameterIDs::e1_multi) > 0.5f;
     voiceParams.e2Multi  = f (ParameterIDs::e2_multi) > 0.5f;
     voiceParams.fltDrive = juce::jlimit (1.0f, 4.0f, 0.5f + voiceParams.o1Level + voiceParams.o2Level + voiceParams.noise);
+    voiceParams.overdrive = f (ParameterIDs::overdrive);   // Overdrive knob → output cubic soft-clip (VAZ output stage, all modes)
     voiceParams.nyq      = (float) (currentSampleRate * 0.45);
 }
 
