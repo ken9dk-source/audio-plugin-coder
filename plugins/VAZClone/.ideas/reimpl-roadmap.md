@@ -165,6 +165,13 @@ toward functional 1:1 with `Vaz2010Core.dll`. This is a **multi-session RE progr
       likely too hot vs VAZ's ~16 dB cap). **Next fidelity arc: upgrade engine 0 to the exact decoded A-LP**
       (embed/fit the 0x5545e4/0x5945e4/0x5d45e4/0x5535e4 tables + the 2×-oversampled recurrence), bit-null vs
       real on a mode-0 patch. That single upgrade improves 82% of patches.
+    - **A-LP exact-coef extraction (2026-06-11):** dumped a1/a2/b0 across reso×cutoff. **POLES clean + separable:**
+      `R(reso) = sqrt(-a2/2^28) = 0.9909 + 0.0089*(resoIdx/63)` (identical @cutIdx 400 & 700), `a1 = 2R*cos(th)`
+      (ok to 0.9%), `a2 = -R^2`, th=2*pi*exp(10.24*cutIdx/1024)/sr. **b0 (gain) NOT cleanly separable** —
+      b0/(2^28*sin^2 th) varies with cutoff at low reso (1.87@400 vs 0.55@700) = the variable-bandwidth
+      normalization (biquad peak rises ~11->25 dB over reso). rc=0x5535e4[cut] one-pole coef 0.25->0.04, 1D.
+      -> engine-0 build: poles from the formula; b0 needs a small 2D table (~16 KB) or 2-term fit; then the
+      2x-oversampled recurrence + 2 one-poles + reso-mix; validate vs the Python integer sim (-3->16 dB).
 - **P2 Oscillator**: find the wavetable read (32-bit phase, top-bits index, interp) → **extract the wave
   LUTs** (saw/tri/sine/pulse, sizes 256/512, mip levels) → reimpl phase+interp fixed-point. (Highest raw-timbre value.)
 - **P3 Envelope**: ADSR fixed-point — attack/decay/release curves + Multi/Reset/Cycle/Curve. (Resolves the parity-audit B1-B4.)
