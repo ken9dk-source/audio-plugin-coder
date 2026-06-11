@@ -148,6 +148,23 @@ toward functional 1:1 with `Vaz2010Core.dll`. This is a **multi-session RE progr
       the filter-mode byte map). **The only reliable validation is the A/B bit-null** (render real Capture vs clone,
       same patch/MIDI, diff) — the spectrum-ratio harness is unreliable here. Until the default-engine + a bit-null
       confirm a target, the ladder stays deployed (a working approx).
+    - **★★★ ALL FILTER TYPES: status + factory-patch priority (2026-06-11):** VAZ's 7 filter families are
+      documented in the CHM (`Synth Windows/Filter Mode Dialog.htm`): **A** (variable-reso-bandwidth LP/BP/HP),
+      **B** (fixed-bandwidth LP/BP/HP), **C** (2P/4P resonant LP + 1-pole HP, Separation), **D** (state-variable
+      LP/BP/HP + HP→LP series), **K** (2-pole Sallen-Key, distorted self-osc, LP / HP+LP), **R** (4-pole
+      integrator cascade self-osc + 1-pole HP, 2P-tap/4P), **Comb** (delay+feedback+damping). **The clone
+      ALREADY implements all 7** (Synth.h `VAZMultiFilter`, engines 0–6, the 22-mode `setMode` table) and wires
+      the `.v2p` mode byte (`sec3+28`, 0–21) → `setMode`. **VERIFIED working+distinct** (render a fixed note
+      through each mode: A-LP centroid 175, A-BP 400, D-HP 2811, R-4P 38=darkest, Comb 3035=spread — all
+      characteristic). **Factory-patch mode distribution (260 patches, none out-of-range):** mode **0 = 213
+      (82%!) = Type A Lowpass**, 19 = 34 (13%) = R-4P, 16 = 5 (K), 17 = 3 (R-2P), 21 = 2 = Comb (CONFIRMED by
+      the patch named "Comb Filter Feedback"). **→ STRATEGIC REDIRECT: the fidelity priority is engine 0 (Type
+      A Lowpass) — 82% of all patches — NOT the resonant R engine** that all the earlier P1 work targeted (only
+      13%). Type A = the gentle clean engine I decoded exactly (2× oversampled biquad + 2 one-pole LPs +
+      reso-mix, caps ~16 dB). The clone's engine 0 is a TPT-SVF *approximation* (k=2−1.98·reso, can self-osc —
+      likely too hot vs VAZ's ~16 dB cap). **Next fidelity arc: upgrade engine 0 to the exact decoded A-LP**
+      (embed/fit the 0x5545e4/0x5945e4/0x5d45e4/0x5535e4 tables + the 2×-oversampled recurrence), bit-null vs
+      real on a mode-0 patch. That single upgrade improves 82% of patches.
 - **P2 Oscillator**: find the wavetable read (32-bit phase, top-bits index, interp) → **extract the wave
   LUTs** (saw/tri/sine/pulse, sizes 256/512, mip levels) → reimpl phase+interp fixed-point. (Highest raw-timbre value.)
 - **P3 Envelope**: ADSR fixed-point — attack/decay/release curves + Multi/Reset/Cycle/Curve. (Resolves the parity-audit B1-B4.)
