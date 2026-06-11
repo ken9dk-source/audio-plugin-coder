@@ -1,6 +1,7 @@
 #pragma once
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <cmath>
+#include "VAZTypeA.h"   // bit-exact VAZ Type-A Lowpass (integer recurrence + dumped coef tables)
 
 // ============================================================================
 // VAZClone synthesis engine — Phase A: band-limited oscillators + amp envelope.
@@ -383,18 +384,19 @@ struct VAZMultiFilter
     double cutoffHz = 1000.0, reso = 0.0, aux = 0.5, hpHz = 20.0, drive = 1.0;
 
     VAZLadder ladderR;                                   // engine R
+    VAZTypeA  typeA;                                      // engine A (bit-exact LP)
     double a_ic1=0, a_ic2=0, c1_1=0, c1_2=0, c2_1=0, c2_2=0;
     double d_lp=0, d_bp=0, d2_lp=0, d2_bp=0;
     double k_s[4]={0,0,0,0}, k_hpX=0, k_hpY=0;
     double comb[4096]={0}; int combIdx=0; double combLP=0;
     double hpX=0, hpY=0;
 
-    void prepare (double s) noexcept { sr = s; ladderR.prepare (s); reset(); }
+    void prepare (double s) noexcept { sr = s; ladderR.prepare (s); typeA.prepare (s); reset(); }
     void reset() noexcept
     {
         a_ic1=a_ic2=c1_1=c1_2=c2_1=c2_2=0; d_lp=d_bp=d2_lp=d2_bp=0;
         k_s[0]=k_s[1]=k_s[2]=k_s[3]=0; k_hpX=k_hpY=hpX=hpY=0; combIdx=0; combLP=0;
-        for (int i=0;i<4096;++i) comb[i]=0.0; ladderR.reset();
+        for (int i=0;i<4096;++i) comb[i]=0.0; ladderR.reset(); typeA.reset();
     }
 
     static double cube (double x) noexcept
@@ -458,15 +460,17 @@ struct VAZMultiFilter
         double out=0.0;
         switch (engine)
         {
-            case 0: case 1: {                                            // A / B clean SVF
-                const double g=std::tan (M_PI*fc/sr);
-                double k=2.0-1.98*reso; if (engine==1) k*=(0.4+1.2*aux);
-                // Type A/B do NOT self-oscillate (CHM: only K/R do). The real clean biquad's resonance is
-                // fixed-point-quantization-limited to ~16 dB (a float port over-resonates +13–23 dB); k_min
-                // here caps the SVF peak ≈1/k at ~18 dB to match, instead of the old 0.02 (~34 dB self-osc).
-                k=juce::jlimit (0.12,2.0,k);
-                double lp,bp,hp; svf (x,g,k,a_ic1,a_ic2,lp,bp,hp);
-                out=(tap==1?hp:tap==2?bp:lp);
+            case 0: case 1: {                                            // A / B
+                if (engine==0 && tap==0) {                               // A Lowpass → BIT-EXACT integer engine
+                    out = typeA.process (x, fc, reso);                   // (the exact VAZ recurrence + dumped coefs)
+                } else {                                                 // B, or A HP/BP → clean SVF approximation
+                    const double g=std::tan (M_PI*fc/sr);
+                    double k=2.0-1.98*reso; if (engine==1) k*=(0.4+1.2*aux);
+                    // Type A/B do NOT self-oscillate (CHM: only K/R do); cap the SVF peak ≈1/k at ~18 dB.
+                    k=juce::jlimit (0.12,2.0,k);
+                    double lp,bp,hp; svf (x,g,k,a_ic1,a_ic2,lp,bp,hp);
+                    out=(tap==1?hp:tap==2?bp:lp);
+                }
             } break;
             case 2: {                                                    // C cascade + soft saturation, Separation
                 const double g=std::tan (M_PI*fc/sr), k=juce::jlimit (0.1,2.0,2.0-1.9*reso);
