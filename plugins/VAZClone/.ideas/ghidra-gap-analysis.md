@@ -96,3 +96,38 @@ Static Ghidra only (vaz_big.c = FUN_004dbddc voice render; vaz_env.c = FUN_004db
 ### Still open (need the env-config + pan decode)
 - Env Cycle full osc-sync; **Env MULTI** behaviour + impl; load env cycle/curve/multi from `.v2p`; equal-power
   **pan law** (VAZ LUT 0x6df2c0 vs clone linear); the clone's pre-filter `tilt` (no VAZ equivalent — consider removing).
+
+## GAP ANALYSIS 2 (2026-06-11) — full feature diff via the named reader FUN_004d891c + string sweep
+Sources: `tools/vaz_oscread.c` (FUN_004d6c3c, the real reader), `tools/vaz_osc.c` (FUN_004d891c named reader
+= every patch property by NAME), DLL string sweep (`v2p_inspect.py kw`), clone `ParameterIDs.hpp` + DSP read
+path. Factory-usage %s from `v2p_trace2.py modusage` over the 259 readable patches.
+
+### A. Per-voice modulation slots the clone has NO parameter for (true DSP gaps, hurt preset fidelity)
+| VAZ slot | factory usage | clone |
+|---|---|---|
+| **Osc FM Source 2** (each osc has FM1+FM2+PWM; clone has FM1+WS only) | osc2 19%, osc1 6% | ❌ |
+| **Filter cutoff Mod Source 3** (VAZ = FM1/FM2/FM3 + RM; clone = 2 cutoff + 1 res) | **30%** | ❌ |
+| **Amp AM Source 2** (VAZ = AM1+AM2; clone = 1 amp-mod + pan) | **27%** | ❌ |
+
+### B. Clone HAS the DSP, but `loadV2P` doesn't map the `.v2p` value onto it (loading gaps)
+- **Mod Amp src/depth** (`e0480`→+0x2c0, `e0494`→+0x2c4 mod-dest slot 15) used by **22%** — clone has ma1/ma2 DSP
+  but presets don't populate it. Also unmapped: **osc2 FM/PWM mods**, **LFO2 rate-mod** (lfo2_rm), **lag**. (parseV2P
+  reads these bytes but discards them — only osc1 FM1/PWM, filter cut1/2/res, amp1, pan are mapped.)
+
+### C. Whole subsystems absent
+- **Step Sequencer** — VAZ has a full 16-step sequencer (Sequencer A + B, plus Control + Trigger sequencers,
+  patterns, song mode, swing, loop start/end, per-step pan). Strings: `TSequencer`, `Sequencer Pattern`, `Step 1..16`,
+  `knPan_01..16`, `*.vzs/.vzc/.vzd`. Clone has **none** (Arpeggiator IS implemented).
+- **Built-in FX** — `TFXChorus`/`TFXDelay`/`TFXReverb` are inside VAZ; clone has none (standalone VAZChorus/
+  VAZDelay/VAZReverb plugins exist in the monorepo but aren't integrated).
+
+### D. Minor
+- **Highpass Resonance** (+ HP-reso mod) — clone has hp_cutoff only. **Oversample** global toggle (`Oversample x2
+  below 50kHz`). Auto-load of `.v2p`-referenced multisamples by name (manual WAV/AIFF/FLAC load IS supported).
+
+### Verdict
+The clone's **core voice is faithful**, but VAZ's modulation matrix is **wider** than the clone's: each osc has 2 FM
+sources (clone 1), the filter has 3 cutoff mods (clone 2), the amp has 2 AM sources (clone 1) — and 22–30% of factory
+patches use those extra slots, so they silently drop modulation. Highest-value additions: osc-FM2, filter-cutoff-mod3,
+amp-AM2 params + DSP, then wire ma1/ma2 + osc2 mods through loadV2P. Sequencer + built-in FX are the big absent
+subsystems (likely out of scope for a voice clone).

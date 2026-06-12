@@ -120,7 +120,26 @@ def regionc_anchor(data):
 
 
 if __name__ == '__main__':
-    if sys.argv[1] == 'checkall':
+    if sys.argv[1] == 'modusage':
+        root = r'C:\Program Files (x86)\Steinberg\Vstplugins\VAZ Synths\VAZ 2010\Patches'
+        keys = ['fcut_m3src', 'amp_am2src', 'amp_am3src', 'fcut_m1src', 'fcut_m2src', 'freso_src',
+                'amp_am1src', 'osc1_fm2src', 'osc2_fm2src', 'e0480src', 'e04d4src']
+        import collections
+        cnt = collections.Counter(); tot = 0
+        for dp, dn, fn in os.walk(root):
+            for name in fn:
+                if not name.lower().endswith('.v2p'): continue
+                try:
+                    ver, out, ep, prst = parse(open(os.path.join(dp, name), 'rb').read())
+                except Exception:
+                    continue
+                tot += 1
+                for k in keys:
+                    if k in out and out[k][1] not in (0, 1): cnt[k] += 1   # 0/1 = none/off
+        print('patches:', tot)
+        for k in keys:
+            print('  %-12s used by %3d patches (%.0f%%)' % (k, cnt[k], 100.0*cnt[k]/max(1,tot)))
+    elif sys.argv[1] == 'checkall':
         root = r'C:\Program Files (x86)\Steinberg\Vstplugins\VAZ Synths\VAZ 2010\Patches'
         import collections
         bad = []; n_ok = 0; byver = collections.Counter()

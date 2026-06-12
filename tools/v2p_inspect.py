@@ -45,6 +45,27 @@ def search_bins():
             extra = ('(+%d more)' % (len(hits)-8)) if len(hits) > 8 else ''
             print('  ', t, '->', [hex(h) for h in hits[:8]], extra)
 
+def kw_strings(path, keywords, minlen=4):
+    """Extract printable ASCII strings from a binary and show ones matching keywords."""
+    import re
+    d = open(path, 'rb').read()
+    strs = re.findall(rb'[\x20-\x7e]{%d,}' % minlen, d)
+    seen = set()
+    hits = {k: [] for k in keywords}
+    for s in strs:
+        t = s.decode('latin1')
+        for k in keywords:
+            if k.lower() in t.lower() and t not in seen:
+                hits[k].append(t)
+    for k in keywords:
+        uniq = []
+        for t in hits[k]:
+            if t not in uniq: uniq.append(t)
+        print('### %s (%d)' % (k, len(uniq)))
+        for t in uniq[:40]:
+            print('    ', t)
+
+
 def pe_map(path, file_offsets):
     """Map file offsets -> VA using the PE section table."""
     import struct as st
@@ -79,7 +100,16 @@ def pe_map(path, file_offsets):
     return out
 
 if __name__ == '__main__':
-    if len(sys.argv) > 1 and sys.argv[1] == 'bins':
+    if len(sys.argv) > 1 and sys.argv[1] == 'kw':
+        kws = ['Arp', 'Sequenc', 'Step', 'Pattern', 'Swing', 'Unison', 'Glide', 'Portamento',
+               'LFO', 'Chorus', 'Delay', 'Reverb', 'Distort', 'Overdrive', 'Sync', 'Ring',
+               'Sample', 'Multisaw', 'Sub ', 'Noise', 'Velocity', 'Aftertouch', 'Wheel',
+               'Bend', 'Tempo', 'Modifier', 'Slew', 'Bandwidth', 'Crossfade', 'One Shot',
+               'No Trigger', 'Sample And Hold', 'Trig', 'Octave', 'Detune', 'Spread', 'Pan',
+               'Comb', 'Formant', 'Drive', 'Resonance', 'Keyboard', 'Mono', 'Legato', 'Hold',
+               'Mode', 'Source', 'Depth', 'Waveform', 'WaveShape']
+        kw_strings(r'tools\Vaz2010Core.dll', kws)
+    elif len(sys.argv) > 1 and sys.argv[1] == 'bins':
         search_bins()
     elif len(sys.argv) > 1 and sys.argv[1] == 'regions':
         import struct as st

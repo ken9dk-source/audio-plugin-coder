@@ -139,7 +139,16 @@ juce::AudioProcessorValueTreeState::ParameterLayout VAZCloneAudioProcessor::crea
     layout.add (pct (ParameterIDs::amp_level,   "Amp Level", 0.8f));   // Amplitude-Mod slot-1 depth = master volume
     layout.add (std::make_unique<AudioParameterChoice>(ParameterID { ParameterIDs::pan_mod_src, 1 }, "Pan Mod Src", modSrcs, 0));
     layout.add (pct (ParameterIDs::pan_mod_amt, "Pan Mod Depth", 0.0f));
-    for (auto* invId : { ParameterIDs::filt_env_amt_inv, ParameterIDs::lfo_amt_inv, ParameterIDs::res_mod_amt_inv, ParameterIDs::amp_mod_amt_inv, ParameterIDs::pan_mod_amt_inv, ParameterIDs::o1_fm_amt_inv, ParameterIDs::o2_fm_amt_inv, ParameterIDs::o1_ws_amt_inv, ParameterIDs::o2_ws_amt_inv, ParameterIDs::e2_mod_amt_inv, ParameterIDs::ma1_am_amt_inv, ParameterIDs::ma2_am_amt_inv })
+    // Extra VAZ mod slots: 2nd FM input per osc, 3rd filter-cutoff mod, 2nd amp AM source.
+    layout.add (std::make_unique<AudioParameterChoice>(ParameterID { ParameterIDs::o1_fm2_src, 1 }, "OSC1 FM2 Src", modSrcs, 0));
+    layout.add (pct (ParameterIDs::o1_fm2_amt, "OSC1 FM2 Depth", 0.0f));
+    layout.add (std::make_unique<AudioParameterChoice>(ParameterID { ParameterIDs::o2_fm2_src, 1 }, "OSC2 FM2 Src", modSrcs, 0));
+    layout.add (pct (ParameterIDs::o2_fm2_amt, "OSC2 FM2 Depth", 0.0f));
+    layout.add (std::make_unique<AudioParameterChoice>(ParameterID { ParameterIDs::cut_mod3_src, 1 }, "Cutoff Mod 3 Src", modSrcs, 0));
+    layout.add (pct (ParameterIDs::cut_mod3_amt, "Cutoff Mod 3 Depth", 0.0f));
+    layout.add (std::make_unique<AudioParameterChoice>(ParameterID { ParameterIDs::amp_mod2_src, 1 }, "Amp Mod 2 Src", modSrcs, 0));
+    layout.add (pct (ParameterIDs::amp_mod2_amt, "Amp Mod 2 Depth", 0.0f));
+    for (auto* invId : { ParameterIDs::filt_env_amt_inv, ParameterIDs::lfo_amt_inv, ParameterIDs::res_mod_amt_inv, ParameterIDs::amp_mod_amt_inv, ParameterIDs::pan_mod_amt_inv, ParameterIDs::o1_fm_amt_inv, ParameterIDs::o2_fm_amt_inv, ParameterIDs::o1_ws_amt_inv, ParameterIDs::o2_ws_amt_inv, ParameterIDs::e2_mod_amt_inv, ParameterIDs::ma1_am_amt_inv, ParameterIDs::ma2_am_amt_inv, ParameterIDs::o1_fm2_amt_inv, ParameterIDs::o2_fm2_amt_inv, ParameterIDs::cut_mod3_amt_inv, ParameterIDs::amp_mod2_amt_inv })
         layout.add (std::make_unique<AudioParameterBool>(ParameterID { invId, 1 }, juce::String (invId), false));
     layout.add (std::make_unique<AudioParameterBool>(ParameterID { ParameterIDs::osc_link, 1 }, "Osc Link", false));
     layout.add (std::make_unique<AudioParameterBool>(ParameterID { ParameterIDs::ma1_sq,   1 }, "Mod Amp 1 SQ", false));
@@ -273,6 +282,10 @@ void VAZCloneAudioProcessor::refreshVoiceParams()
     voiceParams.resSrc   = (int) f (ParameterIDs::res_mod_src);  voiceParams.resAmt  = f (ParameterIDs::res_mod_amt) * sgn (ParameterIDs::res_mod_amt_inv);
     voiceParams.ampSrc   = (int) f (ParameterIDs::amp_mod_src);  voiceParams.ampAmt  = f (ParameterIDs::amp_mod_amt) * sgn (ParameterIDs::amp_mod_amt_inv);
     voiceParams.panSrc   = (int) f (ParameterIDs::pan_mod_src);  voiceParams.panAmt  = f (ParameterIDs::pan_mod_amt) * sgn (ParameterIDs::pan_mod_amt_inv);
+    voiceParams.o1Fm2Src = (int) f (ParameterIDs::o1_fm2_src);   voiceParams.o1Fm2Amt = f (ParameterIDs::o1_fm2_amt) * sgn (ParameterIDs::o1_fm2_amt_inv);
+    voiceParams.o2Fm2Src = (int) f (ParameterIDs::o2_fm2_src);   voiceParams.o2Fm2Amt = f (ParameterIDs::o2_fm2_amt) * sgn (ParameterIDs::o2_fm2_amt_inv);
+    voiceParams.cutSrc3  = (int) f (ParameterIDs::cut_mod3_src); voiceParams.cutAmt3 = f (ParameterIDs::cut_mod3_amt) * sgn (ParameterIDs::cut_mod3_amt_inv);
+    voiceParams.amp2Src  = (int) f (ParameterIDs::amp_mod2_src); voiceParams.amp2Amt = f (ParameterIDs::amp_mod2_amt) * sgn (ParameterIDs::amp_mod2_amt_inv);
     voiceParams.ampLevel = f (ParameterIDs::amp_level);
     voiceParams.link     = f (ParameterIDs::osc_link) > 0.5f;
     voiceParams.e2ModSrc = (int) f (ParameterIDs::e2_mod_src);
@@ -318,12 +331,13 @@ struct V2PPatch
 {
     int ver = 0;
     int filterMode = 0, cutoff = 255, reso = 0, bandwidth = 0, hpCut = 0;
-    int fcut1s = 0, fcut1d = 0, fcut2s = 0, fcut2d = 0, fresS = 0, fresD = 0;
-    int am1s = 3, am3s = 0, am3d = 0, overdrive = 0;
+    int fcut1s = 0, fcut1d = 0, fcut2s = 0, fcut2d = 0, fcut3s = 0, fcut3d = 0, fresS = 0, fresD = 0;
+    int am1s = 3, am1d = 0, am2s = 0, am2d = 0, am3s = 0, am3d = 0, overdrive = 0;
     int e1a = 0, e1d = 0, e1s = 0, e1r = 0, e2a = 0, e2d = 0, e2s = 0, e2r = 0, e1mode = 0, e2mode = 0;
     int lfo1rate = 0, lfo2rate = 0, mono = 0;
     int o1wave = 0, o1shape = 0, o1tune = -2400, o2wave = 0, o2tune = -2400;
-    int o1fm1s = 0, o1fm1d = 0, o1pwms = 0, o1pwmd = 0;
+    int o1fm1s = 0, o1fm1d = 0, o1fm2s = 0, o1fm2d = 0, o1pwms = 0, o1pwmd = 0;
+    int o2fm1s = 0, o2fm1d = 0, o2fm2s = 0, o2fm2d = 0, o2pwms = 0, o2pwmd = 0;
     int noise = 0, o2level = 0, voiceMode = 0, portamento = 0, uniDetune = 0;
 };
 
@@ -380,12 +394,14 @@ static V2PPatch parseV2P (const juce::uint8* d, int n, int prst)
     p.o1tune = c.u32(); p.o1wave = c.u32(); p.o1shape = c.u32();
     if (v >= 200) c.byte();                            // df430
     p.o1fm1s = c.modsrc(v); p.o1fm1d = c.u32();        // osc1 FM1 src/depth
-    c.modsrc(v); c.u32();                              // osc1 FM2 src/depth
+    p.o1fm2s = c.modsrc(v); p.o1fm2d = c.u32();        // osc1 FM2 src/depth
     p.o1pwms = c.modsrc(v); p.o1pwmd = c.u32();        // osc1 PWM src/depth
     if (v < 0x69) c.strsample(); else { c.skipMsmp(); c.byte(); }   // osc1 sample (MSmp1)
     // osc2
     p.o2tune = c.u32(); p.o2wave = c.u32(); c.byte(); c.u32();      // osc2 tune, wave, osc1 sync, osc2 mod
-    c.modsrc(v); c.u32(); c.modsrc(v); c.u32(); c.modsrc(v); c.u32();   // osc2 FM1/FM2/PWM
+    p.o2fm1s = c.modsrc(v); p.o2fm1d = c.u32();        // osc2 FM1 src/depth
+    p.o2fm2s = c.modsrc(v); p.o2fm2d = c.u32();        // osc2 FM2 src/depth
+    p.o2pwms = c.modsrc(v); p.o2pwmd = c.u32();        // osc2 PWM src/depth
     if (v < 0x6a) c.strsample(); else { c.skipMsmp(); c.byte(); }   // osc2 sample (MSmp2)
     // filter / mixer / output (region C — anchored after MSmp2)
     if (v >= 200) c.u32();                             // dfd2c
@@ -398,10 +414,10 @@ static V2PPatch parseV2P (const juce::uint8* d, int n, int prst)
     if (v >= 200) p.hpCut = c.u32(); else p.hpCut = 0;
     p.fcut1s = c.modsrc(v); p.fcut1d = c.u32();
     p.fcut2s = c.modsrc(v); p.fcut2d = c.u32();
-    c.modsrc(v); c.u32();                              // cutoff mod 3
+    p.fcut3s = c.modsrc(v); p.fcut3d = c.u32();        // cutoff mod 3
     p.fresS = c.modsrc(v); p.fresD = c.u32();
-    p.am1s = c.modsrc(v); c.u32();                     // amp AM1
-    c.modsrc(v); c.u32();                              // amp AM2
+    p.am1s = c.modsrc(v); p.am1d = c.u32();            // amp AM1
+    p.am2s = c.modsrc(v); p.am2d = c.u32();            // amp AM2
     if (v >= 200) { p.am3s = c.modsrc(v); p.am3d = c.u32(); }   // amp AM3 / pan mod
     p.overdrive = c.u32();
     if (v >= 0x65) c.modsrc(v);                        // e04f4
@@ -425,6 +441,9 @@ bool VAZCloneAudioProcessor::loadV2P (const juce::MemoryBlock& mb)
     const V2PPatch p = parseV2P (d, n, prst);
     auto S  = [&](const char* id, float v){ if (auto* q = apvts.getParameter (id)) q->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, v)); };
     auto SC = [&](const char* id, int idx){ S (id, juce::jlimit (0, 21, idx) / 21.0f); };       // mod-source index → choice
+    // VAZ mod depths are SIGNED (FUN_004de75c stores |v| + a direction bit); map magnitude → depth, sign → invert toggle.
+    auto SD = [&](const char* amtId, const char* invId, int v){ S (amtId, std::abs (v) / 255.0f);
+                  if (auto* q = apvts.getParameter (invId)) q->setValueNotifyingHost (v < 0 ? 1.0f : 0.0f); };
     auto setTune = [&](int totalC, const char* oct, const char* coarse, const char* fine)
     {
         const int octSteps = juce::jlimit (-2, 2, (int) std::lround (totalC / 1200.0));
@@ -460,13 +479,20 @@ bool VAZCloneAudioProcessor::loadV2P (const juce::MemoryBlock& mb)
     S (ParameterIDs::o2_wave,     juce::jlimit (0, 4, p.o2wave) / 4.0f);
     setTune (p.o1tune + 2400, ParameterIDs::o1_octave, ParameterIDs::o1_coarse, ParameterIDs::o1_fine);
     setTune (p.o2tune + 2400, ParameterIDs::o2_octave, ParameterIDs::o2_coarse, ParameterIDs::o2_fine);
-    SC (ParameterIDs::cut_mod1_src, p.fcut1s); S (ParameterIDs::filt_env_amt, p.fcut1d / 255.0f);
-    SC (ParameterIDs::cut_mod2_src, p.fcut2s); S (ParameterIDs::lfo_amt,      p.fcut2d / 255.0f);
-    SC (ParameterIDs::res_mod_src,  p.fresS);  S (ParameterIDs::res_mod_amt,  p.fresD / 255.0f);
-    SC (ParameterIDs::amp_mod_src,  p.am1s);
-    SC (ParameterIDs::pan_mod_src,  p.am3s);   S (ParameterIDs::pan_mod_amt,  p.am3d / 255.0f);
-    SC (ParameterIDs::o1_fm_src,    p.o1fm1s); S (ParameterIDs::o1_fm_amt,    p.o1fm1d / 255.0f);
-    SC (ParameterIDs::o1_ws_src,    p.o1pwms); S (ParameterIDs::o1_ws_amt,    p.o1pwmd / 255.0f);
+    SC (ParameterIDs::cut_mod1_src, p.fcut1s); SD (ParameterIDs::filt_env_amt, ParameterIDs::filt_env_amt_inv, p.fcut1d);
+    SC (ParameterIDs::cut_mod2_src, p.fcut2s); SD (ParameterIDs::lfo_amt,      ParameterIDs::lfo_amt_inv,      p.fcut2d);
+    SC (ParameterIDs::res_mod_src,  p.fresS);  SD (ParameterIDs::res_mod_amt,  ParameterIDs::res_mod_amt_inv,  p.fresD);
+    SC (ParameterIDs::amp_mod_src,  p.am1s);   SD (ParameterIDs::amp_mod_amt,  ParameterIDs::amp_mod_amt_inv,  p.am1d);
+    SC (ParameterIDs::pan_mod_src,  p.am3s);   SD (ParameterIDs::pan_mod_amt,  ParameterIDs::pan_mod_amt_inv,  p.am3d);
+    SC (ParameterIDs::o1_fm_src,    p.o1fm1s); SD (ParameterIDs::o1_fm_amt,    ParameterIDs::o1_fm_amt_inv,    p.o1fm1d);
+    SC (ParameterIDs::o1_ws_src,    p.o1pwms); SD (ParameterIDs::o1_ws_amt,    ParameterIDs::o1_ws_amt_inv,    p.o1pwmd);
+    SC (ParameterIDs::o2_fm_src,    p.o2fm1s); SD (ParameterIDs::o2_fm_amt,    ParameterIDs::o2_fm_amt_inv,    p.o2fm1d);   // osc2 FM1 (was unmapped)
+    SC (ParameterIDs::o2_ws_src,    p.o2pwms); SD (ParameterIDs::o2_ws_amt,    ParameterIDs::o2_ws_amt_inv,    p.o2pwmd);   // osc2 PWM (was unmapped)
+    // Extra VAZ mod slots now loaded from the patch (osc FM2, filter cutoff mod 3, amp AM2).
+    SC (ParameterIDs::o1_fm2_src,   p.o1fm2s); SD (ParameterIDs::o1_fm2_amt,   ParameterIDs::o1_fm2_amt_inv,   p.o1fm2d);
+    SC (ParameterIDs::o2_fm2_src,   p.o2fm2s); SD (ParameterIDs::o2_fm2_amt,   ParameterIDs::o2_fm2_amt_inv,   p.o2fm2d);
+    SC (ParameterIDs::cut_mod3_src, p.fcut3s); SD (ParameterIDs::cut_mod3_amt, ParameterIDs::cut_mod3_amt_inv, p.fcut3d);
+    SC (ParameterIDs::amp_mod2_src, p.am2s);   SD (ParameterIDs::amp_mod2_amt, ParameterIDs::amp_mod2_amt_inv, p.am2d);
     // Env-mode bitfields (Multi=bit0, Reset=bit1, Cycle=bit2, Curve=bit3).
     const int em1 = p.e1mode, em2 = p.e2mode;
     S (ParameterIDs::e1_multi, (em1 & 1) ? 1.0f : 0.0f);  S (ParameterIDs::e1_reset, (em1 & 2) ? 1.0f : 0.0f);

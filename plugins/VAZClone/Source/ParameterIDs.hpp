@@ -99,6 +99,11 @@ namespace ParameterIDs
     constexpr auto cut_mod2_src = "cut_mod2_src";   // choice (same enum)
     constexpr auto res_mod_src  = "res_mod_src";    // choice (same enum)
     constexpr auto res_mod_amt  = "res_mod_amt";    // resonance mod DEPTH 0..1
+    // Extra VAZ modulation slots (VAZ: 2 FM/osc, 3 cutoff mods, 2 amp AM sources — used by 20-30% of factory patches)
+    constexpr auto o1_fm2_src   = "o1_fm2_src";   constexpr auto o1_fm2_amt   = "o1_fm2_amt";   constexpr auto o1_fm2_amt_inv   = "o1_fm2_amt_inv";   // Osc1 FM source 2
+    constexpr auto o2_fm2_src   = "o2_fm2_src";   constexpr auto o2_fm2_amt   = "o2_fm2_amt";   constexpr auto o2_fm2_amt_inv   = "o2_fm2_amt_inv";   // Osc2 FM source 2
+    constexpr auto cut_mod3_src = "cut_mod3_src"; constexpr auto cut_mod3_amt = "cut_mod3_amt"; constexpr auto cut_mod3_amt_inv = "cut_mod3_amt_inv"; // Filter cutoff mod 3
+    constexpr auto amp_mod2_src = "amp_mod2_src"; constexpr auto amp_mod2_amt = "amp_mod2_amt"; constexpr auto amp_mod2_amt_inv = "amp_mod2_amt_inv"; // Amp AM source 2
     // Mod Amplifiers 1 & 2 (VCAs: In × AM → routable mod source)
     constexpr auto ma1_in_src  = "ma1_in_src";  // choice: input source
     constexpr auto ma1_am_src  = "ma1_am_src";  // choice: amplitude-mod source

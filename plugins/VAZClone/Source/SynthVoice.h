@@ -66,6 +66,9 @@ struct VoiceParams
     float overdrive = 0.0f;                        // Overdrive knob → output cubic soft-clip (VAZ: post-filter, all modes)
     int   cutSrc1 = 0, cutSrc2 = 0, resSrc = 0, ampSrc = 0, panSrc = 0;
     float cutAmt1 = 0.0f, cutAmt2 = 0.0f, resAmt = 0.0f, ampAmt = 0.0f, panAmt = 0.0f, ampLevel = 0.8f;
+    // Extra VAZ mod slots: 2nd FM input per osc, 3rd filter-cutoff mod, 2nd amp AM source.
+    int   o1Fm2Src = 0, o2Fm2Src = 0, cutSrc3 = 0, amp2Src = 0;
+    float o1Fm2Amt = 0.0f, o2Fm2Amt = 0.0f, cutAmt3 = 0.0f, amp2Amt = 0.0f;
     float e2Atk = 0.0f, e2Dec = 0.3f, e2Sus = 1.0f, e2Rel = 0.2f;
     bool  e2Reset = false, e2Cycle = false, e2Curve = false;
     bool  e1Multi = false, e2Multi = false;        // Multi-trigger (re-attack env on a legato mono note)
@@ -191,6 +194,7 @@ public:
         const float o1g = p.o1Level, o2g = p.o2Level, ng = p.noise;
         const int   w1 = p.o1Wave,   w2 = p.o2Wave;
         const bool  fm1 = (std::abs (p.o1FmAmt) > 0.0001f), fm2 = (std::abs (p.o2FmAmt) > 0.0001f);
+        const bool  fm1b = (std::abs (p.o1Fm2Amt) > 0.0001f), fm2b = (std::abs (p.o2Fm2Amt) > 0.0001f);  // 2nd FM input/osc
         const bool  ws1 = (std::abs (p.o1WsAmt) > 0.0001f), ws2 = (std::abs (p.o2WsAmt) > 0.0001f);
         const double hpHzBase = 20.0 * std::pow (100.0, (double) p.hpNorm);   // +HP stage 20Hz..2kHz
 
@@ -216,6 +220,8 @@ public:
             double f1 = f1base, f2 = f2base;
             if (fm1) f1 *= std::pow (2.0, (double) mv (p.o1FmSrc, idx) * (double) p.o1FmAmt);   // ± up to 1 oct
             if (fm2) f2 *= std::pow (2.0, (double) mv (p.o2FmSrc, idx) * (double) p.o2FmAmt);
+            if (fm1b) f1 *= std::pow (2.0, (double) mv (p.o1Fm2Src, idx) * (double) p.o1Fm2Amt);  // Osc1 FM input 2
+            if (fm2b) f2 *= std::pow (2.0, (double) mv (p.o2Fm2Src, idx) * (double) p.o2Fm2Amt);  // Osc2 FM input 2
             if (p.link && fm1) f2 *= std::pow (2.0, (double) mv (p.o1FmSrc, idx) * (double) p.o1FmAmt);  // Link: Osc1 FM → Osc2
             double sh1 = p.o1Shape, sh2 = p.o2Shape;
             if (ws1) sh1 = juce::jlimit (0.0, 1.0, sh1 + (double) mv (p.o1WsSrc, idx) * (double) p.o1WsAmt);
@@ -238,7 +244,8 @@ public:
             s = tilt.process (s);
 
             // ── Per-voice FILTER (correct VAZ order: osc → filter → amp) ──
-            float coNorm = p.baseCut + p.cutAmt1 * mv (p.cutSrc1, idx) + p.cutAmt2 * mv (p.cutSrc2, idx);
+            float coNorm = p.baseCut + p.cutAmt1 * mv (p.cutSrc1, idx) + p.cutAmt2 * mv (p.cutSrc2, idx)
+                                     + p.cutAmt3 * mv (p.cutSrc3, idx);   // VAZ filter has 3 cutoff mod sources
             coNorm = juce::jlimit (0.0f, 1.0f, coNorm);
             const float m3 = p.resAmt * mv (p.resSrc, idx);
             float res = p.baseRes, auxV = p.fltAux; double hpHzI = hpHzBase;
@@ -258,6 +265,7 @@ public:
                 fs = 1.5 * od - 0.5 * od * od * od;          // cubic soft-clip, ≈ VAZ's x−x³ (unity slope at small signal)
             }
             if (std::abs (p.ampAmt) > 0.0001f) fs *= juce::jlimit (0.0, 2.0, 1.0 + (double) p.ampAmt * (double) mv (p.ampSrc, idx)); // tremolo (±)
+            if (std::abs (p.amp2Amt) > 0.0001f) fs *= juce::jlimit (0.0, 2.0, 1.0 + (double) p.amp2Amt * (double) mv (p.amp2Src, idx)); // 2nd amp AM (series VCA)
             const float vv = (float) fs * env1 * level * p.ampLevel * 0.6f;   // ampLevel = Amplitude-Mod slot-1 depth
             // ── Pan Modulation (per voice) — write stereo ──
             const double pan = (std::abs (p.panAmt) > 0.0001f) ? juce::jlimit (-1.0, 1.0, (double) p.panAmt * (double) mv (p.panSrc, idx)) : 0.0;
