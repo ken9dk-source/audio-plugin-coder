@@ -340,7 +340,8 @@ struct V2PPatch
     int o2fm1s = 0, o2fm1d = 0, o2fm2s = 0, o2fm2d = 0, o2pwms = 0, o2pwmd = 0;
     // Mod Amplifiers (VAZ voice render @0x4de…: MA1 = in×AM×depth +SQ; MA2 = in×AM, full depth)
     int ma1in = 0, ma1sq = 0, ma1amsrc = 0, ma1amamt = 0, ma2in = 0, ma2amsrc = 0;
-    int noise = 0, o2level = 0, voiceMode = 0, portamento = 0, uniDetune = 0;
+    int noise = 0, o1level = 255, o2level = 0, voiceMode = 0, portamento = 0, uniDetune = 0;
+    int mix1src = 0, mix1post = 0, mix2src = 0, mix2post = 0, mix3src = 0, mix3post = 0;
 };
 
 // Sequential cursor mirroring the VAZ stream primitives.
@@ -406,12 +407,11 @@ static V2PPatch parseV2P (const juce::uint8* d, int n, int prst)
     p.o2pwms = c.modsrc(v); p.o2pwmd = c.u32();        // osc2 PWM src/depth
     if (v < 0x6a) c.strsample(); else { c.skipMsmp(); c.byte(); }   // osc2 sample (MSmp2)
     // filter / mixer / output (region C — anchored after MSmp2)
-    if (v >= 200) c.u32();                             // dfd2c
-    p.noise = 0;
-    c.u32(); c.byte();                                 // dfd5c (mixer), dfd4c
-    if (v >= 200) c.u32();                             // dfde4
-    p.o2level = c.u32(); c.byte();                     // dfe28 (osc2 level), dfe18
-    c.u32(); p.noise = c.u32(); c.byte();              // dfeb0, dfef4 (noise), dfee4
+    if (v >= 200) p.mix1src = c.u32();                 // dfd2c = mixer ch1 source
+    p.o1level = c.u32(); p.mix1post = c.byte();        // dfd5c = ch1 level (osc1), dfd4c = ch1 pre/post
+    if (v >= 200) p.mix2src = c.u32();                 // dfde4 = mixer ch2 source
+    p.o2level = c.u32(); p.mix2post = c.byte();        // dfe28 = ch2 level (osc2), dfe18 = ch2 pre/post
+    p.mix3src = c.u32(); p.noise = c.u32(); p.mix3post = c.byte();  // dfeb0 = ch3 source, dfef4 = ch3 level (noise), dfee4 = ch3 pre/post
     p.filterMode = c.u32(); c.byte(); p.cutoff = c.u32(); p.reso = c.u32(); p.bandwidth = c.u32();
     if (v >= 200) p.hpCut = c.u32(); else p.hpCut = 0;
     p.fcut1s = c.modsrc(v); p.fcut1d = c.u32();
@@ -460,7 +460,14 @@ bool VAZCloneAudioProcessor::loadV2P (const juce::MemoryBlock& mb)
     S (ParameterIDs::resonance,   p.reso / 255.0f);
     S (ParameterIDs::overdrive,   p.overdrive / 255.0f);
     S (ParameterIDs::noise_level, p.noise / 255.0f);
+    S (ParameterIDs::o1_level,    p.o1level / 255.0f);   // osc1 level (mixer ch1) — was never loaded (stuck full)
     S (ParameterIDs::o2_level,    p.o2level / 255.0f);
+    S (ParameterIDs::mix1_post, p.mix1post != 0 ? 1.0f : 0.0f);   // VAZ pre/post flag: !=0 → bypass filter (post)
+    S (ParameterIDs::mix2_post, p.mix2post != 0 ? 1.0f : 0.0f);
+    S (ParameterIDs::mix3_post, p.mix3post != 0 ? 1.0f : 0.0f);
+    S (ParameterIDs::mix1_src,  juce::jlimit (0, 5, p.mix1src) / 5.0f);   // mixer source select (Osc/RingMod/Noise/…)
+    S (ParameterIDs::mix2_src,  juce::jlimit (0, 5, p.mix2src) / 5.0f);
+    S (ParameterIDs::mix3_src,  juce::jlimit (0, 5, p.mix3src) / 5.0f);   // 0=Noise 1=Osc3 2=RingMod (verified vs factory bank)
     S (ParameterIDs::voice_mode,  juce::jlimit (0, 2, p.voiceMode) / 2.0f);
     S (ParameterIDs::portamento,  p.portamento / 255.0f);
     S (ParameterIDs::uni_detune,  p.uniDetune / 255.0f);
