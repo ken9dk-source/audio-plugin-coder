@@ -348,6 +348,7 @@ struct V2PPatch
     int e2modsrc = 0, e2modamt = 0, e2moddest = 0;
     int noise = 0, o1level = 255, o2level = 0, voiceMode = 0, portamento = 0, uniDetune = 0;
     int mix1src = 0, mix1post = 0, mix2src = 0, mix2post = 0, mix3src = 0, mix3post = 0;
+    int bendRange = 2, uniVoices = 0;   // e0610 (1..24 st), e095c (2..16, v2.0 only; 0 = not present)
 };
 
 // Sequential cursor mirroring the VAZ stream primitives.
@@ -433,8 +434,9 @@ static V2PPatch parseV2P (const juce::uint8* d, int n, int prst)
     p.overdrive = c.u32();
     if (v >= 0x65) c.modsrc(v);                        // e04f4
     if (v >= 0x65) c.u32();                            // e0504
-    p.voiceMode = c.u32(); c.u32(); c.byte(); c.u32(); // e0530 (voice mode), e05f0, e0600, e0610
-    if (v >= 200) c.u32();                             // e095c
+    p.voiceMode = c.u32(); c.u32(); c.byte();          // e0530 (voice mode), e05f0, e0600
+    p.bendRange = c.u32();                             // e0610 (pitch-bend range, semitones)
+    if (v >= 200) p.uniVoices = c.u32();               // e095c (unison voice count, v2.0+)
     p.uniDetune = c.u32();                             // p2f4 (unison detune)
     if (v >= 200) c.u32();                             // p2f0
     p.portamento = c.u32();
@@ -480,6 +482,9 @@ bool VAZCloneAudioProcessor::loadV2P (const juce::MemoryBlock& mb)
     S (ParameterIDs::voice_mode,  juce::jlimit (0, 2, p.voiceMode) / 2.0f);
     S (ParameterIDs::portamento,  p.portamento / 255.0f);
     S (ParameterIDs::uni_detune,  p.uniDetune / 255.0f);
+    S (ParameterIDs::bend_range,  (juce::jlimit (1, 24, p.bendRange) - 1) / 23.0f);   // e0610: 1..24 st
+    if (p.uniVoices > 0)                                                              // e095c only present in v2.0 patches
+        S (ParameterIDs::uni_voices, (juce::jlimit (1, 16, p.uniVoices) - 1) / 15.0f);
     S (ParameterIDs::hp_cutoff,   p.hpCut / 255.0f);
     S (ParameterIDs::flt_aux,     p.bandwidth / 255.0f);
     S (ParameterIDs::e1_attack,   p.e1a / 425.0f);
