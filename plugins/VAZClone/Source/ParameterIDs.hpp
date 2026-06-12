@@ -61,6 +61,7 @@ namespace ParameterIDs
     constexpr auto ma1_am_amt_inv   = "ma1_am_amt_inv";
     constexpr auto ma2_am_amt_inv   = "ma2_am_amt_inv";
     constexpr auto osc_link    = "osc_link";    // bool: Osc1 FM input 1 → also Osc2
+    constexpr auto osc2_sync   = "osc2_sync";   // bool: hard-sync Osc2 to Osc1 (VAZ "Sync Target", independent of o2_wave)
     constexpr auto ma1_sq      = "ma1_sq";      // bool: Mod Amp 1 single-quadrant
     constexpr auto e2_mod_src  = "e2_mod_src";  // Env2 envelope-mod source
     constexpr auto e2_mod_amt  = "e2_mod_amt";  // Env2 envelope-mod depth

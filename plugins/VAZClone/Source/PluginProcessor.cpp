@@ -151,6 +151,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout VAZCloneAudioProcessor::crea
     for (auto* invId : { ParameterIDs::filt_env_amt_inv, ParameterIDs::lfo_amt_inv, ParameterIDs::res_mod_amt_inv, ParameterIDs::amp_mod_amt_inv, ParameterIDs::pan_mod_amt_inv, ParameterIDs::o1_fm_amt_inv, ParameterIDs::o2_fm_amt_inv, ParameterIDs::o1_ws_amt_inv, ParameterIDs::o2_ws_amt_inv, ParameterIDs::e2_mod_amt_inv, ParameterIDs::ma1_am_amt_inv, ParameterIDs::ma2_am_amt_inv, ParameterIDs::o1_fm2_amt_inv, ParameterIDs::o2_fm2_amt_inv, ParameterIDs::cut_mod3_amt_inv, ParameterIDs::amp_mod2_amt_inv })
         layout.add (std::make_unique<AudioParameterBool>(ParameterID { invId, 1 }, juce::String (invId), false));
     layout.add (std::make_unique<AudioParameterBool>(ParameterID { ParameterIDs::osc_link, 1 }, "Osc Link", false));
+    layout.add (std::make_unique<AudioParameterBool>(ParameterID { ParameterIDs::osc2_sync, 1 }, "Osc2 Sync", false));
     layout.add (std::make_unique<AudioParameterBool>(ParameterID { ParameterIDs::ma1_sq,   1 }, "Mod Amp 1 SQ", false));
     layout.add (std::make_unique<AudioParameterChoice>(ParameterID { ParameterIDs::e2_mod_src, 1 }, "Env2 Mod Src", modSrcs, 0));
     layout.add (pct (ParameterIDs::e2_mod_amt, "Env2 Mod Depth", 0.0f));
@@ -288,6 +289,7 @@ void VAZCloneAudioProcessor::refreshVoiceParams()
     voiceParams.amp2Src  = (int) f (ParameterIDs::amp_mod2_src); voiceParams.amp2Amt = f (ParameterIDs::amp_mod2_amt) * sgn (ParameterIDs::amp_mod2_amt_inv);
     voiceParams.ampLevel = f (ParameterIDs::amp_level);
     voiceParams.link     = f (ParameterIDs::osc_link) > 0.5f;
+    voiceParams.osc2Sync = f (ParameterIDs::osc2_sync) > 0.5f;
     voiceParams.e2ModSrc = (int) f (ParameterIDs::e2_mod_src);
     voiceParams.e2ModAmt = f (ParameterIDs::e2_mod_amt) * sgn (ParameterIDs::e2_mod_amt_inv);
     voiceParams.e2Dest   = (int) f (ParameterIDs::e2_dest);
@@ -337,7 +339,7 @@ struct V2PPatch
     int lfo1rate = 0, lfo2rate = 0, mono = 0;
     int lfo1wave = 0, lfo1shape = 127, lfo1trig = 0;   // LFO1 waveform / waveshape / retrigger
     int lfo2trig = 0, lfo2mode = 0;                    // LFO2 retrigger + mode (normal/S&H, no full wave in VAZ)
-    int o1wave = 0, o1shape = 0, o1tune = -2400, o2wave = 0, o2tune = -2400;
+    int o1wave = 0, o1shape = 0, o1tune = -2400, o2wave = 0, o2tune = -2400, o2shape = 0, o1sync = 0;
     int o1fm1s = 0, o1fm1d = 0, o1fm2s = 0, o1fm2d = 0, o1pwms = 0, o1pwmd = 0;
     int o2fm1s = 0, o2fm1d = 0, o2fm2s = 0, o2fm2d = 0, o2pwms = 0, o2pwmd = 0;
     // Mod Amplifiers (VAZ voice render @0x4de…: MA1 = in×AM×depth +SQ; MA2 = in×AM, full depth)
@@ -406,7 +408,7 @@ static V2PPatch parseV2P (const juce::uint8* d, int n, int prst)
     p.o1pwms = c.modsrc(v); p.o1pwmd = c.u32();        // osc1 PWM src/depth
     if (v < 0x69) c.strsample(); else { c.skipMsmp(); c.byte(); }   // osc1 sample (MSmp1)
     // osc2
-    p.o2tune = c.u32(); p.o2wave = c.u32(); c.byte(); c.u32();      // osc2 tune, wave, osc1 sync, osc2 mod
+    p.o2tune = c.u32(); p.o2wave = c.u32(); p.o1sync = c.byte(); p.o2shape = c.u32();   // osc2 tune, wave, osc-sync target, osc2 shape (df918/+0x1f0)
     p.o2fm1s = c.modsrc(v); p.o2fm1d = c.u32();        // osc2 FM1 src/depth
     p.o2fm2s = c.modsrc(v); p.o2fm2d = c.u32();        // osc2 FM2 src/depth
     p.o2pwms = c.modsrc(v); p.o2pwmd = c.u32();        // osc2 PWM src/depth
@@ -496,6 +498,8 @@ bool VAZCloneAudioProcessor::loadV2P (const juce::MemoryBlock& mb)
     S (ParameterIDs::o1_wave,     juce::jlimit (0, 4, p.o1wave) / 4.0f);
     S (ParameterIDs::o1_shape,    juce::jlimit (0, 255, p.o1shape) / 255.0f);
     S (ParameterIDs::o2_wave,     juce::jlimit (0, 4, p.o2wave) / 4.0f);
+    S (ParameterIDs::o2_shape,    juce::jlimit (0, 255, p.o2shape) / 255.0f);   // osc2 waveshape ("Modifier" df918/+0x1f0) — was never loaded
+    S (ParameterIDs::osc2_sync,   p.o1sync != 0 ? 1.0f : 0.0f);                 // osc-sync target (df908) — independent of o2_wave
     setTune (p.o1tune + 2400, ParameterIDs::o1_octave, ParameterIDs::o1_coarse, ParameterIDs::o1_fine);
     setTune (p.o2tune + 2400, ParameterIDs::o2_octave, ParameterIDs::o2_coarse, ParameterIDs::o2_fine);
     SC (ParameterIDs::cut_mod1_src, p.fcut1s); SD (ParameterIDs::filt_env_amt, ParameterIDs::filt_env_amt_inv, p.fcut1d);

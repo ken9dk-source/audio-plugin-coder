@@ -51,6 +51,7 @@ struct VoiceParams
     int   mix1Src = 0, mix2Src = 0, mix3Src = 0;   // Mixer channel sources (default Osc1/Osc2/Noise)
     bool  mix1Post = false, mix2Post = false, mix3Post = false;   // Post = bypass the filter
     bool  link = false;                            // Osc1 FM input 1 → also modulate Osc2
+    bool  osc2Sync = false;                         // hard-sync Osc2 to Osc1 (independent of o2Wave)
     int   o1FmSrc = 0, o2FmSrc = 0;                // Frequency Modulation source (mod-bus index)
     float o1FmAmt = 0.0f, o2FmAmt = 0.0f;          // FM depth
     int   o1WsSrc = 0, o2WsSrc = 0;                // Waveshape Modulation source
@@ -228,7 +229,7 @@ public:
             if (ws2) sh2 = juce::jlimit (0.0, 1.0, sh2 + (double) mv (p.o2WsSrc, idx) * (double) p.o2WsAmt);
 
             const double o1 = osc1.next (f1, w1, sh1);
-            if (w2 == 4 && osc1.mainWrapped) osc2.hardReset();        // OSC2 hard Sync to OSC1
+            if ((w2 == 4 || p.osc2Sync) && osc1.mainWrapped) osc2.hardReset();   // OSC2 hard Sync to OSC1 (wave==Sync or the Sync flag)
             const double o2 = osc2.next (f2, w2, sh2);                // always advance (needed for Ring Mod)
             lastO1 = (float) o1; lastO2 = (float) o2;                 // expose to the mod matrix (Osc1/Osc2 sources)
             const double rm = o1 * o2;                                // Ring Modulator = Osc1 × Osc2
