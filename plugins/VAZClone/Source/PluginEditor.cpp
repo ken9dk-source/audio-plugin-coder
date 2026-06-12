@@ -44,6 +44,22 @@ VAZCloneAudioProcessorEditor::VAZCloneAudioProcessorEditor (VAZCloneAudioProcess
                             { p->beginChangeGesture(); p->setValueNotifyingHost (p->getDefaultValue()); p->endChangeGesture(); }
                     complete (juce::var());
                 })
+            // ── Window resize from a JS corner handle (the WebView2 native window covers JUCE's
+            //    lightweight corner resizer, so the grip is driven from the web UI instead). ──
+            .withNativeFunction (juce::Identifier ("getEditorSize"),
+                [this] (const juce::Array<juce::var>&, juce::WebBrowserComponent::NativeFunctionCompletion complete)
+                { juce::Array<juce::var> r; r.add (getWidth()); r.add (getHeight()); complete (juce::var (r)); })
+            .withNativeFunction (juce::Identifier ("setEditorSize"),
+                [this] (const juce::Array<juce::var>& args, juce::WebBrowserComponent::NativeFunctionCompletion complete)
+                {
+                    if (args.size() > 0)
+                    {
+                        const double aspect = 726.0 / 572.0;
+                        const int w = juce::jlimit (545, 1815, (int) args[0]);
+                        setSize (w, juce::roundToInt (w / aspect));   // keep the fixed aspect ratio
+                    }
+                    complete (juce::var());
+                })
             .withResourceProvider ([this] (const auto& url) { return getResource (url); })
             .withOptionsFrom (o1OctaveRelay)
             .withOptionsFrom (o2OctaveRelay)

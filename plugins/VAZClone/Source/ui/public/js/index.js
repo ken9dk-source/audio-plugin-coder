@@ -152,6 +152,36 @@ function bindSigns() {
   });
 }
 
+// Bottom-right resize grip. The WebView2 native window covers JUCE's corner resizer, so we draw
+// our own grip and drive the editor size through native functions. screenX is screen-relative (so
+// it's stable while the panel rescales mid-drag); editor px ≈ logical CSS px on the Chromium WebView.
+function setupResize() {
+  let getSize, setSize;
+  try { getSize = Juce.getNativeFunction("getEditorSize"); setSize = Juce.getNativeFunction("setEditorSize"); }
+  catch (e) { return; }                               // plain browser preview — no backend
+  const grip = document.createElement("div");
+  grip.title = "Drag to resize";
+  grip.style.cssText = "position:fixed;right:1px;bottom:1px;width:16px;height:16px;cursor:nwse-resize;" +
+    "z-index:99999;background:repeating-linear-gradient(135deg,transparent 0,transparent 2px," +
+    "rgba(255,255,255,0.4) 2px,rgba(255,255,255,0.4) 3px);";
+  document.body.appendChild(grip);
+  let dragging = false, startX = 0, startW = 0;
+  grip.addEventListener("pointerdown", async (e) => {
+    dragging = true;
+    try { grip.setPointerCapture(e.pointerId); } catch (err) {}
+    startX = e.screenX;
+    try { const s = await getSize(); startW = s[0]; } catch (err) { startW = window.innerWidth; }
+    e.preventDefault();
+  });
+  grip.addEventListener("pointermove", (e) => {
+    if (!dragging) return;
+    try { setSize(Math.round(startW + (e.screenX - startX))); } catch (err) {}
+  });
+  const end = (e) => { dragging = false; try { grip.releasePointerCapture(e.pointerId); } catch (err) {} };
+  grip.addEventListener("pointerup", end);
+  grip.addEventListener("pointercancel", end);
+}
+
 function init() {
   populateModSources();                               // fill mod-source dropdowns before binding
   document.querySelectorAll("[data-toggle]").forEach((el) => {
@@ -183,6 +213,8 @@ function init() {
   };
   window.addEventListener("resize", fitWindow);
   fitWindow();
+
+  setupResize();                                      // bottom-right drag-to-resize grip
 }
 
 // Modules load async via the resource provider — DOMContentLoaded may already have fired

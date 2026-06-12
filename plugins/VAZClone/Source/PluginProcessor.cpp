@@ -338,6 +338,8 @@ struct V2PPatch
     int o1wave = 0, o1shape = 0, o1tune = -2400, o2wave = 0, o2tune = -2400;
     int o1fm1s = 0, o1fm1d = 0, o1fm2s = 0, o1fm2d = 0, o1pwms = 0, o1pwmd = 0;
     int o2fm1s = 0, o2fm1d = 0, o2fm2s = 0, o2fm2d = 0, o2pwms = 0, o2pwmd = 0;
+    // Mod Amplifiers (VAZ voice render @0x4de…: MA1 = in×AM×depth +SQ; MA2 = in×AM, full depth)
+    int ma1in = 0, ma1sq = 0, ma1amsrc = 0, ma1amamt = 0, ma2in = 0, ma2amsrc = 0;
     int noise = 0, o2level = 0, voiceMode = 0, portamento = 0, uniDetune = 0;
 };
 
@@ -384,12 +386,12 @@ static V2PPatch parseV2P (const juce::uint8* d, int n, int prst)
     c.byte();                                          // env2 df140
     if (v >= 0x6c) p.e2mode = c.byte(); else p.e2mode = 0;   // env2 def50 (PS+91 @ v201)
     if (v >= 0xca) c.byte();
-    if (v >= 200) { c.modsrc(v); c.u32(); c.u32(); }   // +0x178 block
-    c.modsrc(v);                                       // e0460
-    if (v >= 200) c.byte();                            // e0470
-    c.modsrc(v); c.u32();                              // e0480, e0494
-    if (v >= 200) c.modsrc(v);                         // e04d4
-    if (v >= 200) c.modsrc(v);                         // e04e4
+    if (v >= 200) { c.modsrc(v); c.u32(); c.u32(); }   // +0x178 block (osc1 modifier mod)
+    p.ma1in = c.modsrc(v);                             // e0460 = Mod Amp 1 input source
+    if (v >= 200) p.ma1sq = c.byte();                  // e0470 = Mod Amp 1 single-quadrant flag
+    p.ma1amsrc = c.modsrc(v); p.ma1amamt = c.u32();    // e0480/e0494 = Mod Amp 1 AM source / depth
+    if (v >= 200) p.ma2in    = c.modsrc(v);            // e04d4 = Mod Amp 2 input source
+    if (v >= 200) p.ma2amsrc = c.modsrc(v);            // e04e4 = Mod Amp 2 AM source
     // osc1
     p.o1tune = c.u32(); p.o1wave = c.u32(); p.o1shape = c.u32();
     if (v >= 200) c.byte();                            // df430
@@ -493,6 +495,12 @@ bool VAZCloneAudioProcessor::loadV2P (const juce::MemoryBlock& mb)
     SC (ParameterIDs::o2_fm2_src,   p.o2fm2s); SD (ParameterIDs::o2_fm2_amt,   ParameterIDs::o2_fm2_amt_inv,   p.o2fm2d);
     SC (ParameterIDs::cut_mod3_src, p.fcut3s); SD (ParameterIDs::cut_mod3_amt, ParameterIDs::cut_mod3_amt_inv, p.fcut3d);
     SC (ParameterIDs::amp_mod2_src, p.am2s);   SD (ParameterIDs::amp_mod2_amt, ParameterIDs::amp_mod2_amt_inv, p.am2d);
+    // Mod Amplifiers 1 & 2 (VCAs that feed the mod bus) — now loaded from the patch.
+    SC (ParameterIDs::ma1_in_src, p.ma1in);    SC (ParameterIDs::ma1_am_src, p.ma1amsrc);
+    SD (ParameterIDs::ma1_am_amt, ParameterIDs::ma1_am_amt_inv, p.ma1amamt);
+    S  (ParameterIDs::ma1_sq, p.ma1sq > 0 ? 1.0f : 0.0f);
+    SC (ParameterIDs::ma2_in_src, p.ma2in);    SC (ParameterIDs::ma2_am_src, p.ma2amsrc);
+    S  (ParameterIDs::ma2_am_amt, 1.0f);       // VAZ Mod Amp 2 = input × AM at full depth (no depth control)
     // Env-mode bitfields (Multi=bit0, Reset=bit1, Cycle=bit2, Curve=bit3).
     const int em1 = p.e1mode, em2 = p.e2mode;
     S (ParameterIDs::e1_multi, (em1 & 1) ? 1.0f : 0.0f);  S (ParameterIDs::e1_reset, (em1 & 2) ? 1.0f : 0.0f);
