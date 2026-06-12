@@ -336,6 +336,7 @@ struct V2PPatch
     int e1a = 0, e1d = 0, e1s = 0, e1r = 0, e2a = 0, e2d = 0, e2s = 0, e2r = 0, e1mode = 0, e2mode = 0;
     int lfo1rate = 0, lfo2rate = 0, mono = 0;
     int lfo1wave = 0, lfo1shape = 127, lfo1trig = 0;   // LFO1 waveform / waveshape / retrigger
+    int lfo2trig = 0, lfo2mode = 0;                    // LFO2 retrigger + mode (normal/S&H, no full wave in VAZ)
     int o1wave = 0, o1shape = 0, o1tune = -2400, o2wave = 0, o2tune = -2400;
     int o1fm1s = 0, o1fm1d = 0, o1fm2s = 0, o1fm2d = 0, o1pwms = 0, o1pwmd = 0;
     int o2fm1s = 0, o2fm1d = 0, o2fm2s = 0, o2fm2d = 0, o2pwms = 0, o2pwmd = 0;
@@ -375,8 +376,9 @@ static V2PPatch parseV2P (const juce::uint8* d, int n, int prst)
     if (v >= 0xc9) c.u32();                            // +0xe0
     p.lfo2rate = c.u32();                              // lfo2 rate
     if (v >= 200) { c.modsrc(v); c.u32(); }            // lfo2 trig src + depth
-    c.byte();                                          // lfo2 retrig
-    if (v >= 200) c.u32(); else c.byte();              // lfo2 S&H
+    p.lfo2trig = c.byte();                             // lfo2 retrigger
+    if (v >= 200) p.lfo2mode = c.u32();                // v2.0: LFO2 waveform/mode (+0xd0, same LUT as LFO1)
+    else          p.lfo2mode = (c.byte() != 0) ? 6 : 0;   // v1xx: S&H bool → 6 (S&H+Lag) / 0 (plain tri; VAZ's Delay is a separate param the clone bundles into +Delay waves)
     c.u32(); c.u32(); c.byte();                        // lfo2 delay, lfo3 wave, lfo3 +0x10c
     // env1
     if (v < 0x6b) { p.e1a = c.u32(); p.e1d = c.u32(); p.e1s = c.u32(); p.e1r = c.u32(); c.byte(); c.byte(); }
@@ -489,6 +491,8 @@ bool VAZCloneAudioProcessor::loadV2P (const juce::MemoryBlock& mb)
     S (ParameterIDs::lfo_wave,    juce::jlimit (0, 7, p.lfo1wave) / 7.0f);   // LFO1 waveform (8 choices)
     S (ParameterIDs::lfo_shape,   p.lfo1shape / 255.0f);
     S (ParameterIDs::lfo_trig,    p.lfo1trig != 0 ? 1.0f : 0.0f);
+    S (ParameterIDs::lfo2_wave,   juce::jlimit (0, 7, p.lfo2mode) / 7.0f);   // LFO2: normal/S&H (VAZ has no full LFO2 wave)
+    S (ParameterIDs::lfo2_trig,   p.lfo2trig != 0 ? 1.0f : 0.0f);
     S (ParameterIDs::o1_wave,     juce::jlimit (0, 4, p.o1wave) / 4.0f);
     S (ParameterIDs::o1_shape,    juce::jlimit (0, 255, p.o1shape) / 255.0f);
     S (ParameterIDs::o2_wave,     juce::jlimit (0, 4, p.o2wave) / 4.0f);
