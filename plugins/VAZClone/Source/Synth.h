@@ -5,6 +5,7 @@
 #include "VAZTypeR.h"   // bit-exact VAZ Type-R (cubic 4-pole integrator cascade, self-oscillating)
 #include "VAZTypeK.h"   // bit-exact VAZ Type-K (Sallen-Key, distorted self-oscillating resonance)
 #include "VAZTypeD.h"   // bit-exact VAZ Type-D (state-variable / Chamberlin SVF)
+#include "VAZTypeC.h"   // bit-exact VAZ Type-C (2P/4P resonant cascade + Separation, reuses R tables)
 
 // ============================================================================
 // VAZClone synthesis engine — Phase A: band-limited oscillators + amp envelope.
@@ -393,13 +394,14 @@ struct VAZMultiFilter
     VAZTypeR  typeR;                                      // engine R (bit-exact cubic cascade)
     VAZTypeK  typeK;                                      // engine K (bit-exact Sallen-Key)
     VAZTypeD  typeD;                                      // engine D (bit-exact state-variable)
+    VAZTypeC  typeC;                                      // engine C (bit-exact cascade + Separation)
     double a_ic1=0, a_ic2=0, c1_1=0, c1_2=0, c2_1=0, c2_2=0;
     double d_lp=0, d_bp=0, d2_lp=0, d2_bp=0;
     double k_s[4]={0,0,0,0}, k_hpX=0, k_hpY=0;
     double comb[4096]={0}; int combIdx=0; double combLP=0;
     double hpX=0, hpY=0;
 
-    void prepare (double s) noexcept { sr = s; ladderR.prepare (s); typeA.prepare (s); typeR.prepare (s); typeK.prepare (s); typeD.prepare (s); reset(); }
+    void prepare (double s) noexcept { sr = s; ladderR.prepare (s); typeA.prepare (s); typeR.prepare (s); typeK.prepare (s); typeD.prepare (s); typeC.prepare (s); reset(); }
     void reset() noexcept
     {
         a_ic1=a_ic2=c1_1=c1_2=c2_1=c2_2=0; d_lp=d_bp=d2_lp=d2_bp=0;
@@ -480,13 +482,10 @@ struct VAZMultiFilter
                     out=(tap==1?hp:tap==2?bp:lp);
                 }
             } break;
-            case 2: {                                                    // C cascade + soft saturation, Separation
-                const double g=std::tan (M_PI*fc/sr), k=juce::jlimit (0.1,2.0,2.0-1.9*reso);
-                double lp,bp,hp; svf (x,g,k,c1_1,c1_2,lp,bp,hp);
-                if (poles==4) {                                          // 2nd-stage cutoff offset by Separation (aux)
-                    const double g2=std::tan (M_PI*juce::jlimit (20.0,sr*0.49, fc*(0.25+1.5*aux))/sr);
-                    double lp2,bp2,hp2; svf (soft (lp),g2,k,c2_1,c2_2,lp2,bp2,hp2); out=lp2;
-                } else out=soft (lp);
+            case 2: {                                                    // C = BIT-EXACT cascade (reuses R biquad) + Separation
+                // closing one-pole coef is indexed by +0x274 (hp_cutoff) — recover its 0..1 value from hpHz.
+                const double hpNorm = std::log (juce::jlimit (20.0, sr*0.45, hpHz) / 20.0) / std::log (100.0);
+                out = typeC.process (poles, x, fc, reso, aux, hpNorm);   // poles 2/4; aux = Separation
             } break;
             case 3: {                                                    // D state-variable
                 if (!hpLP && tap==1) {                                   // D-HP → BIT-EXACT (the only factory D mode), validated 2.9 dB
@@ -513,8 +512,8 @@ struct VAZMultiFilter
             } break;
             default: out=typeR.process (poles, x, fc, reso, hpHz); break;  // R: BIT-EXACT cubic cascade (+ own post-HP)
         }
-        // engines R and K do their own exact integer highpass; others use the float post-HP
-        if (usesHP && engine!=5 && engine!=4) { const double rc=1.0/(2.0*M_PI*juce::jlimit (20.0,sr*0.45,hpHz)), dt=1.0/sr, a=rc/(rc+dt);
+        // engines R, K and C do their own exact integer closing stage; others use the float post-HP
+        if (usesHP && engine!=5 && engine!=4 && engine!=2) { const double rc=1.0/(2.0*M_PI*juce::jlimit (20.0,sr*0.45,hpHz)), dt=1.0/sr, a=rc/(rc+dt);
                       const double y=a*(hpY+out-hpX); hpX=out; hpY=y; out=y; }
         return out;
     }
