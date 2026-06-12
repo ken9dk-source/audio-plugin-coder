@@ -344,6 +344,8 @@ struct V2PPatch
     int o2fm1s = 0, o2fm1d = 0, o2fm2s = 0, o2fm2d = 0, o2pwms = 0, o2pwmd = 0;
     // Mod Amplifiers (VAZ voice render @0x4de…: MA1 = in×AM×depth +SQ; MA2 = in×AM, full depth)
     int ma1in = 0, ma1sq = 0, ma1amsrc = 0, ma1amamt = 0, ma2in = 0, ma2amsrc = 0;
+    // Env2 segment modulation (the +0x174 block, v2.0): source × amount → which env2 segments (dest bitfield)
+    int e2modsrc = 0, e2modamt = 0, e2moddest = 0;
     int noise = 0, o1level = 255, o2level = 0, voiceMode = 0, portamento = 0, uniDetune = 0;
     int mix1src = 0, mix1post = 0, mix2src = 0, mix2post = 0, mix3src = 0, mix3post = 0;
 };
@@ -394,7 +396,7 @@ static V2PPatch parseV2P (const juce::uint8* d, int n, int prst)
     c.byte();                                          // env2 df140
     if (v >= 0x6c) p.e2mode = c.byte(); else p.e2mode = 0;   // env2 def50 (PS+91 @ v201)
     if (v >= 0xca) c.byte();
-    if (v >= 200) { c.modsrc(v); c.u32(); c.u32(); }   // +0x178 block (osc1 modifier mod)
+    if (v >= 200) { p.e2modsrc = c.modsrc(v); p.e2modamt = c.u32(); p.e2moddest = c.u32(); }   // +0x174 block = Env2 segment modulation (src / amount / dest)
     p.ma1in = c.modsrc(v);                             // e0460 = Mod Amp 1 input source
     if (v >= 200) p.ma1sq = c.byte();                  // e0470 = Mod Amp 1 single-quadrant flag
     p.ma1amsrc = c.modsrc(v); p.ma1amamt = c.u32();    // e0480/e0494 = Mod Amp 1 AM source / depth
@@ -522,6 +524,15 @@ bool VAZCloneAudioProcessor::loadV2P (const juce::MemoryBlock& mb)
     S  (ParameterIDs::ma1_sq, p.ma1sq > 0 ? 1.0f : 0.0f);
     SC (ParameterIDs::ma2_in_src, p.ma2in);    SC (ParameterIDs::ma2_am_src, p.ma2amsrc);
     S  (ParameterIDs::ma2_am_amt, 1.0f);       // VAZ Mod Amp 2 = input × AM at full depth (no depth control)
+    // Env2 segment modulation (VAZ +0x174 block): source × amount → env2 segment. The dest is a bitfield
+    // (DAT_0052a8e4 maps the dropdown index → bit set: bit0=Attack bit1=Decay bit2=Release); the clone's
+    // single e2_dest picks the first set segment. (v2.0 feature — earlier mislabeled as the "osc1 modifier".)
+    static const int e2bf[8] = { 1, 2, 4, 3, 5, 6, 7, 9 };
+    const int bf = e2bf[juce::jlimit (0, 7, p.e2moddest)];
+    const int e2dest = (p.e2modsrc == 0 || p.e2modamt == 0) ? 4 : (bf & 1) ? 0 : (bf & 2) ? 1 : (bf & 4) ? 3 : 4;
+    SC (ParameterIDs::e2_mod_src, p.e2modsrc);
+    SD (ParameterIDs::e2_mod_amt, ParameterIDs::e2_mod_amt_inv, p.e2modamt);
+    S  (ParameterIDs::e2_dest,    e2dest / 4.0f);
     // Env-mode bitfields (Multi=bit0, Reset=bit1, Cycle=bit2, Curve=bit3).
     const int em1 = p.e1mode, em2 = p.e2mode;
     S (ParameterIDs::e1_multi, (em1 & 1) ? 1.0f : 0.0f);  S (ParameterIDs::e1_reset, (em1 & 2) ? 1.0f : 0.0f);

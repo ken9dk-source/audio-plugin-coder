@@ -490,9 +490,9 @@ struct VAZMultiFilter
                 out = typeC.process (poles, x, fc, reso, aux, hpNorm);   // poles 2/4; aux = Separation
             } break;
             case 3: {                                                    // D state-variable
-                if (!hpLP && tap==1) {                                   // D-HP → BIT-EXACT (the only factory D mode), validated 2.9 dB
-                    out = typeD.process (1, x, fc, reso);
-                } else {                                                 // D-LP/BP/HP+LP (no factory patch) → float Chamberlin
+                if (!hpLP) {                                             // D LP/HP/BP → BIT-EXACT typeD (all 3 taps; D-HP validated 2.9 dB)
+                    out = typeD.process (tap, x, fc, reso);
+                } else {                                                 // D HP+LP (Separation, 2-section cascade) → float Chamberlin (no factory patch)
                     const double fcd=juce::jlimit (20.0,sr/6.0,fc);
                     const double f=2.0*std::sin (M_PI*fcd/sr), q=juce::jlimit (0.08,1.0,1.0-0.9*reso);
                     d_lp+=f*d_bp; const double hp=x-d_lp-q*d_bp; d_bp+=f*hp; d_bp=soft (d_bp);

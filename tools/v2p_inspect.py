@@ -100,7 +100,18 @@ def pe_map(path, file_offsets):
     return out
 
 if __name__ == '__main__':
-    if len(sys.argv) > 1 and sys.argv[1] == 'kw':
+    if len(sys.argv) > 1 and sys.argv[1] == 'readva':
+        import struct as st
+        va = int(sys.argv[2], 0); n = int(sys.argv[3]) if len(sys.argv) > 3 else 8
+        d = open(r'tools\Vaz2010Core.dll', 'rb').read()
+        # PE map: DATA section VA 0x127000 RawPtr 0x125e00 (imagebase 0x400000)
+        rva = va - 0x400000
+        fo = rva - 0x127000 + 0x125e00
+        print('VA 0x%x -> fileoff 0x%x' % (va, fo))
+        for i in range(n):
+            v = st.unpack_from('<i', d, fo + i*4)[0]
+            print('  [%d] = %d (0x%x)' % (i, v, v & 0xffffffff))
+    elif len(sys.argv) > 1 and sys.argv[1] == 'kw':
         kws = ['Arp', 'Sequenc', 'Step', 'Pattern', 'Swing', 'Unison', 'Glide', 'Portamento',
                'LFO', 'Chorus', 'Delay', 'Reverb', 'Distort', 'Overdrive', 'Sync', 'Ring',
                'Sample', 'Multisaw', 'Sub ', 'Noise', 'Velocity', 'Aftertouch', 'Wheel',
