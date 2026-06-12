@@ -6,6 +6,7 @@
 #include "VAZTypeK.h"   // bit-exact VAZ Type-K (Sallen-Key, distorted self-oscillating resonance)
 #include "VAZTypeD.h"   // bit-exact VAZ Type-D (state-variable / Chamberlin SVF)
 #include "VAZTypeC.h"   // bit-exact VAZ Type-C (2P/4P resonant cascade + Separation, reuses R tables)
+#include "VAZTypeB.h"   // bit-exact VAZ Type-A/B taps (A-HP/BP + B-LP/BP/HP, reuses A biquad/tables)
 
 // ============================================================================
 // VAZClone synthesis engine — Phase A: band-limited oscillators + amp envelope.
@@ -395,13 +396,14 @@ struct VAZMultiFilter
     VAZTypeK  typeK;                                      // engine K (bit-exact Sallen-Key)
     VAZTypeD  typeD;                                      // engine D (bit-exact state-variable)
     VAZTypeC  typeC;                                      // engine C (bit-exact cascade + Separation)
+    VAZTypeB  typeB;                                      // engines A-HP/BP + B (bit-exact A/B biquad taps)
     double a_ic1=0, a_ic2=0, c1_1=0, c1_2=0, c2_1=0, c2_2=0;
     double d_lp=0, d_bp=0, d2_lp=0, d2_bp=0;
     double k_s[4]={0,0,0,0}, k_hpX=0, k_hpY=0;
     double comb[4096]={0}; int combIdx=0; double combLP=0;
     double hpX=0, hpY=0;
 
-    void prepare (double s) noexcept { sr = s; ladderR.prepare (s); typeA.prepare (s); typeR.prepare (s); typeK.prepare (s); typeD.prepare (s); typeC.prepare (s); reset(); }
+    void prepare (double s) noexcept { sr = s; ladderR.prepare (s); typeA.prepare (s); typeR.prepare (s); typeK.prepare (s); typeD.prepare (s); typeC.prepare (s); typeB.prepare (s); reset(); }
     void reset() noexcept
     {
         a_ic1=a_ic2=c1_1=c1_2=c2_1=c2_2=0; d_lp=d_bp=d2_lp=d2_bp=0;
@@ -473,13 +475,13 @@ struct VAZMultiFilter
             case 0: case 1: {                                            // A / B
                 if (engine==0 && tap==0) {                               // A Lowpass → BIT-EXACT integer engine
                     out = typeA.process (x, fc, reso);                   // (the exact VAZ recurrence + dumped coefs)
-                } else {                                                 // B, or A HP/BP → clean SVF approximation
-                    const double g=std::tan (M_PI*fc/sr);
-                    double k=2.0-1.98*reso; if (engine==1) k*=(0.4+1.2*aux);
-                    // Type A/B do NOT self-oscillate (CHM: only K/R do); cap the SVF peak ≈1/k at ~18 dB.
-                    k=juce::jlimit (0.12,2.0,k);
-                    double lp,bp,hp; svf (x,g,k,a_ic1,a_ic2,lp,bp,hp);
-                    out=(tap==1?hp:tap==2?bp:lp);
+                } else {                                                 // A HP/BP + all of B → BIT-EXACT A/B taps
+                    const int vazTap     = (tap==0) ? 0 : (tap==1) ? 2 : 1;        // clone LP/HP/BP → VAZ LP/HP/BP (0/2/1)
+                    const int mixReso255 = (int) std::lround (juce::jlimit (0.0,1.0,reso) * 255.0);
+                    const int rowReso255 = (engine==1)                            // B: resonance row = 0xff − Bandwidth
+                                         ? 255 - (int) std::lround (juce::jlimit (0.0,1.0,aux) * 255.0)
+                                         : mixReso255;                            // A HP/BP: row = Resonance
+                    out = typeB.process (vazTap, x, fc, mixReso255, rowReso255);
                 }
             } break;
             case 2: {                                                    // C = BIT-EXACT cascade (reuses R biquad) + Separation
