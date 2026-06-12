@@ -335,6 +335,7 @@ struct V2PPatch
     int am1s = 3, am1d = 0, am2s = 0, am2d = 0, am3s = 0, am3d = 0, overdrive = 0;
     int e1a = 0, e1d = 0, e1s = 0, e1r = 0, e2a = 0, e2d = 0, e2s = 0, e2r = 0, e1mode = 0, e2mode = 0;
     int lfo1rate = 0, lfo2rate = 0, mono = 0;
+    int lfo1wave = 0, lfo1shape = 127, lfo1trig = 0;   // LFO1 waveform / waveshape / retrigger
     int o1wave = 0, o1shape = 0, o1tune = -2400, o2wave = 0, o2tune = -2400;
     int o1fm1s = 0, o1fm1d = 0, o1fm2s = 0, o1fm2d = 0, o1pwms = 0, o1pwmd = 0;
     int o2fm1s = 0, o2fm1d = 0, o2fm2s = 0, o2fm2d = 0, o2pwms = 0, o2pwmd = 0;
@@ -367,7 +368,9 @@ static V2PPatch parseV2P (const juce::uint8* d, int n, int prst)
     if (v >= 0x6d) c.u32();                            // voice_count
     if (v >= 0xc9) c.byte();                           // mono
     if (v >= 0xc9) c.u32();                            // +0x94
-    p.lfo1rate = c.u32(); c.u32(); c.u32(); c.byte();  // lfo1: rate, wave, waveshape, retrig
+    p.lfo1rate = c.u32();
+    { int w = c.u32(); if (v < 200) w = (w == 1) ? 4 : 0; p.lfo1wave = w; }   // lfo1 wave (ver<200: 1→Pulse else Saw)
+    p.lfo1shape = c.u32(); p.lfo1trig = c.byte();      // lfo1 waveshape, retrigger
     if (v >= 0xc9) c.byte();                            // ded84
     if (v >= 0xc9) c.u32();                            // +0xe0
     p.lfo2rate = c.u32();                              // lfo2 rate
@@ -483,6 +486,9 @@ bool VAZCloneAudioProcessor::loadV2P (const juce::MemoryBlock& mb)
     S (ParameterIDs::e2_release,  p.e2r / 425.0f);
     S (ParameterIDs::lfo_rate,    p.lfo1rate / 255.0f);
     S (ParameterIDs::lfo2_rate,   p.lfo2rate / 255.0f);
+    S (ParameterIDs::lfo_wave,    juce::jlimit (0, 7, p.lfo1wave) / 7.0f);   // LFO1 waveform (8 choices)
+    S (ParameterIDs::lfo_shape,   p.lfo1shape / 255.0f);
+    S (ParameterIDs::lfo_trig,    p.lfo1trig != 0 ? 1.0f : 0.0f);
     S (ParameterIDs::o1_wave,     juce::jlimit (0, 4, p.o1wave) / 4.0f);
     S (ParameterIDs::o1_shape,    juce::jlimit (0, 255, p.o1shape) / 255.0f);
     S (ParameterIDs::o2_wave,     juce::jlimit (0, 4, p.o2wave) / 4.0f);
