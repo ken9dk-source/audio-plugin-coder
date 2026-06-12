@@ -225,11 +225,13 @@ struct ModLFO
     double phase = 0.0, inc = 0.0, sr = 44100.0;
     float  shCur = 0.0f, shTgt = 0.0f;       // sample & hold current/target
     double fade = 1.0;                        // +Delay fade-in envelope (0..1)
+    double delaySec = 0.0; bool delaySet = false;  // LFO2: dedicated Delay (+0xd8) drives the fade time
     bool   trigOn = false;
     juce::Random rng;
 
     void setRate (double hz, double s) noexcept { sr = (s > 0.0 ? s : 44100.0); inc = hz / sr; }
     void setTrig (bool t) noexcept { trigOn = t; }
+    void setDelay (double sec) noexcept { delaySec = sec; delaySet = true; }   // LFO2 Delay knob (seconds)
     void trigger() noexcept { if (trigOn) phase = 0.0; fade = 0.0; }   // note-on: reset cycle (if Trig) + restart fade
 
     static double tri (double p) noexcept { return 1.0 - 4.0 * std::abs (p - 0.5); }
@@ -259,7 +261,9 @@ struct ModLFO
             shCur += (float) ((shTgt - shCur) * c);
         }
         if (wave == 1 || wave == 2 || wave == 3 || wave == 5 || wave == 7) {   // +Delay fade-in
-            fade += 1.0 / ((0.001 + shape * shape * 4.0) * sr); if (fade > 1.0) fade = 1.0; v *= fade;
+            // LFO2 fades over its dedicated Delay param; LFO1 (no Delay field) falls back to WaveShape.
+            const double dsec = delaySet ? delaySec : (0.001 + shape * shape * 4.0);
+            fade += 1.0 / (juce::jmax (0.0002, dsec) * sr); if (fade > 1.0) fade = 1.0; v *= fade;
         }
         return v;
     }

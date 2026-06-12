@@ -87,6 +87,7 @@ namespace ParameterIDs
     constexpr auto lfo3_wave   = "lfo3_wave";       // LFO3 wave: Tri/Sine
     constexpr auto lfo_shape   = "lfo_shape";       // LFO1 variation (morph/fade/lag) 0..1
     constexpr auto lfo2_shape  = "lfo2_shape";      // LFO2 variation 0..1
+    constexpr auto lfo2_delay  = "lfo2_delay";      // LFO2 Delay = fade-in time for the +Delay waves (.v2p +0xd8) 0..1
     constexpr auto lfo_trig    = "lfo_trig";        // LFO1 retrigger on note
     constexpr auto lfo2_trig   = "lfo2_trig";       // LFO2 retrigger on note
     constexpr auto lfo_sync    = "lfo_sync";        // LFO1 tempo-sync on/off

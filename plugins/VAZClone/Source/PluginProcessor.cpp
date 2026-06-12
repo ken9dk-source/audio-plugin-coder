@@ -103,6 +103,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout VAZCloneAudioProcessor::crea
     layout.add (std::make_unique<AudioParameterChoice>(ParameterID { ParameterIDs::lfo3_wave, 1 }, "LFO3 Wave", StringArray { "Tri", "Sine" }, 0));
     layout.add (pct (ParameterIDs::lfo_shape,  "LFO1 Shape", 0.5f));
     layout.add (pct (ParameterIDs::lfo2_shape, "LFO2 Shape", 0.5f));
+    layout.add (pct (ParameterIDs::lfo2_delay, "LFO2 Delay", 0.0f));   // fade-in time for the +Delay waveforms
     layout.add (std::make_unique<AudioParameterBool>(ParameterID { ParameterIDs::lfo_trig, 1 },  "LFO1 Trig", false));
     layout.add (std::make_unique<AudioParameterBool>(ParameterID { ParameterIDs::lfo2_trig, 1 }, "LFO2 Trig", false));
     const StringArray lfoPeriods { "1/32T","1/32","1/16T","1/16","1/8T","1/8","1/4T","1/4",
@@ -338,7 +339,7 @@ struct V2PPatch
     int e1a = 0, e1d = 0, e1s = 0, e1r = 0, e2a = 0, e2d = 0, e2s = 0, e2r = 0, e1mode = 0, e2mode = 0;
     int lfo1rate = 0, lfo2rate = 0, mono = 0;
     int lfo1wave = 0, lfo1shape = 127, lfo1trig = 0;   // LFO1 waveform / waveshape / retrigger
-    int lfo2trig = 0, lfo2mode = 0;                    // LFO2 retrigger + mode (normal/S&H, no full wave in VAZ)
+    int lfo2trig = 0, lfo2mode = 0, lfo2delay = 0;     // LFO2 retrigger + mode (normal/S&H) + Delay fade-in time (+0xd8)
     int o1wave = 0, o1shape = 0, o1tune = -2400, o2wave = 0, o2tune = -2400, o2shape = 0, o1sync = 0;
     int o1fm1s = 0, o1fm1d = 0, o1fm2s = 0, o1fm2d = 0, o1pwms = 0, o1pwmd = 0;
     int o2fm1s = 0, o2fm1d = 0, o2fm2s = 0, o2fm2d = 0, o2pwms = 0, o2pwmd = 0;
@@ -384,7 +385,7 @@ static V2PPatch parseV2P (const juce::uint8* d, int n, int prst)
     p.lfo2trig = c.byte();                             // lfo2 retrigger
     if (v >= 200) p.lfo2mode = c.u32();                // v2.0: LFO2 waveform/mode (+0xd0, same LUT as LFO1)
     else          p.lfo2mode = (c.byte() != 0) ? 6 : 0;   // v1xx: S&H bool → 6 (S&H+Lag) / 0 (plain tri; VAZ's Delay is a separate param the clone bundles into +Delay waves)
-    c.u32(); c.u32(); c.byte();                        // lfo2 delay, lfo3 wave, lfo3 +0x10c
+    p.lfo2delay = c.u32(); c.u32(); c.byte();          // lfo2 delay (+0xd8), lfo3 wave, lfo3 +0x10c
     // env1
     if (v < 0x6b) { p.e1a = c.u32(); p.e1d = c.u32(); p.e1s = c.u32(); p.e1r = c.u32(); c.byte(); c.byte(); }
     else          { p.e1a = c.u32(); p.e1d = c.u32(); p.e1s = c.u32(); p.e1r = c.u32(); c.byte(); }
@@ -502,6 +503,7 @@ bool VAZCloneAudioProcessor::loadV2P (const juce::MemoryBlock& mb)
     S (ParameterIDs::lfo_trig,    p.lfo1trig != 0 ? 1.0f : 0.0f);
     S (ParameterIDs::lfo2_wave,   juce::jlimit (0, 7, p.lfo2mode) / 7.0f);   // LFO2: normal/S&H (VAZ has no full LFO2 wave)
     S (ParameterIDs::lfo2_trig,   p.lfo2trig != 0 ? 1.0f : 0.0f);
+    S (ParameterIDs::lfo2_delay,  p.lfo2delay / 255.0f);                     // LFO2 Delay fade-in time
     S (ParameterIDs::o1_wave,     juce::jlimit (0, 4, p.o1wave) / 4.0f);
     S (ParameterIDs::o1_shape,    juce::jlimit (0, 255, p.o1shape) / 255.0f);
     S (ParameterIDs::o2_wave,     juce::jlimit (0, 4, p.o2wave) / 4.0f);
@@ -866,6 +868,10 @@ void VAZCloneAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
     modLfo .setRate (lfoRate (ParameterIDs::lfo_rate,  ParameterIDs::lfo_sync,  ParameterIDs::lfo_period),  currentSampleRate);
     const double lfo2Hz = lfoRate (ParameterIDs::lfo2_rate, ParameterIDs::lfo2_sync, ParameterIDs::lfo2_period);
     modLfo2.setRate (lfo2Hz, currentSampleRate);
+    {   // LFO2 Delay (+0xd8): drives the fade-in time of the +Delay waveforms (was wrongly taken from WaveShape).
+        const double dN = apvts.getRawParameterValue (ParameterIDs::lfo2_delay)->load();   // 0..1
+        modLfo2.setDelay (dN * dN * 4.0);   // → 0..4 s (≈1 s at the bank's common value 127); time-curve approximate
+    }
     const int   lfo2RmSrc = (int) apvts.getRawParameterValue (ParameterIDs::lfo2_rm_src)->load();
     const float lfo2RmAmt = apvts.getRawParameterValue (ParameterIDs::lfo2_rm_amt)->load();
     modLfo3.setRate (0.05 + std::pow (apvts.getRawParameterValue (ParameterIDs::lfo3_rate)->load(), 2.0f) * 20.0, currentSampleRate);
