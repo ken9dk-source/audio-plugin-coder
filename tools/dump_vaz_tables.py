@@ -49,7 +49,8 @@ TABLES = [('curve_0x5445e0', 0x5445e0, 15360),
 # the stage-0 decrement const DAT_006dc0bc dumped from 0x6dc0bc.
 ENVTABLES = [('env_rate_006db7e8', 0x6db7e8, 720),
              ('env_susc_006dc0bc', 0x6dc0bc, 264),
-             ('lfo3_rate_006dc4c0', 0x6dc4c0, 256)]   # LFO3 rate table: phase increment per 0..174 selector
+             ('lfo3_rate_006dc4c0', 0x6dc4c0, 256),   # LFO3 rate table: phase increment per 0..174 selector
+             ('dcblock_006df6c4',   0x6df6c4, 4)]      # output DC-block leak coef (R' = 1 + val/2^32)
 
 def main():
     os.makedirs(OUT, exist_ok=True)

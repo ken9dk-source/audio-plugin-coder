@@ -116,6 +116,7 @@ public:
         amp.setSampleRate (sr > 0.0 ? sr : 44100.0);
         filt.prepare (sr > 0.0 ? sr : 44100.0);
         env2.setSampleRate (sr > 0.0 ? sr : 44100.0);
+        dcR = 1.0 - 4.41 / (sr > 0.0 ? sr : 44100.0);   // output DC-block: VAZ DAT_006df6c4 = 0.9999 @44.1k, SR-scaled
     }
 
     void startNote (int midiNote, float velocity, juce::SynthesiserSound*, int) override
@@ -258,6 +259,14 @@ public:
             const double cutHz = juce::jlimit (8.0, (double) p.nyq, std::exp (10.24 * (double) coNorm));
             filt.setParams (cutHz, (double) res, (double) auxV, hpHzI, (double) p.fltDrive);
             double fs = filt.process (s) + postSum;          // Post channels mixed in after the filter
+            {   // VAZ per-voice DC-block (output stage @0x4dbddc:1642-1646): leaky differentiator
+                // y = R·y + x − x[-1], R = DAT_006df6c4 = 0.9999 @44.1k (≈0.7 Hz HP), SR-scaled. Removes DC so the
+                // cubic soft-clip below stays symmetric on asymmetric signals (narrow pulse / extreme PWM); flat
+                // in-band. (VAZ averages in +0x1a4 first, but that source is a filter-mod accumulator of unclear
+                // audio relevance — omitted to avoid an uncertain HF rolloff.)
+                dcY = dcR * dcY + fs - dcX;  dcX = fs;
+                fs = dcY;
+            }
             // VAZ output stage (Core.dll voice render @0x4dbddc:1647-1681), post-filter, ALL modes, ALWAYS ON.
             // Exact shape: drive the signal by 256/(256−od) (the +0x2b4 gain law, 1×..256× = 0..48 dB), hard-limit
             // to the cubic's monotonic peak ±1/√3 (VAZ's ±0xd105e8 clamp), then the cubic soft-clip x−x³, with
@@ -311,6 +320,7 @@ private:
     VAZEnv    amp;
     VAZMultiFilter filt;          // per-voice filter
     VAZEnv    env2;               // per-voice filter envelope
+    double    dcX = 0.0, dcY = 0.0, dcR = 0.9999;   // output DC-block (one-pole HP) state + coef (VAZ 0.9999 @44.1k)
     double    voiceKeyTrack = 0.0;
     float     voiceVel = 1.0f;
     float     lastO1 = 0.0f, lastO2 = 0.0f;

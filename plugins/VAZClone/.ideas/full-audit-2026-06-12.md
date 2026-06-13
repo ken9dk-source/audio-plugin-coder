@@ -96,9 +96,9 @@ affected patch loses *one* modulation lane; the rest of the patch is correct.
   gain law @vaz_prims.c:3007, 1×..256× = 0..48 dB) → hard-limit to the cubic's monotonic peak **±1/√3** (VAZ's
   `±0xd105e8` clamp) → cubic **`x−x³`** → ×amp VCA, **always on**. Ported into `VAZVoice` (per-voice, pre-VCA,
   matching VAZ) with a 1/(2√3) input anchor. **BUG found+fixed:** the clone was running *two* overdrive stages —
-  a per-voice cubic AND a master-bus `tanh` — so od>0 double-saturated; the master tanh is removed. (Remaining
-  sub-item: VAZ's per-voice DC-block one-pole HP `DAT_006df6c4` before the clip — minor, only matters for
-  DC-heavy pulse/PWM patches; not yet ported.)
+  a per-voice cubic AND a master-bus `tanh` — so od>0 double-saturated; the master tanh is removed. The
+  per-voice **DC-block** one-pole HP before the clip is now ported too (commit after, `DAT_006df6c4 = −0.0001`
+  → R'=0.9999 ≈ 0.7 Hz, SR-scaled; flat in-band, −77 dB at DC) so asymmetric pulse/PWM signals clip symmetrically.
 - **Envelope** — ✅ **BIT-EXACT now (2026-06-13, commit 41bf408).** VAZ's env is a one-pole INTEGER ADSR
   (`vaz_big.c @0x4dbddc:384-443`); its per-sample rate coefs were dumped from the live BSS (`DAT_006db7e8`/
   `006db818`/`006dc0c0`) into `VAZEnvTables.h`. `VAZEnv` rewritten as the exact integer machine, SR-independent,
