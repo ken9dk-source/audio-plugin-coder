@@ -13,10 +13,12 @@ VAZCloneAudioProcessor::VAZCloneAudioProcessor()
     synth.addSound (new VAZSound());
     // Detune positions spread WIDE across the first voices so Unison (which uses the first few
     // voices) always gets an obvious chorus, while Poly gets consistent per-voice analog drift.
-    static const double spread[16] = { -1.0, 1.0, -0.5, 0.5, -0.75, 0.75, -0.25, 0.25,
-                                        -0.9, 0.9, -0.6, 0.6, -0.35, 0.35, -0.12, 0.12 };
+    static const double spread[32] = { -1.0, 1.0, -0.5, 0.5, -0.75, 0.75, -0.25, 0.25,
+                                        -0.9, 0.9, -0.6, 0.6, -0.35, 0.35, -0.12, 0.12,
+                                        -0.82, 0.82, -0.45, 0.45, -0.68, 0.68, -0.20, 0.20,
+                                        -0.95, 0.95, -0.55, 0.55, -0.30, 0.30, -0.07, 0.07 };
     for (int i = 0; i < kNumVoices; ++i)
-        synth.addVoice (new VAZVoice (voiceParams, spread[i % 16]));
+        synth.addVoice (new VAZVoice (voiceParams, spread[i % 32]));
     sampleFormatMgr.registerBasicFormats();          // WAV/AIFF/FLAC for the sample oscillator
     voiceParams.osc1Sample = &osc1SampleData;        // stable ptrs (contents swapped under the callback lock)
     voiceParams.osc2Sample = &osc2SampleData;
@@ -180,7 +182,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout VAZCloneAudioProcessor::crea
     layout.add (boolp (ParameterIDs::porta_exp, "Portamento Exp"));
     layout.add (std::make_unique<AudioParameterBool> (ParameterID { ParameterIDs::porta_auto, 1 }, "Portamento Auto", true));
     layout.add (pct (ParameterIDs::bend_range, "Bend Range", 1.0f / 23.0f));   // ≈ 2 semitones
-    layout.add (pct (ParameterIDs::uni_voices, "Unison Voices", 3.0f / 15.0f)); // ≈ 4 voices
+    layout.add (pct (ParameterIDs::uni_voices, "Unison Voices", 3.0f / 31.0f)); // ≈ 4 voices (range 1..32)
     layout.add (std::make_unique<AudioParameterBool>  (ParameterID { ParameterIDs::arp_on,  1 }, "Arp On", false));
     layout.add (std::make_unique<AudioParameterChoice>(ParameterID { ParameterIDs::arp_mode,1 }, "Arp Mode", StringArray { "Up","Down","Up&Down","Random" }, 0));
     layout.add (std::make_unique<AudioParameterChoice>(ParameterID { ParameterIDs::arp_rate,1 }, "Arp Rate", StringArray { "1/4","1/8","1/8T","1/16","1/16T","1/32" }, 3));
@@ -489,7 +491,7 @@ bool VAZCloneAudioProcessor::loadV2P (const juce::MemoryBlock& mb)
     S (ParameterIDs::uni_detune,  p.uniDetune / 255.0f);
     S (ParameterIDs::bend_range,  (juce::jlimit (1, 24, p.bendRange) - 1) / 23.0f);   // e0610: 1..24 st
     if (p.uniVoices > 0)                                                              // e095c only present in v2.0 patches
-        S (ParameterIDs::uni_voices, (juce::jlimit (1, 16, p.uniVoices) - 1) / 15.0f);
+        S (ParameterIDs::uni_voices, (juce::jlimit (1, 32, p.uniVoices) - 1) / 31.0f);
     S (ParameterIDs::hp_cutoff,   p.hpCut / 255.0f);
     S (ParameterIDs::flt_aux,     p.bandwidth / 255.0f);
     S (ParameterIDs::e1_attack,   p.e1a / 425.0f);
@@ -680,7 +682,7 @@ void VAZCloneAudioProcessor::processArp (const juce::MidiBuffer& in, juce::MidiB
                                          double bpm, bool hold, int mode, int rate, int octs)
 {
     const bool arpUni  = apvts.getRawParameterValue (ParameterIDs::voice_mode)->load() > 1.5f;   // Unison → each arp step plays N detuned voices
-    const int  arpUniN = arpUni ? juce::jlimit (1, 16, (int) std::lround (1.0 + 15.0 * apvts.getRawParameterValue (ParameterIDs::uni_voices)->load())) : 1;
+    const int  arpUniN = arpUni ? juce::jlimit (1, 32, (int) std::lround (1.0 + 31.0 * apvts.getRawParameterValue (ParameterIDs::uni_voices)->load())) : 1;
     for (const auto meta : in)                                  // 1) update held-note set
     {
         const auto m = meta.getMessage();
@@ -809,7 +811,7 @@ void VAZCloneAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
     }
     else if (vmode == 2)                                        // ── UNISON: N detuned voices/note ──
     {
-        const int uniVoices = juce::jlimit (1, 16, (int) std::lround (1.0 + 15.0 * apvts.getRawParameterValue (ParameterIDs::uni_voices)->load()));
+        const int uniVoices = juce::jlimit (1, 32, (int) std::lround (1.0 + 31.0 * apvts.getRawParameterValue (ParameterIDs::uni_voices)->load()));
         for (const auto meta : midi)
         {
             const auto m = meta.getMessage(); const int sp = meta.samplePosition;

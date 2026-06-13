@@ -153,6 +153,21 @@ function bindSigns() {
   });
 }
 
+// Number-input box (UniVce / Bend) bound to a continuous param: shown value = round(lo + span·norm).
+// Type a value + Enter, or scroll the wheel over the box to nudge it (like VAZ's value picker).
+function bindNumber(el, paramId, lo, hi) {
+  if (!el) return;
+  let state; try { state = Juce.getSliderState(paramId); } catch (e) { state = null; }
+  if (!state) return;
+  const span = hi - lo;
+  const fromParam = () => { el.value = Math.round(lo + span * state.getNormalisedValue()); };
+  if (state.valueChangedEvent && state.valueChangedEvent.addListener) state.valueChangedEvent.addListener(fromParam);
+  fromParam();
+  const setN = (n) => { n = Math.max(lo, Math.min(hi, n)); state.setNormalisedValue((n - lo) / span); el.value = n; };
+  el.addEventListener("change", () => { const n = parseInt(el.value, 10); if (isNaN(n)) fromParam(); else setN(n); });
+  el.addEventListener("wheel", (e) => { e.preventDefault(); setN((parseInt(el.value, 10) || lo) + (e.deltaY < 0 ? 1 : -1)); }, { passive: false });
+}
+
 // Bottom-right resize grip. The WebView2 native window covers JUCE's corner resizer, so we draw
 // our own grip and drive the editor size through native functions. screenX is screen-relative (so
 // it's stable while the panel rescales mid-drag); editor px ≈ logical CSS px on the Chromium WebView.
@@ -200,6 +215,8 @@ function init() {
   bindButtonGroup('[data-og="o1t"]', "o1_octave");  // octave buttons OSC1
   bindButtonGroup('[data-og="o2t"]', "o2_octave");  // octave buttons OSC2
   bindRadioGroup('input[data-vm]', "voice_mode");   // Mono/Poly/Unison radios
+  bindNumber(document.getElementById("univInput"), "uni_voices", 1, 32);  // Unison Voices 1..32 (VAZ range)
+  bindNumber(document.getElementById("bendInput"), "bend_range", 1, 24);  // Pitch-bend range 1..24 st
 
   // host control→param mapping (Ableton "Configure" / automation): report the control under the mouse
   try {

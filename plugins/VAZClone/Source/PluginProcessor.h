@@ -73,7 +73,7 @@ private:
 
     VoiceParams voiceParams;          // declared before synth → outlives the voices that ref it
     VAZSynth synth;
-    static constexpr int kNumVoices = 24;
+    static constexpr int kNumVoices = 32;   // matches VAZ's 32-voice pool (Unison up to 32)
 
     // VAZ multimode filter: 6 engines (A/B/C/D/K/R) + Comb, topologies reverse-engineered
     // from Core.dll. Dispatched by the 22-entry mode dropdown. No cutoff smoothing → instant env.

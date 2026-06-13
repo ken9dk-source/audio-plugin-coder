@@ -620,7 +620,7 @@ body {
     <div class="row"><span class="lbl">Portamento</span><button class="gbtn on" data-toggle="porta_auto">Auto</button><button class="gbtn" data-toggle="porta_exp">Exp</button></div>
     <div class="slider" data-param="portamento"><div class="thumb" style="left:30%;"></div></div>
     <div class="row"><span class="lbl">UniVce</span><input class="num" value="4" id="univInput"><span class="lbl">Bend</span><input class="num" value="2" style="width:18px;" id="bendInput"></div>
-    <div class="row"><span class="lbl">Voices</span><input class="num" value="24" style="width:18px;"><span class="lbl">Midi</span><input class="num" value="1" style="width:16px;"></div>
+    <div class="row"><span class="lbl">Voices</span><input class="num" value="32" style="width:18px;"><span class="lbl">Midi</span><input class="num" value="1" style="width:16px;"></div>
     <div class="row" style="gap:1px;"><button class="gbtn" style="font-size:11px;">♩</button><button class="gbtn" style="font-size:9px;">♫♫</button><button class="gbtn" data-toggle="arp_on">Arp</button><button class="gbtn" data-toggle="arp_hold">Hold</button></div>
     <div class="row" style="gap:2px;">
       <select class="dd-field" style="width:50px;" data-combo="arp_mode"><option>Up</option><option>Down</option><option>Up&amp;Down</option><option>Random</option></select>
@@ -734,6 +734,7 @@ function _initWave(dispId,osc){try{var p=getNativeFunction('getSampleName')(osc)
 function _initWaves(tries){try{if(window.__JUCE__&&window.__JUCE__.backend){_initWave('o1WaveDisp',0);_initWave('o2WaveDisp',1);return;}}catch(e){}if(tries>0)setTimeout(function(){_initWaves(tries-1);},300);}
 _initWaves(12);
 </script>
+
 
 
 
@@ -1625,6 +1626,21 @@ function bindSigns() {
   });
 }
 
+// Number-input box (UniVce / Bend) bound to a continuous param: shown value = round(lo + span·norm).
+// Type a value + Enter, or scroll the wheel over the box to nudge it (like VAZ's value picker).
+function bindNumber(el, paramId, lo, hi) {
+  if (!el) return;
+  let state; try { state = getSliderState(paramId); } catch (e) { state = null; }
+  if (!state) return;
+  const span = hi - lo;
+  const fromParam = () => { el.value = Math.round(lo + span * state.getNormalisedValue()); };
+  if (state.valueChangedEvent && state.valueChangedEvent.addListener) state.valueChangedEvent.addListener(fromParam);
+  fromParam();
+  const setN = (n) => { n = Math.max(lo, Math.min(hi, n)); state.setNormalisedValue((n - lo) / span); el.value = n; };
+  el.addEventListener("change", () => { const n = parseInt(el.value, 10); if (isNaN(n)) fromParam(); else setN(n); });
+  el.addEventListener("wheel", (e) => { e.preventDefault(); setN((parseInt(el.value, 10) || lo) + (e.deltaY < 0 ? 1 : -1)); }, { passive: false });
+}
+
 // Bottom-right resize grip. The WebView2 native window covers JUCE's corner resizer, so we draw
 // our own grip and drive the editor size through native functions. screenX is screen-relative (so
 // it's stable while the panel rescales mid-drag); editor px ≈ logical CSS px on the Chromium WebView.
@@ -1672,6 +1688,8 @@ function init() {
   bindButtonGroup('[data-og="o1t"]', "o1_octave");  // octave buttons OSC1
   bindButtonGroup('[data-og="o2t"]', "o2_octave");  // octave buttons OSC2
   bindRadioGroup('input[data-vm]', "voice_mode");   // Mono/Poly/Unison radios
+  bindNumber(document.getElementById("univInput"), "uni_voices", 1, 32);  // Unison Voices 1..32 (VAZ range)
+  bindNumber(document.getElementById("bendInput"), "bend_range", 1, 24);  // Pitch-bend range 1..24 st
 
   // host control→param mapping (Ableton "Configure" / automation): report the control under the mouse
   try {
