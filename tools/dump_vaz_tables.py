@@ -48,7 +48,8 @@ TABLES = [('curve_0x5445e0', 0x5445e0, 15360),
 # is the SAME block +12 entries (0x6db818-0x6db7e8 = 0x30). Curve-mode sustain DAT_006dc0c0 +
 # the stage-0 decrement const DAT_006dc0bc dumped from 0x6dc0bc.
 ENVTABLES = [('env_rate_006db7e8', 0x6db7e8, 720),
-             ('env_susc_006dc0bc', 0x6dc0bc, 264)]
+             ('env_susc_006dc0bc', 0x6dc0bc, 264),
+             ('lfo3_rate_006dc4c0', 0x6dc4c0, 256)]   # LFO3 rate table: phase increment per 0..174 selector
 
 def main():
     os.makedirs(OUT, exist_ok=True)

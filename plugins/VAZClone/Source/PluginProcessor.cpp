@@ -339,6 +339,7 @@ struct V2PPatch
     int lfo1rate = 0, lfo2rate = 0, mono = 0;
     int lfo1wave = 0, lfo1shape = 127, lfo1trig = 0;   // LFO1 waveform / waveshape / retrigger
     int lfo2trig = 0, lfo2mode = 0, lfo2delay = 0;     // LFO2 retrigger + mode (normal/S&H) + Delay fade-in time (+0xd8)
+    int lfo3sel = 0, lfo3wav = 0;                      // LFO3 rate-selector (+0x108, 0..174 → DAT_006dc4c0) + wave (+0x10c: 0=Tri 1=Sine)
     int o1wave = 0, o1shape = 0, o1tune = -2400, o2wave = 0, o2tune = -2400, o2shape = 0, o1sync = 0;
     int o1fm1s = 0, o1fm1d = 0, o1fm2s = 0, o1fm2d = 0, o1pwms = 0, o1pwmd = 0;
     int o2fm1s = 0, o2fm1d = 0, o2fm2s = 0, o2fm2d = 0, o2pwms = 0, o2pwmd = 0;
@@ -384,7 +385,7 @@ static V2PPatch parseV2P (const juce::uint8* d, int n, int prst)
     p.lfo2trig = c.byte();                             // lfo2 retrigger
     if (v >= 200) p.lfo2mode = c.u32();                // v2.0: LFO2 waveform/mode (+0xd0, same LUT as LFO1)
     else          p.lfo2mode = (c.byte() != 0) ? 6 : 0;   // v1xx: S&H bool → 6 (S&H+Lag) / 0 (plain tri; VAZ's Delay is a separate param the clone bundles into +Delay waves)
-    p.lfo2delay = c.u32(); c.u32(); c.byte();          // lfo2 delay (+0xd8), lfo3 wave, lfo3 +0x10c
+    p.lfo2delay = c.u32(); p.lfo3sel = c.u32(); p.lfo3wav = c.byte();   // lfo2 delay (+0xd8); LFO3 rate-sel (+0x108) + wave (+0x10c)
     // env1
     if (v < 0x6b) { p.e1a = c.u32(); p.e1d = c.u32(); p.e1s = c.u32(); p.e1r = c.u32(); c.byte();
                     const int lin = c.byte();                         // linear/exp flag: ver<107 adds the rate-table offset at LOAD
@@ -507,6 +508,11 @@ bool VAZCloneAudioProcessor::loadV2P (const juce::MemoryBlock& mb)
     S (ParameterIDs::lfo2_wave,   juce::jlimit (0, 7, p.lfo2mode) / 7.0f);   // LFO2: normal/S&H (VAZ has no full LFO2 wave)
     S (ParameterIDs::lfo2_trig,   p.lfo2trig != 0 ? 1.0f : 0.0f);
     S (ParameterIDs::lfo2_delay,  p.lfo2delay / 255.0f);                     // LFO2 Delay fade-in time
+    // LFO3: the 0..174 selector → exact rate (DAT_006dc4c0 is a clean exp 0.02·e^0.036·sel = 0.02..10.5 Hz),
+    // inverse-mapped onto the clone's lfo3_rate law (0.05 + r²·20). Wave byte +0x10c: 0 = Triangle, else Sine.
+    const double l3hz = 0.02 * std::exp (0.036 * (double) juce::jlimit (0, 255, p.lfo3sel));
+    S (ParameterIDs::lfo3_rate,   (float) std::sqrt (juce::jmax (0.0, (l3hz - 0.05) / 20.0)));
+    S (ParameterIDs::lfo3_wave,   p.lfo3wav != 0 ? 1.0f : 0.0f);             // 0=Tri, 1=Sine
     S (ParameterIDs::o1_wave,     juce::jlimit (0, 4, p.o1wave) / 4.0f);
     S (ParameterIDs::o1_shape,    juce::jlimit (0, 255, p.o1shape) / 255.0f);
     S (ParameterIDs::o2_wave,     juce::jlimit (0, 4, p.o2wave) / 4.0f);
