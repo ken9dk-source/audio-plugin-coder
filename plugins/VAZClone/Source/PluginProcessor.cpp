@@ -177,7 +177,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout VAZCloneAudioProcessor::crea
     // Performance
     layout.add (std::make_unique<AudioParameterChoice>(ParameterID { ParameterIDs::voice_mode, 1 },
         "Voice Mode", StringArray { "Mono", "Poly", "Unison" }, 1));
-    layout.add (pct (ParameterIDs::uni_detune, "Detune", 0.0f));
+    layout.add (pct (ParameterIDs::uni_detune,  "Unison Detune", 0.0f));
+    layout.add (pct (ParameterIDs::poly_detune, "Poly Detune",   0.0f));
     layout.add (pct (ParameterIDs::portamento, "Portamento", 0.0f));
     layout.add (boolp (ParameterIDs::porta_exp, "Portamento Exp"));
     layout.add (std::make_unique<AudioParameterBool> (ParameterID { ParameterIDs::porta_auto, 1 }, "Portamento Auto", true));
@@ -354,7 +355,7 @@ struct V2PPatch
     int ma1in = 0, ma1sq = 0, ma1amsrc = 0, ma1amamt = 0, ma2in = 0, ma2amsrc = 0;
     // Env2 segment modulation (the +0x174 block, v2.0): source × amount → which env2 segments (dest bitfield)
     int e2modsrc = 0, e2modamt = 0, e2moddest = 0;
-    int noise = 0, o1level = 255, o2level = 0, voiceMode = 0, portamento = 0, uniDetune = 0;
+    int noise = 0, o1level = 255, o2level = 0, voiceMode = 0, portamento = 0, uniDetune = 0, polyDetune = 0;
     int mix1src = 0, mix1post = 0, mix2src = 0, mix2post = 0, mix3src = 0, mix3post = 0;
     int bendRange = 2, uniVoices = 0;   // e0610 (1..24 st), e095c (2..16, v2.0 only; 0 = not present)
 };
@@ -449,8 +450,8 @@ static V2PPatch parseV2P (const juce::uint8* d, int n, int prst)
     p.voiceMode = c.u32(); c.u32(); c.byte();          // e0530 (voice mode), e05f0, e0600
     p.bendRange = c.u32();                             // e0610 (pitch-bend range, semitones)
     if (v >= 200) p.uniVoices = c.u32();               // e095c (unison voice count, v2.0+)
-    p.uniDetune = c.u32();                             // p2f4 (unison detune)
-    if (v >= 200) c.u32();                             // p2f0
+    p.uniDetune = c.u32();                             // p2f4 (+0x2f4 = Unison detune)
+    if (v >= 200) p.polyDetune = c.u32();              // p2f0 (+0x2f0 = Poly detune, v2.0)
     p.portamento = c.u32();
     return p;
 }
@@ -494,6 +495,7 @@ bool VAZCloneAudioProcessor::loadV2P (const juce::MemoryBlock& mb)
     S (ParameterIDs::voice_mode,  juce::jlimit (0, 2, p.voiceMode) / 2.0f);
     S (ParameterIDs::portamento,  p.portamento / 255.0f);
     S (ParameterIDs::uni_detune,  p.uniDetune / 255.0f);
+    S (ParameterIDs::poly_detune, p.polyDetune / 255.0f);
     S (ParameterIDs::bend_range,  (juce::jlimit (1, 24, p.bendRange) - 1) / 23.0f);   // e0610: 1..24 st
     if (p.uniVoices > 0)                                                              // e095c only present in v2.0 patches
         S (ParameterIDs::uni_voices, (juce::jlimit (1, 32, p.uniVoices) - 1) / 31.0f);
@@ -751,9 +753,10 @@ void VAZCloneAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
     // ── Voice mode (Mono / Poly / Unison) + per-voice detune amount ──
     const int   vmode  = (int) apvts.getRawParameterValue (ParameterIDs::voice_mode)->load();
     const int   notePrio = (int) apvts.getRawParameterValue (ParameterIDs::note_priority)->load(); // 0=Last 1=High 2=Low
-    const float detAmt = apvts.getRawParameterValue (ParameterIDs::uni_detune)->load();
-    voiceParams.detuneCents = vmode == 2 ? (5.0f + detAmt * 45.0f) // Unison → chorus spread (min 5c so it's always audible)
-                            : vmode == 1 ? detAmt * 12.0f       // Poly  → subtle analog drift
+    const float uniDet  = apvts.getRawParameterValue (ParameterIDs::uni_detune) ->load();   // +0x2f4: within a note's unison group
+    const float polyDet = apvts.getRawParameterValue (ParameterIDs::poly_detune)->load();   // +0x2f0: between notes (separate VAZ param)
+    voiceParams.detuneCents = vmode == 2 ? (5.0f + uniDet * 45.0f) // Unison → chorus spread (min 5c so it's always audible)
+                            : vmode == 1 ? polyDet * 45.0f      // Poly  → analogue drift between notes (was wrongly uni_detune)
                             : 0.0f;                             // Mono  → none
 
     // Host tempo — used by the arpeggiator AND tempo-synced LFOs.
@@ -870,6 +873,11 @@ void VAZCloneAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
     const int   w3 = (int) apvts.getRawParameterValue (ParameterIDs::lfo3_wave)->load() == 0 ? 0 : 1; // LFO3 Tri/Sine
     const float shape1 = apvts.getRawParameterValue (ParameterIDs::lfo_shape) ->load();
     const float shape2 = apvts.getRawParameterValue (ParameterIDs::lfo2_shape)->load();
+    // Osc3 mode (mixer "Oscillator 3"): LFO1 becomes an audio-rate key-tracked osc. Its Rate slider sets the
+    // FOOTAGE in quarter-tone steps — VAZ: 32'=48, 16'=96, 8'=144 (= the note), 4'=192, 2'=240 (raw 0..255).
+    voiceParams.osc3FootMul = std::pow (2.0, (apvts.getRawParameterValue (ParameterIDs::lfo_rate)->load() * 255.0 - 144.0) / 48.0);
+    voiceParams.osc3Wave    = w1;          // LFO1 waveform
+    voiceParams.osc3Shape   = shape1;      // LFO1 waveshape
     // Host tempo for LFO sync (1 cycle = N beats; VAZ uses 1/24-quarter-note units).
     // (bpm already computed at the top of processBlock for the arpeggiator)
     static constexpr double periodBeats[24] = { 1.0/12, 1.0/8, 1.0/6, 1.0/4, 1.0/3, 1.0/2, 2.0/3, 1.0,

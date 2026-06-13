@@ -49,6 +49,7 @@ struct VoiceParams
     float o1Level = 1.0f, o2Detune = 0.0f, o2Level = 0.0f, noise = 0.0f;
     float atk = 0.0f, dec = 0.3f, sus = 1.0f, rel = 0.2f;
     int   mix1Src = 0, mix2Src = 0, mix3Src = 0;   // Mixer channel sources (default Osc1/Osc2/Noise)
+    double osc3FootMul = 1.0;   int osc3Wave = 0;   float osc3Shape = 0.5f;   // Osc3 = LFO1 audio-rate: footage pitch × wave
     bool  mix1Post = false, mix2Post = false, mix3Post = false;   // Post = bypass the filter
     bool  link = false;                            // Osc1 FM input 1 → also modulate Osc2
     bool  osc2Sync = false;                         // hard-sync Osc2 to Osc1 (independent of o2Wave)
@@ -253,7 +254,9 @@ public:
             const double rm = o1 * o2;                                // Ring Modulator = Osc1 × Osc2
             const double nz = rng.nextDouble() * 2.0 - 1.0;           // white noise
             // 3 mixer channels: source × level. Post channels bypass the filter (mixed in after).
-            const double o3 = (p.mix3Src==1) ? osc3.next (glidedHz * vd, 0, 0.0) : 0.0;            // Osc3 = saw, tracks keyboard
+            double o3 = 0.0;                                         // Osc3 = LFO1 at audio rate: footage pitch (32'=48..2'=240) × LFO1 waveform
+            if (p.mix3Src == 1) { osc3lfo.setRate (glidedHz * vd * p.osc3FootMul, getSampleRate());
+                                  o3 = osc3lfo.next (p.osc3Wave, (double) p.osc3Shape); }
             const double c1 = (p.mix1Src==0 ? o1 : p.mix1Src==1 ? rm : p.mix1Src==2 ? nz : 0.0) * o1g;
             const double c2 = (p.mix2Src==0 ? o2 : p.mix2Src==1 ? rm : p.mix2Src==2 ? nz : 0.0) * o2g;
             const double c3 = (p.mix3Src==0 ? nz : p.mix3Src==1 ? o3 : p.mix3Src==2 ? rm : 0.0) * ng;
@@ -334,6 +337,7 @@ private:
 
     const VoiceParams& p;
     OscBlock  osc1, osc2, osc3;
+    ModLFO    osc3lfo;            // Osc3 mode = LFO1 running at audio rate (its 8 waveforms), key-tracked per voice
     OnePoleLP tilt;
     VAZEnv    amp;
     VAZMultiFilter filt;          // per-voice filter

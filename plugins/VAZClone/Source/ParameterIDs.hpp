@@ -124,7 +124,8 @@ namespace ParameterIDs
     constexpr auto note_priority = "note_priority"; // choice: Last/High/Low
     // Performance
     constexpr auto voice_mode  = "voice_mode";  // choice: Mono/Poly/Unison/Duo
-    constexpr auto uni_detune  = "uni_detune";  // float 0..1
+    constexpr auto uni_detune  = "uni_detune";  // Unison Detune (within a note's voice group) — VAZ +0x2f4
+    constexpr auto poly_detune = "poly_detune"; // Poly Detune (between notes, analogue drift) — VAZ +0x2f0 / .v2p p2f0
     constexpr auto portamento  = "portamento";  // float 0..1
     constexpr auto bend_range  = "bend_range";  // float 0..1 → 1..24 semitones
     constexpr auto uni_voices  = "uni_voices";  // float 0..1 → 1..16 unison voices
