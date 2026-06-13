@@ -83,6 +83,11 @@ private:
     // Type R/C/K have a 1-pole highpass AFTER the cascade (the "Highpass Cutoff" slider).
     float hpX1[2] { 0.0f, 0.0f }, hpY1[2] { 0.0f, 0.0f };
 
+    // Global 2× oversampling (VAZ "Oversample x2"): the whole voice render runs at 2× SR then downsamples.
+    juce::dsp::Oversampling<float> oversampler { 2, 1, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR };
+    double     baseSampleRate = 44100.0;     // the host SR (oversampled rate = base × factor)
+    bool       osActive = false;             // current oversample state (re-prepare the synth SR when it flips)
+
     // Phase E: filter modulation — Env2 -> cutoff (sweep) + LFO1 -> cutoff (movement).
     ModLFO     modLfo, modLfo2, modLfo3;   // LFO1/2/3 (mod sources)
     VAZEnv     filterEnv;                    // Env2 (with Reset/Cycle/Curve modes)

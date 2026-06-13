@@ -188,6 +188,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout VAZCloneAudioProcessor::crea
         for (int n = 1; n <= 32; ++n) vch.add (String (n));
         layout.add (std::make_unique<AudioParameterChoice> (ParameterID { ParameterIDs::voices, 1 }, "Voices", vch, 0));
     }
+    layout.add (std::make_unique<AudioParameterBool> (ParameterID { ParameterIDs::oversample, 1 }, "Oversample x2", false));
     layout.add (pct (ParameterIDs::uni_voices, "Unison Voices", 3.0f / 31.0f)); // ≈ 4 voices (range 1..32)
     layout.add (std::make_unique<AudioParameterBool>  (ParameterID { ParameterIDs::arp_on,  1 }, "Arp On", false));
     layout.add (std::make_unique<AudioParameterChoice>(ParameterID { ParameterIDs::arp_mode,1 }, "Arp Mode", StringArray { "Up","Down","Up&Down","Random" }, 0));
@@ -223,14 +224,18 @@ void VAZCloneAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
     smoothRes.reset (sampleRate, 0.02);
     filterEnv.setSampleRate (sampleRate);
     activeNotes = 0;
-    lfo1Buf.assign ((size_t) samplesPerBlock, 0.0f);
-    lfo2Buf.assign ((size_t) samplesPerBlock, 0.0f);
-    lfo3Buf.assign ((size_t) samplesPerBlock, 0.0f);
-    env2Buf.assign ((size_t) samplesPerBlock, 0.0f);
-    ma1Buf .assign ((size_t) samplesPerBlock, 0.0f);
-    ma2Buf .assign ((size_t) samplesPerBlock, 0.0f);
-    lagBuf .assign ((size_t) samplesPerBlock, 0.0f);
-    noiseModBuf.assign ((size_t) samplesPerBlock, 0.0f);
+    baseSampleRate = sampleRate; osActive = false;       // oversample state (re-set in processBlock when the toggle flips)
+    oversampler.initProcessing ((size_t) samplesPerBlock);
+    oversampler.reset();
+    const size_t bufN = (size_t) samplesPerBlock * 2;    // mod-bus buffers sized for the 2× oversampled block
+    lfo1Buf.assign (bufN, 0.0f);
+    lfo2Buf.assign (bufN, 0.0f);
+    lfo3Buf.assign (bufN, 0.0f);
+    env2Buf.assign (bufN, 0.0f);
+    ma1Buf .assign (bufN, 0.0f);
+    ma2Buf .assign (bufN, 0.0f);
+    lagBuf .assign (bufN, 0.0f);
+    noiseModBuf.assign (bufN, 0.0f);
     lagState = 0.0;
 }
 
@@ -750,6 +755,19 @@ void VAZCloneAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
 
     refreshVoiceParams();                       // snapshot params for the voices
 
+    // ── Oversample x2 (VAZ): run the whole voice render at 2× SR, then downsample. Flipping the toggle
+    //    re-prepares the synth + Env2 at the new effective rate; everything SR-relative then follows. ──
+    const bool osOn = apvts.getRawParameterValue (ParameterIDs::oversample)->load() > 0.5f;
+    if (osOn != osActive)
+    {
+        osActive = osOn;
+        currentSampleRate = baseSampleRate * (osOn ? 2.0 : 1.0);
+        synth.setCurrentPlaybackSampleRate (currentSampleRate);
+        filterEnv.setSampleRate (currentSampleRate);
+        oversampler.reset();
+    }
+    const int osFactor = osOn ? 2 : 1;
+
     // ── Voice mode (Mono / Poly / Unison) + per-voice detune amount ──
     const int   vmode  = (int) apvts.getRawParameterValue (ParameterIDs::voice_mode)->load();
     const int   notePrio = (int) apvts.getRawParameterValue (ParameterIDs::note_priority)->load(); // 0=Last 1=High 2=Low
@@ -902,7 +920,17 @@ void VAZCloneAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
     const float lfo2RmAmt = apvts.getRawParameterValue (ParameterIDs::lfo2_rm_amt)->load();
     modLfo3.setRate (0.05 + std::pow (apvts.getRawParameterValue (ParameterIDs::lfo3_rate)->load(), 2.0f) * 20.0, currentSampleRate);
 
-    const int   numSamples = buffer.getNumSamples();
+    // Oversample x2: render the synth + mod bus at the oversampled rate into the 2× internal block; downsample at the end.
+    if (osOn) buffer.clear();                                     // generate into the upsampled (silent) block
+    juce::dsp::AudioBlock<float> hostBlock (buffer);
+    juce::dsp::AudioBlock<float> osBlock;
+    if (osOn) osBlock = oversampler.processSamplesUp (hostBlock);
+    const int numSamples = buffer.getNumSamples() * osFactor;
+    const int numCh      = buffer.getNumChannels();
+    float* wch[2] = { osOn ? osBlock.getChannelPointer (0) : buffer.getWritePointer (0),
+                      numCh > 1 ? (osOn ? osBlock.getChannelPointer (1) : buffer.getWritePointer (1))
+                                : (osOn ? osBlock.getChannelPointer (0) : buffer.getWritePointer (0)) };
+    juce::AudioBuffer<float> work (wch, numCh, numSamples);
     if ((size_t) numSamples > lfo1Buf.size())   // safety if host exceeds prepared block size
     {
         lfo1Buf.resize ((size_t) numSamples); lfo2Buf.resize ((size_t) numSamples);
@@ -958,9 +986,12 @@ void VAZCloneAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
 
     voiceParams.modBus = &modBus;
 
-    // ── Render voices (they read the bus for FM) ──
-    buffer.clear();
-    synth.renderNextBlock (buffer, useMidi, 0, numSamples);
+    // ── Render voices (they read the bus for FM) ── into the (possibly 2×) work buffer, then downsample.
+    work.clear();
+    juce::MidiBuffer scaledMidi;
+    if (osOn) for (const auto m : useMidi) scaledMidi.addEvent (m.getMessage(), m.samplePosition * osFactor);
+    synth.renderNextBlock (work, osOn ? scaledMidi : useMidi, 0, numSamples);
+    if (osOn) oversampler.processSamplesDown (hostBlock);         // 2× → host SR (anti-aliased decimation)
 
     // ── Filter + amp-mod are now applied PER VOICE (osc→filter→amp, inside VAZVoice). ──
     //    The voices already wrote the final filtered/amplified signal to all channels.
