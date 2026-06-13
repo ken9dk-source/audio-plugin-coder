@@ -132,6 +132,7 @@ const SIGN_MAP = {
   cut_mod1_src: "filt_env_amt_inv", cut_mod2_src: "lfo_amt_inv",
   res_mod_src: "res_mod_amt_inv", amp_mod_src: "amp_mod_amt_inv",
   pan_mod_src: "pan_mod_amt_inv", ma1_am_src: "ma1_am_amt_inv", ma2_am_src: "ma2_am_amt_inv",
+  o1_fm2_src: "o1_fm2_amt_inv", o2_fm2_src: "o2_fm2_amt_inv",
 };
 function bindSigns() {
   document.querySelectorAll(".mod-row").forEach((row) => {

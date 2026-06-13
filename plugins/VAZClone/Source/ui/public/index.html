@@ -360,15 +360,15 @@ body {
       <span class="lbl">Frequency Modulation</span>
       <button class="gbtn" data-toggle="osc_link">Link</button>
     </div>
-    <div class="mod-row"><div class="pm-btn">+</div><div class="pm-btn minus">−</div><select class="dd-field" data-combo="o1_fm_src" data-modsrc></select></div>
+    <div class="mod-row"><div class="pm-btn on">+</div><div class="pm-btn minus">−</div><select class="dd-field" data-combo="o1_fm_src" data-modsrc></select></div>
     <div class="slider" data-param="o1_fm_amt"><div class="thumb" style="left:0;"></div></div>
-    <div class="mod-row"><div class="pm-btn">+</div><div class="pm-btn minus">−</div><select class="dd-field" id="fm1b"><option>None</option></select></div>
-    <div class="slider"><div class="thumb" style="left:0;"></div></div>
+    <div class="mod-row"><div class="pm-btn on">+</div><div class="pm-btn minus">−</div><select class="dd-field" data-combo="o1_fm2_src" data-modsrc></select></div>
+    <div class="slider" data-param="o1_fm2_amt"><div class="thumb" style="left:0;"></div></div>
   </div>
 
   <div class="sb">
     <div class="lbl" id="o1mlbl">Waveshape Modulation</div>
-    <div class="mod-row"><div class="pm-btn">+</div><div class="pm-btn minus">−</div><select class="dd-field" data-combo="o1_ws_src" data-modsrc></select></div>
+    <div class="mod-row"><div class="pm-btn on">+</div><div class="pm-btn minus">−</div><select class="dd-field" data-combo="o1_ws_src" data-modsrc></select></div>
     <div class="slider" data-param="o1_ws_amt"><div class="thumb" style="left:0;"></div></div>
   </div>
 
@@ -434,21 +434,21 @@ body {
       <span class="lbl" id="o2WaveLbl" style="cursor:pointer;" title="Click = reset to Sine">Wave</span>
       <div class="dd-field flex1" id="o2WaveDisp" style="cursor:pointer;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;" title="Click = load a sample">Sine (default sample)</div>
     </div>
-    <div class="lbl">Waveshape</div>
+    <div class="lbl" id="o2xlbl">Waveshape</div>
     <div class="slider" data-param="o2_shape"><div class="thumb" style="left:0;"></div></div>
   </div>
 
   <div class="sb">
     <div class="lbl">Frequency Modulation</div>
-    <div class="mod-row"><div class="pm-btn">+</div><div class="pm-btn minus">−</div><select class="dd-field" data-combo="o2_fm_src" data-modsrc></select></div>
+    <div class="mod-row"><div class="pm-btn on">+</div><div class="pm-btn minus">−</div><select class="dd-field" data-combo="o2_fm_src" data-modsrc></select></div>
     <div class="slider" data-param="o2_fm_amt"><div class="thumb" style="left:0;"></div></div>
-    <div class="mod-row"><div class="pm-btn">+</div><div class="pm-btn minus">−</div><select class="dd-field" id="fm2b"><option>None</option></select></div>
-    <div class="slider"><div class="thumb" style="left:0;"></div></div>
+    <div class="mod-row"><div class="pm-btn on">+</div><div class="pm-btn minus">−</div><select class="dd-field" data-combo="o2_fm2_src" data-modsrc></select></div>
+    <div class="slider" data-param="o2_fm2_amt"><div class="thumb" style="left:0;"></div></div>
   </div>
 
   <div class="sb">
-    <div class="lbl">Waveshape Modulation</div>
-    <div class="mod-row"><div class="pm-btn">+</div><div class="pm-btn minus">−</div><select class="dd-field" data-combo="o2_ws_src" data-modsrc></select></div>
+    <div class="lbl" id="o2mlbl">Waveshape Modulation</div>
+    <div class="mod-row"><div class="pm-btn on">+</div><div class="pm-btn minus">−</div><select class="dd-field" data-combo="o2_ws_src" data-modsrc></select></div>
     <div class="slider" data-param="o2_ws_amt"><div class="thumb" style="left:0;"></div></div>
   </div>
 
@@ -462,7 +462,7 @@ body {
     </div>
     <div class="slider" data-param="lfo2_rate"><div class="thumb" style="left:0;"></div></div>
     <div class="lbl">Rate Modulation</div>
-    <div class="mod-row"><div class="pm-btn">+</div><div class="pm-btn minus">−</div><select class="dd-field" data-combo="lfo2_rm_src" data-modsrc></select></div>
+    <div class="mod-row"><div class="pm-btn on">+</div><div class="pm-btn minus">−</div><select class="dd-field" data-combo="lfo2_rm_src" data-modsrc></select></div>
     <div class="slider" data-param="lfo2_rm_amt"><div class="thumb" style="left:0;"></div></div>
     <div class="row">
       <span class="lbl">Wave</span>
@@ -512,7 +512,7 @@ body {
     <div class="env-row"><span class="env-name">|elease</span><div class="slider" data-param="e2_release"><div class="thumb" style="left:30%;"></div></div></div>
     <div class="env-btns"><button class="gbtn" data-toggle="e2_multi">Multi</button><button class="gbtn" data-toggle="e2_reset">Reset</button><button class="gbtn" data-toggle="e2_cycle">Cycle</button><button class="gbtn" data-toggle="e2_curve">Curve</button></div>
     <div class="lbl" style="margin-top:2px;">Envelope Modulation</div>
-    <div class="mod-row"><div class="pm-btn">+</div><div class="pm-btn minus">−</div><select class="dd-field" id="envmod" data-combo="e2_mod_src"><option>None</option></select></div>
+    <div class="mod-row"><div class="pm-btn on">+</div><div class="pm-btn minus">−</div><select class="dd-field" id="envmod" data-combo="e2_mod_src"><option>None</option></select></div>
     <div class="slider" data-param="e2_mod_amt"><div class="thumb" style="left:0;"></div></div>
     <div class="row" style="margin-top:1px;"><span class="lbl">Dest</span><select class="dd-field flex1" data-combo="e2_dest"><option>Attack</option><option>Decay</option><option>Sustain</option><option>Release</option><option>None</option></select></div>
   </div>
@@ -554,14 +554,14 @@ body {
   </div>
   <div class="sb">
     <div class="lbl">Cutoff Modulation</div>
-    <div class="mod-row"><div class="pm-btn">+</div><div class="pm-btn minus">−</div><select class="dd-field" data-combo="cut_mod1_src" data-modsrc></select></div>
+    <div class="mod-row"><div class="pm-btn on">+</div><div class="pm-btn minus">−</div><select class="dd-field" data-combo="cut_mod1_src" data-modsrc></select></div>
     <div class="slider" data-param="filt_env_amt"><div class="thumb" style="left:0;"></div></div>
-    <div class="mod-row"><div class="pm-btn">+</div><div class="pm-btn minus">−</div><select class="dd-field" data-combo="cut_mod2_src" data-modsrc></select></div>
+    <div class="mod-row"><div class="pm-btn on">+</div><div class="pm-btn minus">−</div><select class="dd-field" data-combo="cut_mod2_src" data-modsrc></select></div>
     <div class="slider" data-param="lfo_amt"><div class="thumb" style="left:0;"></div></div>
   </div>
   <div class="sb">
     <div class="lbl" id="resModLbl">Resonance Modulation</div>
-    <div class="mod-row"><div class="pm-btn">+</div><div class="pm-btn minus">−</div><select class="dd-field" data-combo="res_mod_src" data-modsrc></select></div>
+    <div class="mod-row"><div class="pm-btn on">+</div><div class="pm-btn minus">−</div><select class="dd-field" data-combo="res_mod_src" data-modsrc></select></div>
     <div class="slider" data-param="res_mod_amt"><div class="thumb" style="left:0;"></div></div>
   </div>
 
@@ -588,16 +588,16 @@ body {
   <div class="sh">Amplifier</div>
   <div class="sb">
     <div class="lbl">Amplitude Modulation</div>
-    <div class="mod-row"><div class="pm-btn">+</div><div class="pm-btn minus">−</div><select class="dd-field" id="amp1">
+    <div class="mod-row"><div class="pm-btn on">+</div><div class="pm-btn minus">−</div><select class="dd-field" id="amp1">
       <option>Envelope 1</option><option>None</option><option>LFO 1</option><option>LFO 2</option><option>LFO 3</option><option>Envelope 2</option><option>Mod Amplifier 1</option><option>Mod Amplifier 2</option><option>Lag Processor</option><option>Oscillator 1</option><option>Oscillator 1 Pitch</option><option>Oscillator 2</option><option>Noise</option><option>External Input</option><option>Accent</option><option>Sequencer A</option><option>Sequencer B</option><option>MIDI Velocity</option><option>MIDI Pressure</option><option>MIDI Control A</option><option>MIDI Control B</option><option>Voice Number</option>
     </select></div>
     <div class="slider" data-param="amp_level"><div class="thumb" style="left:80%;"></div></div>
-    <div class="mod-row"><div class="pm-btn">+</div><div class="pm-btn minus">−</div><select class="dd-field" data-combo="amp_mod_src" data-modsrc></select></div>
+    <div class="mod-row"><div class="pm-btn on">+</div><div class="pm-btn minus">−</div><select class="dd-field" data-combo="amp_mod_src" data-modsrc></select></div>
     <div class="slider" data-param="amp_mod_amt"><div class="thumb" style="left:0;"></div></div>
   </div>
   <div class="sb">
     <div class="lbl">Pan Modulation</div>
-    <div class="mod-row"><div class="pm-btn">+</div><div class="pm-btn minus">−</div><select class="dd-field" id="pan1" data-combo="pan_mod_src"><option>None</option></select></div>
+    <div class="mod-row"><div class="pm-btn on">+</div><div class="pm-btn minus">−</div><select class="dd-field" id="pan1" data-combo="pan_mod_src"><option>None</option></select></div>
     <div class="slider" data-param="pan_mod_amt"><div class="thumb" style="left:50%;"></div></div>
     <div class="lbl">Overdrive</div>
     <div class="slider" data-param="overdrive"><div class="thumb" style="left:10%;"></div></div>
@@ -607,7 +607,7 @@ body {
   <div class="sb">
     <div class="row"><span class="lbl">In</span><select class="dd-field flex1" data-combo="ma1_in_src" data-modsrc></select></div>
     <div class="row"><span class="lbl">Amplitude Modulation</span><button class="gbtn" data-toggle="ma1_sq">SQ</button></div>
-    <div class="mod-row"><div class="pm-btn">+</div><div class="pm-btn minus">−</div><select class="dd-field" data-combo="ma1_am_src" data-modsrc></select></div>
+    <div class="mod-row"><div class="pm-btn on">+</div><div class="pm-btn minus">−</div><select class="dd-field" data-combo="ma1_am_src" data-modsrc></select></div>
     <div class="slider" data-param="ma1_am_amt"><div class="thumb" style="left:0;"></div></div>
   </div>
 
@@ -669,10 +669,11 @@ document.querySelectorAll('[data-wg]').forEach(b=>{
     const g=b.dataset.wg;
     document.querySelectorAll(`[data-wg="${g}"]`).forEach(x=>x.classList.remove('on'));
     b.classList.add('on');
-    if(g==='wf1'){
-      const idx=Array.from(document.querySelectorAll('[data-wg="wf1"]')).indexOf(b);
-      document.getElementById('o1xlbl').textContent=o1labels[idx]||'Position';
-      document.getElementById('o1mlbl').textContent=o1modlabels[idx]||'Modulation';
+    if(g==='wf1'||g==='wf2'){
+      const n=(g==='wf1')?'1':'2';
+      const idx=Array.from(document.querySelectorAll('[data-wg="'+g+'"]')).indexOf(b);
+      const xl=document.getElementById('o'+n+'xlbl'); if(xl)xl.textContent=o1labels[idx]||'Position';
+      const ml=document.getElementById('o'+n+'mlbl'); if(ml)ml.textContent=o1modlabels[idx]||'Modulation';
     }
   });
 });
@@ -733,6 +734,7 @@ function _initWave(dispId,osc){try{var p=getNativeFunction('getSampleName')(osc)
 function _initWaves(tries){try{if(window.__JUCE__&&window.__JUCE__.backend){_initWave('o1WaveDisp',0);_initWave('o2WaveDisp',1);return;}}catch(e){}if(tries>0)setTimeout(function(){_initWaves(tries-1);},300);}
 _initWaves(12);
 </script>
+
 
 
 
@@ -1602,6 +1604,7 @@ const SIGN_MAP = {
   cut_mod1_src: "filt_env_amt_inv", cut_mod2_src: "lfo_amt_inv",
   res_mod_src: "res_mod_amt_inv", amp_mod_src: "amp_mod_amt_inv",
   pan_mod_src: "pan_mod_amt_inv", ma1_am_src: "ma1_am_amt_inv", ma2_am_src: "ma2_am_amt_inv",
+  o1_fm2_src: "o1_fm2_amt_inv", o2_fm2_src: "o2_fm2_amt_inv",
 };
 function bindSigns() {
   document.querySelectorAll(".mod-row").forEach((row) => {
@@ -1620,6 +1623,36 @@ function bindSigns() {
     if (plus)  plus.addEventListener("click", () => st.setValue(false));
     if (minus) minus.addEventListener("click", () => st.setValue(true));
   });
+}
+
+// Bottom-right resize grip. The WebView2 native window covers JUCE's corner resizer, so we draw
+// our own grip and drive the editor size through native functions. screenX is screen-relative (so
+// it's stable while the panel rescales mid-drag); editor px ≈ logical CSS px on the Chromium WebView.
+function setupResize() {
+  let getSize, setSize;
+  try { getSize = Juce.getNativeFunction("getEditorSize"); setSize = Juce.getNativeFunction("setEditorSize"); }
+  catch (e) { return; }                               // plain browser preview — no backend
+  const grip = document.createElement("div");
+  grip.title = "Drag to resize";
+  grip.style.cssText = "position:fixed;right:1px;bottom:1px;width:16px;height:16px;cursor:nwse-resize;" +
+    "z-index:99999;background:repeating-linear-gradient(135deg,transparent 0,transparent 2px," +
+    "rgba(255,255,255,0.4) 2px,rgba(255,255,255,0.4) 3px);";
+  document.body.appendChild(grip);
+  let dragging = false, startX = 0, startW = 0;
+  grip.addEventListener("pointerdown", async (e) => {
+    dragging = true;
+    try { grip.setPointerCapture(e.pointerId); } catch (err) {}
+    startX = e.screenX;
+    try { const s = await getSize(); startW = s[0]; } catch (err) { startW = window.innerWidth; }
+    e.preventDefault();
+  });
+  grip.addEventListener("pointermove", (e) => {
+    if (!dragging) return;
+    try { setSize(Math.round(startW + (e.screenX - startX))); } catch (err) {}
+  });
+  const end = (e) => { dragging = false; try { grip.releasePointerCapture(e.pointerId); } catch (err) {} };
+  grip.addEventListener("pointerup", end);
+  grip.addEventListener("pointercancel", end);
 }
 
 function init() {
@@ -1653,6 +1686,8 @@ function init() {
   };
   window.addEventListener("resize", fitWindow);
   fitWindow();
+
+  setupResize();                                      // bottom-right drag-to-resize grip
 }
 
 // Modules load async via the resource provider — DOMContentLoaded may already have fired
