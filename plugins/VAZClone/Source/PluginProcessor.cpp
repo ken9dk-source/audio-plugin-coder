@@ -941,19 +941,8 @@ void VAZCloneAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
 
     // ── Filter + amp-mod are now applied PER VOICE (osc→filter→amp, inside VAZVoice). ──
     //    The voices already wrote the final filtered/amplified signal to all channels.
-
-    // ── Overdrive: up to ~48 dB boost + soft-clip (VAZ-style) ──
-    const float drive = apvts.getRawParameterValue (ParameterIDs::overdrive)->load();
-    if (drive > 0.001f)
-    {
-        const float g = std::pow (10.0f, drive * 48.0f / 20.0f);
-        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-        {
-            auto* od = buffer.getWritePointer (ch);
-            for (int i = 0; i < numSamples; ++i)
-                od[i] = std::tanh (od[i] * g) * 0.8f;
-        }
-    }
+    //    Overdrive is the per-voice cubic soft-clip in VAZVoice (VAZ's output stage @0x4dbddc) — the old
+    //    master-bus tanh stage was removed (it double-saturated and used the wrong shape).
 }
 
 //==============================================================================

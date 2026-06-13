@@ -91,17 +91,18 @@ affected patch loses *one* modulation lane; the rest of the patch is correct.
 - **Oscillators** — saw/pulse/tri/sine/multisaw + FM1/FM2/PWM/sync; previously harness-validated. Tuning range
   (±3 oct via octave±2 + coarse±12) covers the bank's −6000..+1200-cent span. ✅
 - **Amp / pan** — VCA × Env1, two AM lanes, pan-mod — all wired and fed. ✅
-- **Output / overdrive** — ⚠️ *minor nuance.* VAZ's per-voice output (RE @0x4DE286) is **always-on**: DC-block
-  HP → gain → **cubic** soft-clip. The clone has **no always-on output stage** — its only output saturation is
-  the **Overdrive** knob, applied as **`tanh(x·g)·0.8` and only when overdrive>0** (`PluginProcessor.cpp:945`).
-  The bit-exact filters do carry VAZ's cubic *in the resonance feedback* (VAZTypeR/C), so resonant character is
-  right; what's missing is the gentle output-bus cubic that tames hot/self-oscillating patches at overdrive=0.
-  Audible only on very hot patches. Left as-is (tanh was tuned; matching the exact output cubic + gain staging
-  needs A/B, which is banned) → follow-up candidate.
-- **Envelope** — ⚠️ **known approximation, not a bug.** VAZ's env is a *segment-table* generator
-  (`FUN_004dbd7c`: segment index `+0x4f0` into a per-stage rate table). The clone uses a 4-stage analog-RC ADSR
-  (empirically "harness-RE'd": `atk≈x⁴·3.6`, exp curve-LUT `1024^(x-1)` dumped from the live table). Close but
-  not bit-exact. Could be made exact via the same runtime-table-dump method used for the filters — separate effort.
+- **Output / overdrive** — ✅ **EXACT now (2026-06-13)** + a real bug fixed. The output stage was fully decoded
+  from the voice render `vaz_big.c @0x4dbddc:1647-1681` (no A/B needed): drive `×256/(256−od)` (the `+0x2b4`
+  gain law @vaz_prims.c:3007, 1×..256× = 0..48 dB) → hard-limit to the cubic's monotonic peak **±1/√3** (VAZ's
+  `±0xd105e8` clamp) → cubic **`x−x³`** → ×amp VCA, **always on**. Ported into `VAZVoice` (per-voice, pre-VCA,
+  matching VAZ) with a 1/(2√3) input anchor. **BUG found+fixed:** the clone was running *two* overdrive stages —
+  a per-voice cubic AND a master-bus `tanh` — so od>0 double-saturated; the master tanh is removed. (Remaining
+  sub-item: VAZ's per-voice DC-block one-pole HP `DAT_006df6c4` before the clip — minor, only matters for
+  DC-heavy pulse/PWM patches; not yet ported.)
+- **Envelope** — ✅ **BIT-EXACT now (2026-06-13, commit 41bf408).** VAZ's env is a one-pole INTEGER ADSR
+  (`vaz_big.c @0x4dbddc:384-443`); its per-sample rate coefs were dumped from the live BSS (`DAT_006db7e8`/
+  `006db818`/`006dc0c0`) into `VAZEnvTables.h`. `VAZEnv` rewritten as the exact integer machine, SR-independent,
+  ver<107 load-offset applied. Replaced the old empirical x⁴/x⁶ fit. See `[[project_vazclone_filters]]`.
 
 ---
 

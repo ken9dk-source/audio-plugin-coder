@@ -258,12 +258,16 @@ public:
             const double cutHz = juce::jlimit (8.0, (double) p.nyq, std::exp (10.24 * (double) coNorm));
             filt.setParams (cutHz, (double) res, (double) auxV, hpHzI, (double) p.fltDrive);
             double fs = filt.process (s) + postSum;          // Post channels mixed in after the filter
-            // VAZ output OVERDRIVE (Core.dll output stage @0x4de…, pre-gain param 0x2b4 → cubic x−x³): a cubic
-            // soft-clip driven by the Overdrive knob, post-filter, ALL modes. Was missing — the knob did nothing.
-            if (p.overdrive > 0.0001f) {
-                const double g  = 1.0 + (double) p.overdrive * 8.0;
-                const double od = juce::jlimit (-1.0, 1.0, fs * g);
-                fs = 1.5 * od - 0.5 * od * od * od;          // cubic soft-clip, ≈ VAZ's x−x³ (unity slope at small signal)
+            // VAZ output stage (Core.dll voice render @0x4dbddc:1647-1681), post-filter, ALL modes, ALWAYS ON.
+            // Exact shape: drive the signal by 256/(256−od) (the +0x2b4 gain law, 1×..256× = 0..48 dB), hard-limit
+            // to the cubic's monotonic peak ±1/√3 (VAZ's ±0xd105e8 clamp), then the cubic soft-clip x−x³, with
+            // unity makeup. Overdrive only cranks the drive; at od=0 it's near-transparent at nominal level.
+            {
+                const double drive = 256.0 / (256.0 - juce::jmin (255.0, (double) p.overdrive * 255.0));
+                constexpr double A  = 0.28867513;            // 1/(2√3): one osc ≈ 6 dB below clip (calibration anchor)
+                constexpr double X0 = 0.57735027;            // 1/√3 = the x−x³ turning point
+                const double x = juce::jlimit (-X0, X0, fs * drive * A);
+                fs = (x - x * x * x) / A;                     // cubic soft-clip + unity makeup (fs ≈ unity at od=0)
             }
             if (std::abs (p.ampAmt) > 0.0001f) fs *= juce::jlimit (0.0, 2.0, 1.0 + (double) p.ampAmt * (double) mv (p.ampSrc, idx)); // tremolo (±)
             if (std::abs (p.amp2Amt) > 0.0001f) fs *= juce::jlimit (0.0, 2.0, 1.0 + (double) p.amp2Amt * (double) mv (p.amp2Src, idx)); // 2nd amp AM (series VCA)
