@@ -228,7 +228,6 @@ void VAZCloneAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
 
 // Filter mode index (0-21) is decoded directly by VAZMultiFilter::setMode (engine + tap).
 
-static float envTime (float x) noexcept { return 0.0002f + x * x * 4.0f; }  // 0..1 -> ~0.2ms..4s (near-instant min for filter DONK)
 
 void VAZCloneAudioProcessor::refreshVoiceParams()
 {
@@ -387,13 +386,17 @@ static V2PPatch parseV2P (const juce::uint8* d, int n, int prst)
     else          p.lfo2mode = (c.byte() != 0) ? 6 : 0;   // v1xx: S&H bool → 6 (S&H+Lag) / 0 (plain tri; VAZ's Delay is a separate param the clone bundles into +Delay waves)
     p.lfo2delay = c.u32(); c.u32(); c.byte();          // lfo2 delay (+0xd8), lfo3 wave, lfo3 +0x10c
     // env1
-    if (v < 0x6b) { p.e1a = c.u32(); p.e1d = c.u32(); p.e1s = c.u32(); p.e1r = c.u32(); c.byte(); c.byte(); }
+    if (v < 0x6b) { p.e1a = c.u32(); p.e1d = c.u32(); p.e1s = c.u32(); p.e1r = c.u32(); c.byte();
+                    const int lin = c.byte();                         // linear/exp flag: ver<107 adds the rate-table offset at LOAD
+                    if (lin == 0) { p.e1a += 0x3f; p.e1d += 0x94; p.e1r += 0x94; } else { p.e1d += 0x55; p.e1r += 0x55; } }
     else          { p.e1a = c.u32(); p.e1d = c.u32(); p.e1s = c.u32(); p.e1r = c.u32(); c.byte(); }
     p.e1mode = c.byte();                               // env1 def40 (PS+71 @ v201)
     if (v >= 0x6b) c.byte();
     if (v >= 0xca) c.byte();
     // env2
-    if (v < 0x6c) { p.e2a = c.u32(); p.e2d = c.u32(); p.e2s = c.u32(); p.e2r = c.u32(); c.byte(); c.byte(); }
+    if (v < 0x6c) { p.e2a = c.u32(); p.e2d = c.u32(); p.e2s = c.u32(); p.e2r = c.u32(); c.byte();
+                    const int lin = c.byte();
+                    if (lin == 0) { p.e2a += 0x3f; p.e2d += 0x94; p.e2r += 0x94; } else { p.e2d += 0x55; p.e2r += 0x55; } }
     else          { p.e2a = c.u32(); p.e2d = c.u32(); p.e2s = c.u32(); p.e2r = c.u32(); c.byte(); }
     c.byte();                                          // env2 df140
     if (v >= 0x6c) p.e2mode = c.byte(); else p.e2mode = 0;   // env2 def50 (PS+91 @ v201)
@@ -840,13 +843,13 @@ void VAZCloneAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
 
     // ── Filter / mod setup ──
     // Global filter envelope feeds ONLY the bus Env2 source — the actual filter is now per-voice (VAZVoice).
-    filterEnv.setADSR (envTime (apvts.getRawParameterValue (ParameterIDs::e2_attack)->load()),
-                       envTime (apvts.getRawParameterValue (ParameterIDs::e2_decay)->load()),
+    const bool e2curve = apvts.getRawParameterValue (ParameterIDs::e2_curve)->load() > 0.5f;
+    filterEnv.setADSR (apvts.getRawParameterValue (ParameterIDs::e2_attack)->load(),
+                       apvts.getRawParameterValue (ParameterIDs::e2_decay)->load(),
                        apvts.getRawParameterValue (ParameterIDs::e2_sustain)->load(),
-                       envTime (apvts.getRawParameterValue (ParameterIDs::e2_release)->load()));
+                       apvts.getRawParameterValue (ParameterIDs::e2_release)->load(), e2curve);
     filterEnv.setModes (apvts.getRawParameterValue (ParameterIDs::e2_reset)->load() > 0.5f,
-                        apvts.getRawParameterValue (ParameterIDs::e2_cycle)->load() > 0.5f,
-                        apvts.getRawParameterValue (ParameterIDs::e2_curve)->load() > 0.5f);
+                        apvts.getRawParameterValue (ParameterIDs::e2_cycle)->load() > 0.5f, e2curve);
     const int   w1 = (int) apvts.getRawParameterValue (ParameterIDs::lfo_wave)->load();
     const int   w2 = (int) apvts.getRawParameterValue (ParameterIDs::lfo2_wave)->load();
     const int   w3 = (int) apvts.getRawParameterValue (ParameterIDs::lfo3_wave)->load() == 0 ? 0 : 1; // LFO3 Tri/Sine

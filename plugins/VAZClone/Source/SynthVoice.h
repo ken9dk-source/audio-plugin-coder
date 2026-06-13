@@ -284,13 +284,9 @@ public:
 private:
     void updateAmp() noexcept
     {
-        auto t    = [] (float x) { return 0.001f + x * x * 3.0f; };           // decay time (quadratic — not yet harness-isolated)
-        auto atkT = [] (float x) { return 0.001f + x*x*x*x * 3.6f; };          // attack time — harness-RE'd: real ≈ x^4·3.6
-        auto relT = [] (float x) { float x3 = x*x*x; return 0.001f + x3*x3 * 7.5f; };  // release — harness-RE'd: real ≈ x^6 (far steeper than x²)
-        amp.setADSR (atkT (p.atk), t (p.dec), p.sus, relT (p.rel));
+        amp.setADSR (p.atk, p.dec, p.sus, p.rel, p.e1Curve);   // normalised params → VAZ rate tables (bit-exact)
         amp.setModes (p.e1Reset, p.e1Cycle, p.e1Curve);
     }
-    static float ftime (float x) noexcept { return 0.0002f + x * x * 4.0f; }   // filter-env time map
     void updateFilterEnv (float mod = 0.0f) noexcept
     {
         float a = p.e2Atk, d = p.e2Dec, s = p.e2Sus, r = p.e2Rel;
@@ -301,7 +297,7 @@ private:
             case 3: r = juce::jlimit (0.0f, 1.0f, r + mod); break;
             default: break;
         }
-        env2.setADSR (ftime (a), ftime (d), s, ftime (r));
+        env2.setADSR (a, d, s, r, p.e2Curve);
         env2.setModes (p.e2Reset, p.e2Cycle, p.e2Curve);
     }
 

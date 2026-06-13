@@ -7,6 +7,7 @@
 #include "VAZTypeD.h"   // bit-exact VAZ Type-D (state-variable / Chamberlin SVF)
 #include "VAZTypeC.h"   // bit-exact VAZ Type-C (2P/4P resonant cascade + Separation, reuses R tables)
 #include "VAZTypeB.h"   // bit-exact VAZ Type-A/B taps (A-HP/BP + B-LP/BP/HP, reuses A biquad/tables)
+#include "VAZEnvTables.h" // exact envelope rate/curve tables dumped from Vaz2010Core.dll (one-pole ADSR coefs)
 
 // ============================================================================
 // VAZClone synthesis engine — Phase A: band-limited oscillators + amp envelope.
@@ -283,43 +284,63 @@ struct ModLFO
 // ============================================================================
 struct VAZEnv
 {
+    // BIT-EXACT VAZ envelope: a one-pole ADSR whose per-sample rate coefs come straight from VAZ's
+    // runtime rate tables (VAZEnvTables.h, dumped from Vaz2010Core.dll). Level is VAZ's Q30 integer
+    // (1.0 = 0x40000000); each stage is L += rate·(target − L) >> 32 exactly as the voice render does
+    // (vaz_big.c @0x4dbddc lines 384-443). Replaces the old empirical RC fit (aCoef/x⁴-time, ±10-20%).
     enum { Idle = 0, Attack, Decay, Sustain, Release };
-    int    stage = Idle;
-    double sr = 44100.0, level = 0.0;
-    double aCoef = 1.0, dCoef = 1.0, sLvl = 1.0, rCoef = 1.0;
-    static constexpr double atkTarget = 1.2;   // exp-attack overshoot target → reaches 1.0 concavely (real VAZ is RC, not linear)
-    bool   mReset = false, mCycle = false, mCurve = false;
+    int     stage = Idle;
+    int64_t L = 0;                                            // Q30 level (0 .. 0x3fffffff)
+    int32_t atkRate = 0, decRate = 0, relRate = 0, susTarget = 0;
+    bool    mReset = false, mCycle = false;
+    double  srRatio = 1.0;   // 44100/sr — the rate tables were built at ~44.1k; scale the one-pole alpha for other SRs
+    static constexpr int64_t ONE = 0x40000000, ATKTGT = 0x44000000, CAP = 0x3fffffff, OVS = 0x400000;
 
-    void setSampleRate (double s) noexcept { sr = s > 0.0 ? s : 44100.0; }
-    void setADSR (float a, float d, float s, float r) noexcept   // a = attack time-to-1.0 (s); harness-RE'd: real attack is exponential
+    void setSampleRate (double s) noexcept { srRatio = 44100.0 / (s > 0.0 ? s : 44100.0); }
+
+    // ADSR from the normalised params (0..1). loadV2P stores the .v2p value ÷425 (A/D/R) / ÷255 (sustain),
+    // so n·425 recovers the VAZ table index (= the .v2p value for ver≥107). curve = Curve mode (decay/
+    // release switch to the attack rate table + sustain uses the curve LUT).
+    void setADSR (float aN, float dN, float sN, float rN, bool curve) noexcept
     {
-        aCoef = 1.0 - std::exp (-1.79 / std::max (1.0, (double) a * sr));   // ln(1.2/0.2)=1.79 → reaches 1.0 in ~a sec
-        dCoef = 1.0 - std::exp (-1.0 / std::max (1.0, (double) d * sr * 0.35));
-        sLvl  = (double) s;
-        rCoef = 1.0 - std::exp (-1.0 / std::max (1.0, (double) r * sr * 0.35));
+        auto rate = [sr = srRatio] (float n, int base) {             // alpha · 44100/sr → SR-independent wall-clock time
+            const int i = juce::jlimit (0, 719, base + (int) std::lround (n * 425.0f));
+            return (int32_t) std::llround ((double) VAZEnvT::kRate[i] * sr);
+        };
+        const int s = juce::jlimit (0, 255, (int) std::lround (sN * 255.0f));
+        atkRate   = rate (aN, 12);                                    // DAT_006db818[idx]
+        decRate   = rate (dN, curve ? 12 : 0);                        // curve → attack table, else DAT_006db7e8
+        relRate   = rate (rN, curve ? 12 : 0);
+        susTarget = curve ? VAZEnvT::kSusCurve[s] : (int32_t) (s * 0x404040);
     }
-    void setModes (bool reset, bool cycle, bool curve) noexcept { mReset = reset; mCycle = cycle; mCurve = curve; }
-    void noteOn()  noexcept { if (mReset) level = 0.0; stage = Attack; }
+    void setModes (bool reset, bool cycle, bool /*curve→setADSR*/) noexcept { mReset = reset; mCycle = cycle; }
+    void noteOn()  noexcept { if (mReset) L = 0; stage = Attack; }
     void noteOff() noexcept { stage = Release; }
-    void reset()   noexcept { stage = Idle; level = 0.0; }
+    void reset()   noexcept { stage = Idle; L = 0; }
     bool isActive() const noexcept { return stage != Idle; }
 
     float getNextSample() noexcept
     {
         switch (stage)
         {
-            case Attack:  level += (atkTarget - level) * aCoef; if (level >= 1.0) { level = 1.0; stage = Decay; } break;   // exponential (concave) attack
-            case Decay:   level += (sLvl - level) * dCoef; if (std::abs (level - sLvl) < 0.0008) { level = sLvl; stage = Sustain; } break;
-            case Sustain: if (mCycle) stage = Attack; break;   // Cycle → loop (LFO). VAZ loops smoothly + syncs the
-            // osc on each cycle (FUN_004dfbf8); the old `if(mReset) level=0` jumped the level to 0 → a per-cycle
-            // discontinuity that bit-crushed at audio rate. Loop from the current level instead (smooth tremolo).
-            case Release: level += (0.0 - level) * rCoef; if (level < 0.0004) { level = 0.0; stage = Idle; } break;
+            case Attack:                                              // exp approach to 1.0625, caps at 1.0 (concave)
+                L += ((int64_t) atkRate * (ATKTGT - L)) >> 32;
+                if (L > CAP) { L = CAP; stage = Decay; }
+                break;
+            case Decay:                                               // exp approach to sustain (slight under-overshoot)
+                L += ((int64_t) decRate * ((susTarget - OVS) - L)) >> 32;
+                if (L <= susTarget) { L = susTarget; stage = mCycle ? Attack : Sustain; }   // Cycle → loop (LFO-env)
+                break;
+            case Sustain:
+                if (mCycle) stage = Attack;
+                break;
+            case Release:                                             // exp approach to 0 (target −OVS, floors at 0)
+                L -= ((int64_t) relRate * (OVS + L)) >> 32;
+                if (L < 1) { L = 0; stage = Idle; }
+                break;
             default: break;
         }
-        // Curve → exact VAZ exponential. Dumped curve-LUT 0x5445e0 (runtime ReadProcessMemory) is a clean
-        // 60 dB exp: curve(x)=1024^(x-1), k=ln(1024)=6.931472 (verified to 5 dp vs the live table). Anchored
-        // here as (e^{kx}-1)/(e^k-1) so curve(0)=0 (no idle floor) — was a poor level² approximation before.
-        return mCurve ? (float) ((std::exp (6.931472 * level) - 1.0) / 1023.0) : (float) level;
+        return (float) ((double) L / (double) ONE);                  // Q30 → 0..1 for the VCA / mod bus
     }
 };
 

@@ -43,6 +43,13 @@ TABLES = [('curve_0x5445e0', 0x5445e0, 15360),
           ('wave_0x6db2c0',  0x6db2c0, 1024),
           ('wave_0x6dc2c0',  0x6dc2c0, 1024)]
 
+# Envelope RATE-coef tables (one-pole Q32 alphas; saved RAW int32 → alpha = (raw&0xffffffff)/2^32).
+# Contiguous block from 0x6db7e8: decay/release rates (DAT_006db7e8); the attack table DAT_006db818
+# is the SAME block +12 entries (0x6db818-0x6db7e8 = 0x30). Curve-mode sustain DAT_006dc0c0 +
+# the stage-0 decrement const DAT_006dc0bc dumped from 0x6dc0bc.
+ENVTABLES = [('env_rate_006db7e8', 0x6db7e8, 720),
+             ('env_susc_006dc0bc', 0x6dc0bc, 264)]
+
 def main():
     os.makedirs(OUT, exist_ok=True)
     pref = pefile.PE(CORE).OPTIONAL_HEADER.ImageBase
@@ -62,6 +69,15 @@ def main():
                 fp.write('\n'.join(f'{v:.8f}' for v in f))
             print(f'  {name}: saved {cnt} vals  range [{min(f):+.3f}, {max(f):+.3f}]  '
                   f'first8: ' + ' '.join(f'{f[i]:+.3f}' for i in range(8)))
+        for name, va, cnt in ENVTABLES:                  # env rate tables → RAW int32
+            raw = readmem(h, va + delta, cnt*4)
+            if len(raw) < cnt*4:
+                print(f'  {name}: short read ({len(raw)}B)'); continue
+            vals = struct.unpack(f'<{cnt}i', raw)
+            with open(os.path.join(OUT, name+'.txt'), 'w') as fp:
+                fp.write('\n'.join(str(v) for v in vals))
+            u = [v & 0xffffffff for v in vals]
+            print(f'  {name}: saved {cnt} ints  first12(hex): ' + ' '.join(f'{x:08x}' for x in u[:12]))
         k32.CloseHandle(h)
     finally:
         vaz.close()
