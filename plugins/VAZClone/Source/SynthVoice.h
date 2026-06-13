@@ -117,6 +117,7 @@ public:
         filt.prepare (sr > 0.0 ? sr : 44100.0);
         env2.setSampleRate (sr > 0.0 ? sr : 44100.0);
         dcR = 1.0 - 4.41 / (sr > 0.0 ? sr : 44100.0);   // output DC-block: VAZ DAT_006df6c4 = 0.9999 @44.1k, SR-scaled
+        cutAlpha = 1.0 - std::exp (-1.0 / (0.01475 * (sr > 0.0 ? sr : 44100.0)));   // VAZ base-cutoff slew ~15 ms (DAT_006d45e4)
     }
 
     void startNote (int midiNote, float velocity, juce::SynthesiserSound*, int) override
@@ -132,6 +133,7 @@ public:
         // correlated-start transient/click on Multi-Saw that VAZ doesn't have.
         updateAmp(); updateFilterEnv();
         amp.noteOn(); env2.noteOn();
+        smoothCut = p.baseCut;        // settle the cutoff smoother at note-on → no onset ramp, the env DONK stays sharp
     }
 
     void stopNote (float, bool allowTailOff) override
@@ -246,7 +248,8 @@ public:
             s = tilt.process (s);
 
             // ── Per-voice FILTER (correct VAZ order: osc → filter → amp) ──
-            float coNorm = p.baseCut + p.cutAmt1 * mv (p.cutSrc1, idx) + p.cutAmt2 * mv (p.cutSrc2, idx)
+            smoothCut += (p.baseCut - smoothCut) * cutAlpha;   // VAZ ~15 ms base-cutoff slew (DAT_006d45e4); env/LFO mods stay instant → DONK intact
+            float coNorm = (float) smoothCut + p.cutAmt1 * mv (p.cutSrc1, idx) + p.cutAmt2 * mv (p.cutSrc2, idx)
                                      + p.cutAmt3 * mv (p.cutSrc3, idx);   // VAZ filter has 3 cutoff mod sources
             coNorm = juce::jlimit (0.0f, 1.0f, coNorm);
             const float m3 = p.resAmt * mv (p.resSrc, idx);
@@ -321,6 +324,7 @@ private:
     VAZMultiFilter filt;          // per-voice filter
     VAZEnv    env2;               // per-voice filter envelope
     double    dcX = 0.0, dcY = 0.0, dcR = 0.9999;   // output DC-block (one-pole HP) state + coef (VAZ 0.9999 @44.1k)
+    double    smoothCut = 0.0, cutAlpha = 0.00154;  // VAZ base-cutoff smoother (~15 ms one-pole, DAT_006d45e4)
     double    voiceKeyTrack = 0.0;
     float     voiceVel = 1.0f;
     float     lastO1 = 0.0f, lastO2 = 0.0f;
