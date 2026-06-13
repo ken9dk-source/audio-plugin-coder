@@ -96,7 +96,22 @@ class VAZVoice;
 struct VAZSynth : juce::Synthesiser
 {
     int monoVoiceIdx = -1;   // >=0 → MONO mode (dedicated legato voice index); -1 → Poly/Unison
+    int voiceLimit  = 32;    // VAZ "Voices": polyphony cap (Dynamic = full pool); allocation only uses voices[0..limit)
     void noteOn (int midiChannel, int midiNoteNumber, float velocity) override;
+
+    // Allocate within the polyphony limit: first free voice in [0,limit), else steal the oldest there.
+    juce::SynthesiserVoice* pickVoice()
+    {
+        const int N = juce::jlimit (1, voices.size(), voiceLimit);
+        juce::SynthesiserVoice* oldest = nullptr;
+        for (int i = 0; i < N; ++i)
+        {
+            auto* v = voices[i];
+            if (! v->isVoiceActive()) return v;
+            if (oldest == nullptr || v->wasStartedBefore (*oldest)) oldest = v;
+        }
+        return oldest;       // all N busy → steal the oldest within the limit
+    }
 };
 
 class VAZVoice : public juce::SynthesiserVoice
@@ -357,6 +372,5 @@ inline void VAZSynth::noteOn (int midiChannel, int midiNoteNumber, float velocit
     else                                                            // ── POLY / UNISON: just don't stop same-note voices ──
         for (auto* sound : sounds)
             if (sound->appliesToNote (midiNoteNumber) && sound->appliesToChannel (midiChannel))
-                startVoice (findFreeVoice (sound, midiChannel, midiNoteNumber, isNoteStealingEnabled()),
-                            sound, midiChannel, midiNoteNumber, velocity);
+                startVoice (pickVoice(), sound, midiChannel, midiNoteNumber, velocity);   // honour the Voices polyphony limit
 }

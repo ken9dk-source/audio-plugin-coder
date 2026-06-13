@@ -168,6 +168,60 @@ function bindNumber(el, paramId, lo, hi) {
   el.addEventListener("wheel", (e) => { e.preventDefault(); setN((parseInt(el.value, 10) || lo) + (e.deltaY < 0 ? 1 : -1)); }, { passive: false });
 }
 
+// VAZ-style value picker: click a value → a grid popup (numbers in a 4-col grid + a wide "Dynamic" row).
+function showPicker(anchor, labels, curIdx, onPick) {
+  document.querySelectorAll(".vpick-pop").forEach((e) => e.remove());
+  const pop = document.createElement("div"); pop.className = "vpick-pop";
+  const grid = document.createElement("div"); grid.className = "vpick-grid";
+  labels.forEach((lab, i) => {
+    if (lab === "Dynamic") return;
+    const c = document.createElement("div");
+    c.className = "vpick-cell" + (i === curIdx ? " on" : "");
+    c.textContent = lab;
+    c.addEventListener("click", (e) => { e.stopPropagation(); onPick(i); pop.remove(); });
+    grid.appendChild(c);
+  });
+  pop.appendChild(grid);
+  const di = labels.indexOf("Dynamic");
+  if (di >= 0) {
+    const d = document.createElement("div");
+    d.className = "vpick-dyn" + (di === curIdx ? " on" : "");
+    d.textContent = "Dynamic";
+    d.addEventListener("click", (e) => { e.stopPropagation(); onPick(di); pop.remove(); });
+    pop.appendChild(d);
+  }
+  document.body.appendChild(pop);
+  const r = anchor.getBoundingClientRect();
+  pop.style.left = Math.max(2, Math.min(r.left, window.innerWidth - pop.offsetWidth - 4)) + "px";
+  pop.style.top = Math.min(r.bottom + 2, window.innerHeight - pop.offsetHeight - 4) + "px";
+  setTimeout(() => document.addEventListener("pointerdown", function cl(ev) {
+    if (!pop.contains(ev.target)) { pop.remove(); document.removeEventListener("pointerdown", cl); }
+  }), 0);
+}
+// Choice param (e.g. Voices: "Dynamic"+1..32) shown as a click-to-pick value.
+function bindChoicePicker(el, paramId, labels) {
+  if (!el) return;
+  let st; try { st = Juce.getComboBoxState(paramId); } catch (e) { st = null; }
+  if (!st) return;
+  const disp = () => { el.textContent = (labels[st.getChoiceIndex()] === "Dynamic") ? "Dyn" : labels[st.getChoiceIndex()]; };
+  if (st.valueChangedEvent && st.valueChangedEvent.addListener) st.valueChangedEvent.addListener(disp);
+  disp();
+  el.addEventListener("click", () => showPicker(el, labels, st.getChoiceIndex(), (i) => { st.setChoiceIndex(i); disp(); }));
+}
+// Continuous param (e.g. UniVce: uni_voices 0..1) shown as a click-to-pick integer lo..hi.
+function bindFloatPicker(el, paramId, lo, hi) {
+  if (!el) return;
+  let st; try { st = Juce.getSliderState(paramId); } catch (e) { st = null; }
+  if (!st) return;
+  const span = hi - lo;
+  const labels = Array.from({ length: span + 1 }, (_, i) => String(lo + i));
+  const cur = () => Math.round(lo + span * st.getNormalisedValue());
+  const disp = () => { el.textContent = String(cur()); };
+  if (st.valueChangedEvent && st.valueChangedEvent.addListener) st.valueChangedEvent.addListener(disp);
+  disp();
+  el.addEventListener("click", () => showPicker(el, labels, cur() - lo, (i) => { st.setNormalisedValue(i / span); disp(); }));
+}
+
 // Bottom-right resize grip. The WebView2 native window covers JUCE's corner resizer, so we draw
 // our own grip and drive the editor size through native functions. screenX is screen-relative (so
 // it's stable while the panel rescales mid-drag); editor px ≈ logical CSS px on the Chromium WebView.
@@ -215,7 +269,9 @@ function init() {
   bindButtonGroup('[data-og="o1t"]', "o1_octave");  // octave buttons OSC1
   bindButtonGroup('[data-og="o2t"]', "o2_octave");  // octave buttons OSC2
   bindRadioGroup('input[data-vm]', "voice_mode");   // Mono/Poly/Unison radios
-  bindNumber(document.getElementById("univInput"), "uni_voices", 1, 32);  // Unison Voices 1..32 (VAZ range)
+  bindFloatPicker(document.getElementById("univPick"), "uni_voices", 1, 32);   // UniVce 1..32 → grid picker
+  bindChoicePicker(document.getElementById("voicesPick"), "voices",
+    ["Dynamic"].concat(Array.from({ length: 32 }, (_, i) => String(i + 1))));  // Voices: Dynamic + 1..32
   bindNumber(document.getElementById("bendInput"), "bend_range", 1, 24);  // Pitch-bend range 1..24 st
 
   // host control→param mapping (Ableton "Configure" / automation): report the control under the mouse

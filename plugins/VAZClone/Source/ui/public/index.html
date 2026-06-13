@@ -233,6 +233,17 @@ body {
 .pm-btn.minus { border-color:#666; color:#555; background:linear-gradient(180deg,#888,#666); }  /* dim = inactive − */
 .pm-btn.minus.on { background:linear-gradient(180deg,#cfcfcf,#9a9a9a); border-top-color:#eee; color:#222; }
 .mod-row .dd-field { flex:1; }
+/* VAZ-style click-to-pick value (Voices / UniVce) + its grid popup */
+.numpick { display:inline-block; min-width:24px; padding:0 4px; margin:0 4px; background:#15110a; border:1px solid #6a5a30;
+  color:#e8a838; font:bold 10px 'Consolas',monospace; line-height:14px; text-align:center; cursor:pointer; border-radius:2px; }
+.numpick:hover { background:#241a0c; border-color:#e8a838; }
+.vpick-pop { position:fixed; z-index:99999; background:#241c10; border:1px solid #b88a30; padding:3px; border-radius:3px;
+  box-shadow:0 3px 10px rgba(0,0,0,0.7); }
+.vpick-grid { display:grid; grid-template-columns:repeat(4,24px); gap:2px; }
+.vpick-cell,.vpick-dyn { padding:2px 0; background:#3a2e18; color:#e0c890; font:10px 'Consolas',monospace; text-align:center;
+  cursor:pointer; border:1px solid #5a4a28; border-radius:2px; }
+.vpick-dyn { margin-top:3px; }
+.vpick-cell:hover,.vpick-dyn:hover,.vpick-cell.on,.vpick-dyn.on { background:#e8a838; color:#221500; border-color:#ffc868; }
 
 /* WAVE/icon row helpers */
 .row { display:flex; align-items:center; gap:2px; margin-bottom:2px; }
@@ -619,8 +630,8 @@ body {
     <div class="slider" data-param="uni_detune"><div class="thumb" style="left:20%;"></div></div>
     <div class="row"><span class="lbl">Portamento</span><button class="gbtn on" data-toggle="porta_auto">Auto</button><button class="gbtn" data-toggle="porta_exp">Exp</button></div>
     <div class="slider" data-param="portamento"><div class="thumb" style="left:30%;"></div></div>
-    <div class="row"><span class="lbl">UniVce</span><input class="num" value="4" id="univInput"><span class="lbl">Bend</span><input class="num" value="2" style="width:18px;" id="bendInput"></div>
-    <div class="row"><span class="lbl">Voices</span><input class="num" value="32" style="width:18px;"><span class="lbl">Midi</span><input class="num" value="1" style="width:16px;"></div>
+    <div class="row"><span class="lbl">UniVce</span><span class="numpick" id="univPick" title="Click to pick unison voices">4</span><span class="lbl">Bend</span><input class="num" value="2" style="width:18px;" id="bendInput"></div>
+    <div class="row"><span class="lbl">Voices</span><span class="numpick" id="voicesPick" title="Click: Dynamic or fixed 1–32">Dyn</span><span class="lbl">Midi</span><input class="num" value="1" style="width:16px;"></div>
     <div class="row" style="gap:1px;"><button class="gbtn" style="font-size:11px;">♩</button><button class="gbtn" style="font-size:9px;">♫♫</button><button class="gbtn" data-toggle="arp_on">Arp</button><button class="gbtn" data-toggle="arp_hold">Hold</button></div>
     <div class="row" style="gap:2px;">
       <select class="dd-field" style="width:50px;" data-combo="arp_mode"><option>Up</option><option>Down</option><option>Up&amp;Down</option><option>Random</option></select>
@@ -734,6 +745,7 @@ function _initWave(dispId,osc){try{var p=getNativeFunction('getSampleName')(osc)
 function _initWaves(tries){try{if(window.__JUCE__&&window.__JUCE__.backend){_initWave('o1WaveDisp',0);_initWave('o2WaveDisp',1);return;}}catch(e){}if(tries>0)setTimeout(function(){_initWaves(tries-1);},300);}
 _initWaves(12);
 </script>
+
 
 
 
@@ -1641,6 +1653,60 @@ function bindNumber(el, paramId, lo, hi) {
   el.addEventListener("wheel", (e) => { e.preventDefault(); setN((parseInt(el.value, 10) || lo) + (e.deltaY < 0 ? 1 : -1)); }, { passive: false });
 }
 
+// VAZ-style value picker: click a value → a grid popup (numbers in a 4-col grid + a wide "Dynamic" row).
+function showPicker(anchor, labels, curIdx, onPick) {
+  document.querySelectorAll(".vpick-pop").forEach((e) => e.remove());
+  const pop = document.createElement("div"); pop.className = "vpick-pop";
+  const grid = document.createElement("div"); grid.className = "vpick-grid";
+  labels.forEach((lab, i) => {
+    if (lab === "Dynamic") return;
+    const c = document.createElement("div");
+    c.className = "vpick-cell" + (i === curIdx ? " on" : "");
+    c.textContent = lab;
+    c.addEventListener("click", (e) => { e.stopPropagation(); onPick(i); pop.remove(); });
+    grid.appendChild(c);
+  });
+  pop.appendChild(grid);
+  const di = labels.indexOf("Dynamic");
+  if (di >= 0) {
+    const d = document.createElement("div");
+    d.className = "vpick-dyn" + (di === curIdx ? " on" : "");
+    d.textContent = "Dynamic";
+    d.addEventListener("click", (e) => { e.stopPropagation(); onPick(di); pop.remove(); });
+    pop.appendChild(d);
+  }
+  document.body.appendChild(pop);
+  const r = anchor.getBoundingClientRect();
+  pop.style.left = Math.max(2, Math.min(r.left, window.innerWidth - pop.offsetWidth - 4)) + "px";
+  pop.style.top = Math.min(r.bottom + 2, window.innerHeight - pop.offsetHeight - 4) + "px";
+  setTimeout(() => document.addEventListener("pointerdown", function cl(ev) {
+    if (!pop.contains(ev.target)) { pop.remove(); document.removeEventListener("pointerdown", cl); }
+  }), 0);
+}
+// Choice param (e.g. Voices: "Dynamic"+1..32) shown as a click-to-pick value.
+function bindChoicePicker(el, paramId, labels) {
+  if (!el) return;
+  let st; try { st = getComboBoxState(paramId); } catch (e) { st = null; }
+  if (!st) return;
+  const disp = () => { el.textContent = (labels[st.getChoiceIndex()] === "Dynamic") ? "Dyn" : labels[st.getChoiceIndex()]; };
+  if (st.valueChangedEvent && st.valueChangedEvent.addListener) st.valueChangedEvent.addListener(disp);
+  disp();
+  el.addEventListener("click", () => showPicker(el, labels, st.getChoiceIndex(), (i) => { st.setChoiceIndex(i); disp(); }));
+}
+// Continuous param (e.g. UniVce: uni_voices 0..1) shown as a click-to-pick integer lo..hi.
+function bindFloatPicker(el, paramId, lo, hi) {
+  if (!el) return;
+  let st; try { st = getSliderState(paramId); } catch (e) { st = null; }
+  if (!st) return;
+  const span = hi - lo;
+  const labels = Array.from({ length: span + 1 }, (_, i) => String(lo + i));
+  const cur = () => Math.round(lo + span * st.getNormalisedValue());
+  const disp = () => { el.textContent = String(cur()); };
+  if (st.valueChangedEvent && st.valueChangedEvent.addListener) st.valueChangedEvent.addListener(disp);
+  disp();
+  el.addEventListener("click", () => showPicker(el, labels, cur() - lo, (i) => { st.setNormalisedValue(i / span); disp(); }));
+}
+
 // Bottom-right resize grip. The WebView2 native window covers JUCE's corner resizer, so we draw
 // our own grip and drive the editor size through native functions. screenX is screen-relative (so
 // it's stable while the panel rescales mid-drag); editor px ≈ logical CSS px on the Chromium WebView.
@@ -1688,7 +1754,9 @@ function init() {
   bindButtonGroup('[data-og="o1t"]', "o1_octave");  // octave buttons OSC1
   bindButtonGroup('[data-og="o2t"]', "o2_octave");  // octave buttons OSC2
   bindRadioGroup('input[data-vm]', "voice_mode");   // Mono/Poly/Unison radios
-  bindNumber(document.getElementById("univInput"), "uni_voices", 1, 32);  // Unison Voices 1..32 (VAZ range)
+  bindFloatPicker(document.getElementById("univPick"), "uni_voices", 1, 32);   // UniVce 1..32 → grid picker
+  bindChoicePicker(document.getElementById("voicesPick"), "voices",
+    ["Dynamic"].concat(Array.from({ length: 32 }, (_, i) => String(i + 1))));  // Voices: Dynamic + 1..32
   bindNumber(document.getElementById("bendInput"), "bend_range", 1, 24);  // Pitch-bend range 1..24 st
 
   // host control→param mapping (Ableton "Configure" / automation): report the control under the mouse

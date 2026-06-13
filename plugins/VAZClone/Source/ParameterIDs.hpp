@@ -128,6 +128,7 @@ namespace ParameterIDs
     constexpr auto portamento  = "portamento";  // float 0..1
     constexpr auto bend_range  = "bend_range";  // float 0..1 → 1..24 semitones
     constexpr auto uni_voices  = "uni_voices";  // float 0..1 → 1..16 unison voices
+    constexpr auto voices      = "voices";      // choice: "Dynamic" + 1..32 (polyphony limit; VAZ Voices)
     constexpr auto porta_exp   = "porta_exp";   // bool: exponential glide (off = linear constant-rate)
     constexpr auto porta_auto  = "porta_auto";  // bool: Portamento Auto (glide only on overlapping notes)
     // Arpeggiator

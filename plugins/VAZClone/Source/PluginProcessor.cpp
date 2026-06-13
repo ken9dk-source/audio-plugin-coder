@@ -182,6 +182,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout VAZCloneAudioProcessor::crea
     layout.add (boolp (ParameterIDs::porta_exp, "Portamento Exp"));
     layout.add (std::make_unique<AudioParameterBool> (ParameterID { ParameterIDs::porta_auto, 1 }, "Portamento Auto", true));
     layout.add (pct (ParameterIDs::bend_range, "Bend Range", 1.0f / 23.0f));   // ≈ 2 semitones
+    {   // Voices (polyphony): "Dynamic" (index 0 = full 32-voice pool) + a fixed 1..32 limit. VAZ's Voices control.
+        StringArray vch; vch.add ("Dynamic");
+        for (int n = 1; n <= 32; ++n) vch.add (String (n));
+        layout.add (std::make_unique<AudioParameterChoice> (ParameterID { ParameterIDs::voices, 1 }, "Voices", vch, 0));
+    }
     layout.add (pct (ParameterIDs::uni_voices, "Unison Voices", 3.0f / 31.0f)); // ≈ 4 voices (range 1..32)
     layout.add (std::make_unique<AudioParameterBool>  (ParameterID { ParameterIDs::arp_on,  1 }, "Arp On", false));
     layout.add (std::make_unique<AudioParameterChoice>(ParameterID { ParameterIDs::arp_mode,1 }, "Arp Mode", StringArray { "Up","Down","Up&Down","Random" }, 0));
@@ -758,6 +763,8 @@ void VAZCloneAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
             if (auto b = pos->getBpm()) bpm = *b;
     const bool arpOn = apvts.getRawParameterValue (ParameterIDs::arp_on)->load() > 0.5f;
     synth.monoVoiceIdx = (! arpOn && vmode == 0) ? 0 : -1;   // MONO → dedicate voice 0 for legato glide; else normal voice allocation
+    { const int vc = (int) apvts.getRawParameterValue (ParameterIDs::voices)->load();   // Voices: 0 = Dynamic (full pool), else fixed 1..32
+      synth.voiceLimit = (vc <= 0) ? kNumVoices : juce::jmin (vc, kNumVoices); }
 
     juce::MidiBuffer voiced;
     if (arpOn)                                                  // ── ARPEGGIATOR ──
