@@ -24,6 +24,18 @@
       "runtimeExecutable": "py",
       "runtimeArgs": ["-m", "http.server", "8756", "--directory", "plugins/VAZChorus/Source/ui/public"],
       "port": 8756
+    },
+    {
+      "name": "tranceeq",
+      "runtimeExecutable": "py",
+      "runtimeArgs": ["-m", "http.server", "8757", "--directory", "plugins/TranceEQ/Source/ui/public"],
+      "port": 8757
+    },
+    {
+      "name": "vazeq",
+      "runtimeExecutable": "py",
+      "runtimeArgs": ["-m", "http.server", "8758", "--directory", "plugins/VAZEqualizer/Source/ui/public"],
+      "port": 8758
     }
   ]
 }
