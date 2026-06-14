@@ -168,6 +168,33 @@ function bindNumber(el, paramId, lo, hi) {
   el.addEventListener("wheel", (e) => { e.preventDefault(); setN((parseInt(el.value, 10) || lo) + (e.deltaY < 0 ? 1 : -1)); }, { passive: false });
 }
 
+// On-screen pitch-bend wheel: absolute drag (thumb tracks the mouse) that SPRINGS BACK to centre (0.5)
+// the moment you let go — like a real wheel. The DSP turns 0.5±x into ±Bend-Range semitones.
+function bindPitchWheel(el, paramId) {
+  if (!el) return;
+  let state; try { state = Juce.getSliderState(paramId); } catch (e) { state = null; }
+  if (!state) return;
+  const thumb = el.querySelector(".thumb");
+  const place = (v) => { if (thumb) thumb.style.left = (v * 92) + "%"; };
+  const fromParam = () => place(state.getNormalisedValue());
+  if (state.valueChangedEvent && state.valueChangedEvent.addListener) state.valueChangedEvent.addListener(fromParam);
+  fromParam();
+  const setIdx = () => { const i = state.properties ? state.properties.parameterIndex : -1; if (i != null && i >= 0) el.setAttribute("controlparameterindex", i); };
+  if (state.propertiesChangedEvent && state.propertiesChangedEvent.addListener) state.propertiesChangedEvent.addListener(setIdx);
+  setIdx();
+  let dragging = false;
+  const apply = (clientX) => {
+    const r = el.getBoundingClientRect();
+    const v = Math.max(0, Math.min(1, (clientX - r.left) / r.width));   // absolute: thumb = mouse position
+    state.setNormalisedValue(v); place(v);
+  };
+  el.addEventListener("pointerdown", (e) => { dragging = true; el.classList.remove("center"); try { el.setPointerCapture(e.pointerId); } catch (err) {} apply(e.clientX); e.preventDefault(); });
+  el.addEventListener("pointermove", (e) => { if (dragging) apply(e.clientX); });
+  const release = (e) => { if (!dragging) return; dragging = false; try { el.releasePointerCapture(e.pointerId); } catch (err) {} state.setNormalisedValue(0.5); place(0.5); };   // spring back to centre
+  el.addEventListener("pointerup", release);
+  el.addEventListener("pointercancel", release);
+}
+
 // VAZ-style value picker: click a value → a grid popup (numbers in a 4-col grid + a wide "Dynamic" row).
 function showPicker(anchor, labels, curIdx, onPick) {
   document.querySelectorAll(".vpick-pop").forEach((e) => e.remove());
@@ -222,6 +249,24 @@ function bindFloatPicker(el, paramId, lo, hi) {
   el.addEventListener("click", () => showPicker(el, labels, cur() - lo, (i) => { st.setNormalisedValue(i / span); disp(); }));
 }
 
+// One detune fader: show "Poly Detune" in Mono/Poly mode, "Unison Detune" in Unison mode (two params, one visible).
+function bindDetuneRows() {
+  const pr = document.getElementById("polyDetRow"), ur = document.getElementById("uniDetRow");
+  if (!pr || !ur) return;
+  let vm; try { vm = Juce.getComboBoxState("voice_mode"); } catch (e) { vm = null; }
+  const upd = () => {
+    const r = document.querySelectorAll('input[data-vm]');
+    let i = Array.from(r).findIndex((x) => x.checked);   // radios are current (user clicks + bindRadioGroup on preset load)
+    if (i < 0 && vm) i = vm.getChoiceIndex();
+    const uni = i === 2;
+    pr.style.display = uni ? "none" : "";
+    ur.style.display = uni ? "" : "none";
+  };
+  if (vm && vm.valueChangedEvent && vm.valueChangedEvent.addListener) vm.valueChangedEvent.addListener(upd);
+  document.querySelectorAll('input[data-vm]').forEach((r) => r.addEventListener("change", upd));
+  upd();
+}
+
 // Bottom-right resize grip. The WebView2 native window covers JUCE's corner resizer, so we draw
 // our own grip and drive the editor size through native functions. screenX is screen-relative (so
 // it's stable while the panel rescales mid-drag); editor px ≈ logical CSS px on the Chromium WebView.
@@ -273,6 +318,8 @@ function init() {
   bindChoicePicker(document.getElementById("voicesPick"), "voices",
     ["Dynamic"].concat(Array.from({ length: 32 }, (_, i) => String(i + 1))));  // Voices: Dynamic + 1..32
   bindNumber(document.getElementById("bendInput"), "bend_range", 1, 24);  // Pitch-bend range 1..24 st
+  bindPitchWheel(document.getElementById("pitchWheel"), "pitch_bend");    // on-screen pitch-bend wheel (springs to centre)
+  bindDetuneRows();                                  // one detune fader, swapped Poly/Unison by mode
 
   // host control→param mapping (Ableton "Configure" / automation): report the control under the mouse
   try {

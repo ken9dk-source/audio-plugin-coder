@@ -61,6 +61,7 @@ struct VoiceParams
     bool  portaExp = false;                        // exponential glide (off = linear constant-rate)
     bool  portaAuto = true;                        // Portamento Auto: glide only on overlapping (legato) notes
     float bendRange = 1.0f / 23.0f;                // pitch-bend range (0..1 → 1..24 st)
+    double uiBend = 1.0;                            // on-screen pitch-wheel multiplier (1.0 = centre; multiplies both oscillators)
     bool  e1Reset = false, e1Cycle = false, e1Curve = false;   // Env1 modes
     // Per-voice filter (osc → filter → amp)
     int   filterMode = 19;
@@ -112,6 +113,14 @@ struct VAZSynth : juce::Synthesiser
             if (oldest == nullptr || v->wasStartedBefore (*oldest)) oldest = v;
         }
         return oldest;       // all N busy → steal the oldest within the limit
+    }
+
+    // Pitch bend → ALL voices. The clone is single-timbral; juce's default routes the wheel only to voices on
+    // its MIDI channel, which drops the bend on Mono-legato voices (they sound on channel 2).
+    void handlePitchWheel (int, int wheelValue) override
+    {
+        const juce::ScopedLock sl (lock);
+        for (auto* v : voices) v->pitchWheelMoved (wheelValue);
     }
 };
 
@@ -205,7 +214,7 @@ public:
         }
 
         pitchBend = std::pow (2.0, ((double) wheelRaw - 8192.0) / 8192.0 * (1.0 + 23.0 * (double) p.bendRange) / 12.0); // ±BendRange semitones
-        const double vd = pitchBend * std::pow (2.0, (voiceDetune * (double) p.detuneCents) / 1200.0); // per-voice detune × pitch-bend
+        const double vd = pitchBend * p.uiBend * std::pow (2.0, (voiceDetune * (double) p.detuneCents) / 1200.0); // MIDI bend × on-screen wheel × per-voice detune
         const double f1base = glidedHz * std::pow (2.0, (double) (p.o1Octave - 2) + o1Semi / 12.0) * vd;
         const double o2note = (p.duoHighHz > 0.0) ? p.duoHighHz : glidedHz;       // Duo: Osc2 plays the highest held note
         const double f2base = o2note * std::pow (2.0, (double) (p.o2Octave - 2) + o2Semi / 12.0)

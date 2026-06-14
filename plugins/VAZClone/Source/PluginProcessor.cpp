@@ -183,6 +183,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout VAZCloneAudioProcessor::crea
     layout.add (boolp (ParameterIDs::porta_exp, "Portamento Exp"));
     layout.add (std::make_unique<AudioParameterBool> (ParameterID { ParameterIDs::porta_auto, 1 }, "Portamento Auto", true));
     layout.add (pct (ParameterIDs::bend_range, "Bend Range", 1.0f / 23.0f));   // ≈ 2 semitones
+    layout.add (pct (ParameterIDs::pitch_bend, "Pitch Bend", 0.5f));           // on-screen wheel: 0.5 = centre, ±Bend-Range st
     {   // Voices (polyphony): "Dynamic" (index 0 = full 32-voice pool) + a fixed 1..32 limit. VAZ's Voices control.
         StringArray vch; vch.add ("Dynamic");
         for (int n = 1; n <= 32; ++n) vch.add (String (n));
@@ -266,6 +267,11 @@ void VAZCloneAudioProcessor::refreshVoiceParams()
     voiceParams.portaExp   = f (ParameterIDs::porta_exp) > 0.5f;
     voiceParams.portaAuto  = f (ParameterIDs::porta_auto) > 0.5f;
     voiceParams.bendRange  = f (ParameterIDs::bend_range);
+    {   // on-screen pitch-bend wheel (0.5 = centre) → frequency multiplier over ±Bend-Range semitones, added on top of MIDI bend
+        const float pb  = f (ParameterIDs::pitch_bend);
+        const float sem = (pb - 0.5f) * 2.0f * (1.0f + 23.0f * voiceParams.bendRange);
+        voiceParams.uiBend = std::pow (2.0, (double) sem / 12.0);
+    }
     voiceParams.e1Reset = f (ParameterIDs::e1_reset) > 0.5f;
     voiceParams.e1Cycle = f (ParameterIDs::e1_cycle) > 0.5f;
     voiceParams.e1Curve = f (ParameterIDs::e1_curve) > 0.5f;

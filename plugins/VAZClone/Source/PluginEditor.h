@@ -136,6 +136,7 @@ private:
     juce::WebSliderRelay uniDetuneRelay   { ParameterIDs::uni_detune };
     juce::WebSliderRelay portamentoRelay  { ParameterIDs::portamento };
     juce::WebSliderRelay bendRangeRelay   { ParameterIDs::bend_range };
+    juce::WebSliderRelay pitchBendRelay   { ParameterIDs::pitch_bend };
     juce::WebSliderRelay uniVoicesRelay   { ParameterIDs::uni_voices };
 
     juce::WebControlParameterIndexReceiver controlParamReceiver;   // reports which control the mouse is over → param index (Ableton)
@@ -152,7 +153,7 @@ private:
         e2AttackAtt, e2DecayAtt, e2SustainAtt, e2ReleaseAtt, filtEnvAmtAtt,
         lfoRateAtt, lfoAmtAtt, lfo2RateAtt, lfo3RateAtt, lfoShapeAtt, lfo2RmAmtAtt, resModAmtAtt,
         o1FmAmtAtt, o2FmAmtAtt, o1WsAmtAtt, o2WsAmtAtt, ampModAmtAtt, ampLevelAtt, panModAmtAtt, e2ModAmtAtt,
-        ma1AmtAtt, ma2AmtAtt, lagTimeAtt, uniDetuneAtt, portamentoAtt, bendRangeAtt, uniVoicesAtt;
+        ma1AmtAtt, ma2AmtAtt, lagTimeAtt, uniDetuneAtt, portamentoAtt, bendRangeAtt, pitchBendAtt, uniVoicesAtt;
     std::unique_ptr<juce::WebComboBoxParameterAttachment>
         o1OctaveAtt, o2OctaveAtt, o1WaveAtt, o2WaveAtt, filterModeAtt, voiceModeAtt, notePrioAtt,
         cutMod1Att, cutMod2Att, resModAtt, o1FmAtt, o2FmAtt, o1WsAtt, o2WsAtt, ampModAtt, panModAtt,

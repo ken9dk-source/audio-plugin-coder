@@ -305,6 +305,11 @@ body {
 .synth-box { background:#e08800; color:#000; font-weight:bold; font-size:10px; padding:0 10px; height:18px; line-height:18px; border:1px solid #905000; margin-left:auto; }
 .val-box { background:#000; color:#0c0; font-size:10px; font-family:monospace; padding:0 5px; height:18px; line-height:18px; border:1px solid #333; }
 
+/* PITCH-BEND WHEEL (bottom bar) */
+.pb-wrap { display:flex; align-items:center; gap:6px; margin-left:14px; }
+.pb-lbl { font-size:9px; color:#c0c0d8; letter-spacing:.5px; white-space:nowrap; }
+.pb-slider { width:130px; height:16px; margin-bottom:0; }
+
 /* MENU */
 .menu-wrap { position:relative; }
 .dropdown { display:none; position:absolute; bottom:100%; left:0; background:#3a3a3a; border:1px solid #777; z-index:100; min-width:115px; box-shadow:2px -2px 8px #000; }
@@ -626,8 +631,8 @@ body {
   <div class="sb">
     <div class="radio-grp"><label><input type="radio" name="vmode" data-vm>Mono</label><label><input type="radio" name="vmode" data-vm checked>Poly</label><label><input type="radio" name="vmode" data-vm>Unison</label></div>
     <div class="radio-grp"><label><input type="radio" name="prio" data-prio checked>Last</label><label><input type="radio" name="prio" data-prio>High</label><label><input type="radio" name="prio" data-prio>Low</label><label><input type="radio" name="prio" data-prio>Duo</label></div>
-    <div class="row"><span class="lbl" style="min-width:52px;">Poly Det</span><div class="slider" style="flex:1;" data-param="poly_detune"><div class="thumb" style="left:0;"></div></div></div>
-    <div class="row"><span class="lbl" style="min-width:52px;">Uni Det</span><div class="slider" style="flex:1;" data-param="uni_detune"><div class="thumb" style="left:0;"></div></div></div>
+    <div id="polyDetRow"><div class="lbl">Poly Detune</div><div class="slider" data-param="poly_detune"><div class="thumb" style="left:0;"></div></div></div>
+    <div id="uniDetRow" style="display:none;"><div class="lbl">Unison Detune</div><div class="slider" data-param="uni_detune"><div class="thumb" style="left:0;"></div></div></div>
     <div class="row"><span class="lbl">Portamento</span><button class="gbtn on" data-toggle="porta_auto">Auto</button><button class="gbtn" data-toggle="porta_exp">Exp</button></div>
     <div class="slider" data-param="portamento"><div class="thumb" style="left:30%;"></div></div>
     <div class="row"><span class="lbl">UniVce</span><span class="numpick" id="univPick" title="Click to pick unison voices">4</span><span class="lbl">Bend</span><input class="num" value="2" style="width:18px;" id="bendInput"></div>
@@ -654,6 +659,10 @@ body {
       <div class="dd-item" id="loadPatch">Load Patch…</div>
       <div class="dd-item" id="savePatch">Save Patch…</div>
     </div>
+  </div>
+  <div class="pb-wrap">
+    <span class="pb-lbl">Pitch Bend</span>
+    <div class="slider pb-slider center" id="pitchWheel" title="Pitch bend — drag, springs back to centre"><div class="thumb" style="left:46%;"></div></div>
   </div>
 </div>
 
@@ -698,8 +707,8 @@ document.querySelectorAll('.gbtn').forEach(b=>{
   }
 });
 
-// draggable sliders
-document.querySelectorAll('.slider').forEach(sl=>{
+// draggable sliders (preview only; the pitch wheel has its own spring-back binding)
+document.querySelectorAll('.slider:not(.pb-slider)').forEach(sl=>{
   const thumb=sl.querySelector('.thumb');
   let drag=false;
   const move=e=>{
@@ -737,6 +746,8 @@ function _initWave(dispId,osc){try{var p=getNativeFunction('getSampleName')(osc)
 function _initWaves(tries){try{if(window.__JUCE__&&window.__JUCE__.backend){_initWave('o1WaveDisp',0);_initWave('o2WaveDisp',1);return;}}catch(e){}if(tries>0)setTimeout(function(){_initWaves(tries-1);},300);}
 _initWaves(12);
 </script>
+
+
 
 
 
@@ -1645,6 +1656,33 @@ function bindNumber(el, paramId, lo, hi) {
   el.addEventListener("wheel", (e) => { e.preventDefault(); setN((parseInt(el.value, 10) || lo) + (e.deltaY < 0 ? 1 : -1)); }, { passive: false });
 }
 
+// On-screen pitch-bend wheel: absolute drag (thumb tracks the mouse) that SPRINGS BACK to centre (0.5)
+// the moment you let go — like a real wheel. The DSP turns 0.5±x into ±Bend-Range semitones.
+function bindPitchWheel(el, paramId) {
+  if (!el) return;
+  let state; try { state = getSliderState(paramId); } catch (e) { state = null; }
+  if (!state) return;
+  const thumb = el.querySelector(".thumb");
+  const place = (v) => { if (thumb) thumb.style.left = (v * 92) + "%"; };
+  const fromParam = () => place(state.getNormalisedValue());
+  if (state.valueChangedEvent && state.valueChangedEvent.addListener) state.valueChangedEvent.addListener(fromParam);
+  fromParam();
+  const setIdx = () => { const i = state.properties ? state.properties.parameterIndex : -1; if (i != null && i >= 0) el.setAttribute("controlparameterindex", i); };
+  if (state.propertiesChangedEvent && state.propertiesChangedEvent.addListener) state.propertiesChangedEvent.addListener(setIdx);
+  setIdx();
+  let dragging = false;
+  const apply = (clientX) => {
+    const r = el.getBoundingClientRect();
+    const v = Math.max(0, Math.min(1, (clientX - r.left) / r.width));   // absolute: thumb = mouse position
+    state.setNormalisedValue(v); place(v);
+  };
+  el.addEventListener("pointerdown", (e) => { dragging = true; el.classList.remove("center"); try { el.setPointerCapture(e.pointerId); } catch (err) {} apply(e.clientX); e.preventDefault(); });
+  el.addEventListener("pointermove", (e) => { if (dragging) apply(e.clientX); });
+  const release = (e) => { if (!dragging) return; dragging = false; try { el.releasePointerCapture(e.pointerId); } catch (err) {} state.setNormalisedValue(0.5); place(0.5); };   // spring back to centre
+  el.addEventListener("pointerup", release);
+  el.addEventListener("pointercancel", release);
+}
+
 // VAZ-style value picker: click a value → a grid popup (numbers in a 4-col grid + a wide "Dynamic" row).
 function showPicker(anchor, labels, curIdx, onPick) {
   document.querySelectorAll(".vpick-pop").forEach((e) => e.remove());
@@ -1699,6 +1737,24 @@ function bindFloatPicker(el, paramId, lo, hi) {
   el.addEventListener("click", () => showPicker(el, labels, cur() - lo, (i) => { st.setNormalisedValue(i / span); disp(); }));
 }
 
+// One detune fader: show "Poly Detune" in Mono/Poly mode, "Unison Detune" in Unison mode (two params, one visible).
+function bindDetuneRows() {
+  const pr = document.getElementById("polyDetRow"), ur = document.getElementById("uniDetRow");
+  if (!pr || !ur) return;
+  let vm; try { vm = getComboBoxState("voice_mode"); } catch (e) { vm = null; }
+  const upd = () => {
+    const r = document.querySelectorAll('input[data-vm]');
+    let i = Array.from(r).findIndex((x) => x.checked);   // radios are current (user clicks + bindRadioGroup on preset load)
+    if (i < 0 && vm) i = vm.getChoiceIndex();
+    const uni = i === 2;
+    pr.style.display = uni ? "none" : "";
+    ur.style.display = uni ? "" : "none";
+  };
+  if (vm && vm.valueChangedEvent && vm.valueChangedEvent.addListener) vm.valueChangedEvent.addListener(upd);
+  document.querySelectorAll('input[data-vm]').forEach((r) => r.addEventListener("change", upd));
+  upd();
+}
+
 // Bottom-right resize grip. The WebView2 native window covers JUCE's corner resizer, so we draw
 // our own grip and drive the editor size through native functions. screenX is screen-relative (so
 // it's stable while the panel rescales mid-drag); editor px ≈ logical CSS px on the Chromium WebView.
@@ -1750,6 +1806,8 @@ function init() {
   bindChoicePicker(document.getElementById("voicesPick"), "voices",
     ["Dynamic"].concat(Array.from({ length: 32 }, (_, i) => String(i + 1))));  // Voices: Dynamic + 1..32
   bindNumber(document.getElementById("bendInput"), "bend_range", 1, 24);  // Pitch-bend range 1..24 st
+  bindPitchWheel(document.getElementById("pitchWheel"), "pitch_bend");    // on-screen pitch-bend wheel (springs to centre)
+  bindDetuneRows();                                  // one detune fader, swapped Poly/Unison by mode
 
   // host control→param mapping (Ableton "Configure" / automation): report the control under the mouse
   try {

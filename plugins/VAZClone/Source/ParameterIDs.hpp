@@ -128,6 +128,7 @@ namespace ParameterIDs
     constexpr auto poly_detune = "poly_detune"; // Poly Detune (between notes, analogue drift) — VAZ +0x2f0 / .v2p p2f0
     constexpr auto portamento  = "portamento";  // float 0..1
     constexpr auto bend_range  = "bend_range";  // float 0..1 → 1..24 semitones
+    constexpr auto pitch_bend  = "pitch_bend";  // float 0..1, 0.5 = centre — on-screen pitch-bend wheel (springs back)
     constexpr auto uni_voices  = "uni_voices";  // float 0..1 → 1..16 unison voices
     constexpr auto voices      = "voices";      // choice: "Dynamic" + 1..32 (polyphony limit; VAZ Voices)
     constexpr auto oversample  = "oversample";  // bool: global 2× oversampling (VAZ "Oversample x2")
