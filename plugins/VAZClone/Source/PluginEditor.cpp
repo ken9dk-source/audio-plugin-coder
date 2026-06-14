@@ -54,7 +54,7 @@ VAZCloneAudioProcessorEditor::VAZCloneAudioProcessorEditor (VAZCloneAudioProcess
                 {
                     if (args.size() > 0)
                     {
-                        const double aspect = 726.0 / 572.0;
+                        const double aspect = 726.0 / 586.0;
                         const int w = juce::jlimit (545, 1815, (int) args[0]);
                         setSize (w, juce::roundToInt (w / aspect));   // keep the fixed aspect ratio
                     }
@@ -307,9 +307,9 @@ VAZCloneAudioProcessorEditor::VAZCloneAudioProcessorEditor (VAZCloneAudioProcess
 
     webView->goToURL (juce::WebBrowserComponent::getResourceProviderRoot());
 
-    setSize (726, 572);   // 604x475 content × 1.2 zoom (+ small margin) → shows the full menu bar + Env Curve buttons
+    setSize (726, 586);   // 604x486 content × 1.2 zoom (+ small margin) → shows the full menu bar (Poly+Unison detune added a row)
     setResizable (true, true);
-    if (auto* c = getConstrainer()) c->setFixedAspectRatio (726.0 / 572.0);   // keep proportions while resizing
+    if (auto* c = getConstrainer()) c->setFixedAspectRatio (726.0 / 586.0);   // keep proportions while resizing
     setResizeLimits (545, 429, 1815, 1430);                                   // 0.75x .. 2.5x
 }
 

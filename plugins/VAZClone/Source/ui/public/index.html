@@ -626,10 +626,8 @@ body {
   <div class="sb">
     <div class="radio-grp"><label><input type="radio" name="vmode" data-vm>Mono</label><label><input type="radio" name="vmode" data-vm checked>Poly</label><label><input type="radio" name="vmode" data-vm>Unison</label></div>
     <div class="radio-grp"><label><input type="radio" name="prio" data-prio checked>Last</label><label><input type="radio" name="prio" data-prio>High</label><label><input type="radio" name="prio" data-prio>Low</label><label><input type="radio" name="prio" data-prio>Duo</label></div>
-    <div class="lbl">Poly Detune</div>
-    <div class="slider" data-param="poly_detune"><div class="thumb" style="left:0;"></div></div>
-    <div class="lbl">Unison Detune</div>
-    <div class="slider" data-param="uni_detune"><div class="thumb" style="left:0;"></div></div>
+    <div class="row"><span class="lbl" style="min-width:52px;">Poly Det</span><div class="slider" style="flex:1;" data-param="poly_detune"><div class="thumb" style="left:0;"></div></div></div>
+    <div class="row"><span class="lbl" style="min-width:52px;">Uni Det</span><div class="slider" style="flex:1;" data-param="uni_detune"><div class="thumb" style="left:0;"></div></div></div>
     <div class="row"><span class="lbl">Portamento</span><button class="gbtn on" data-toggle="porta_auto">Auto</button><button class="gbtn" data-toggle="porta_exp">Exp</button></div>
     <div class="slider" data-param="portamento"><div class="thumb" style="left:30%;"></div></div>
     <div class="row"><span class="lbl">UniVce</span><span class="numpick" id="univPick" title="Click to pick unison voices">4</span><span class="lbl">Bend</span><input class="num" value="2" style="width:18px;" id="bendInput"></div>
