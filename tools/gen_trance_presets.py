@@ -181,7 +181,7 @@ def patches():
             o2wave=2 if i % 3 else 0, o2level=150 + i*8, o2tune=cents(fine=8 + i),
             filterMode=19 if i % 2 else 15, cutoff=185 + i*6, reso=30 + i*5,
             e1a=8 + i*3, e1d=120, e1s=235, e1r=60 + i*8,
-            e2a=2, e2d=130 + i*10, e2s=120, e2r=80,
+            e2a=2, e2d=130 + i*10, e2s=165 + i*4, e2r=80,
             fcut1s=SRC_ENV2, fcut1d=40 + i*6,
             overdrive=45 + i*8, voiceMode=2 if i % 2 else 1,
             uniDetune=40 + i*10, polyDetune=20 + i*4, portamento=0 if i < 6 else 18 + i*3)))
@@ -190,10 +190,11 @@ def patches():
         L.append(("Basses", f"TR Bass {i+1:02d}", dict(
             o1wave=1 if i % 4 == 0 else 0, o1shape=40 + i*12,
             o2level=120 + i*6, o2tune=cents(fine=4),
-            filterMode=19 if i % 2 else 1, cutoff=55 + i*7, reso=95 + i*8,
-            # click-safe: small attack, audible decay, non-zero sustain so held notes have body (not a click)
-            e1a=5, e1d=150 + i*12, e1s=85 + i*6, e1r=60 + i*5,
-            e2a=0, e2d=95 + i*8, e2s=0, e2r=45,
+            filterMode=19 if i % 2 else 1, cutoff=90 + i*6, reso=95 + i*8,
+            # TONAL: both sustains up — amp (Env1) for level, filter (Env2) so the filter stays open on the
+            # held note (was 0 = filter slammed shut = silent sustain). Env still gives a bright attack.
+            e1a=5, e1d=150 + i*12, e1s=195 + i*4, e1r=60 + i*5,
+            e2a=0, e2d=95 + i*8, e2s=150 + i*4, e2r=45,
             fcut1s=SRC_ENV2, fcut1d=120 + i*9,
             overdrive=70 + i*8, voiceMode=0,
             o1tune=cents(octaves=-1) if i % 2 else NEUTRAL_TUNE, portamento=0 if i < 5 else 12 + i*2)))
@@ -202,9 +203,9 @@ def patches():
         L.append(("MidBasses", f"TR MidBass {i+1:02d}", dict(
             o1wave=0 if i % 3 else 2, o1shape=70 + i*10,
             o2wave=0, o2level=140 + i*7, o2tune=cents(fine=7 + i),
-            filterMode=19 if i % 2 else 15, cutoff=95 + i*7, reso=70 + i*7,
-            e1a=5, e1d=170 + i*10, e1s=150 + i*8, e1r=70 + i*5,
-            e2a=0, e2d=110 + i*8, e2s=45, e2r=55,
+            filterMode=19 if i % 2 else 15, cutoff=120 + i*6, reso=70 + i*7,
+            e1a=5, e1d=170 + i*10, e1s=200 + i*4, e1r=70 + i*5,
+            e2a=0, e2d=110 + i*8, e2s=155 + i*4, e2r=55,
             fcut1s=SRC_ENV2, fcut1d=85 + i*7,
             overdrive=55 + i*7, voiceMode=2 if i % 2 else 0,
             uniDetune=30 + i*8, portamento=0)))
@@ -224,10 +225,11 @@ def patches():
         L.append(("Plucks", f"TR Pluck {i+1:02d}", dict(
             o1wave=1 if i % 3 == 0 else 0, o1shape=60 + i*14,
             o2level=110 + i*6, o2tune=cents(fine=6),
-            filterMode=15 if i % 2 else 19, cutoff=45 + i*6, reso=100 + i*8,
-            # plucky but click-safe: short-ish decay to a low (non-zero) sustain, small attack/release
-            e1a=4, e1d=130 + i*9, e1s=55 + i*5, e1r=55 + i*4,
-            e2a=0, e2d=80 + i*6, e2s=0, e2r=45,
+            filterMode=15 if i % 2 else 19, cutoff=80 + i*5, reso=100 + i*8,
+            # TONAL pluck: both sustains up so the held note rings (Env2 keeps the filter open), but a quick
+            # filter-env decay still gives the percussive pluck attack.
+            e1a=4, e1d=130 + i*9, e1s=180 + i*5, e1r=55 + i*4,
+            e2a=0, e2d=80 + i*6, e2s=145 + i*4, e2r=45,
             fcut1s=SRC_ENV2, fcut1d=130 + i*8,
             overdrive=30 + i*6, voiceMode=1,
             uniDetune=0, portamento=0)))
