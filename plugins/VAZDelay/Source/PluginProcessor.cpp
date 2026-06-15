@@ -105,13 +105,25 @@ void VAZDelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
     // VAZ note divisions (in beats), matching the Delay note popup order (32nd-trip .. 4 beats)
     static const double noteBeats[] = { 1.0/12.0, 0.125, 1.0/6.0, 0.25, 1.0/3.0, 0.375, 0.5,
                                         2.0/3.0, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0 };
+    // Sync: note value × a MUSICAL multiplier, snapped so the delay always locks to the host grid.
+    // (Was a continuous 0.5·4^p = 50..200%, only exactly 100% at p=0.5 — but the slider defaults to 0.65,
+    // so a "1/4 note" actually ran at ~123% = off-grid. Now the default slider sits in the 100% band.)
+    auto syncMult = [] (double p) -> double
+    {
+        return p < 0.15 ? 0.5            // ½  (note ÷ 2)
+             : p < 0.32 ? 2.0 / 3.0      // triplet down
+             : p < 0.45 ? 0.75           // dotted down
+             : p < 0.74 ? 1.0            // unity — the default slider position (0.65) lands here → grid-locked
+             : p < 0.84 ? 4.0 / 3.0      // triplet up
+             : p < 0.93 ? 1.5            // dotted up
+             :            2.0;           // ×2  (note × 2)
+    };
     auto delSamples = [&] (float p, int noteIdx) -> double
     {
-        if (sync)   // note base × 50%..200% (100% at the slider centre)
+        if (sync)   // tempo-synced: exact note value × musical multiplier (grid-locked)
         {
             const double beats = noteBeats[juce::jlimit (0, 13, noteIdx)];
-            const double mult  = 0.5 * std::pow (4.0, (double) p);     // 50% .. 200%
-            return beats * mult * (60.0 / bpm) * sr;
+            return beats * syncMult ((double) p) * (60.0 / bpm) * sr;
         }
         return 5.0 * std::pow (1200.0, (double) p) * 0.001 * sr;       // free: 5 ms .. 6 s (log)
     };
