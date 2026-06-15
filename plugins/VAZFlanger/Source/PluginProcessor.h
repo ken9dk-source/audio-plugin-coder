@@ -7,24 +7,29 @@
 
 //==============================================================================
 // VAZFlanger — VAZ's REAL flanger, reverse-engineered 2026-06-09 from Core.dll
-// **TFXFlanger** (class @0x51FCD4, per-sample DSP @0x5204F4).  It is a textbook
-// **delay-line flanger**, NOT a biquad comb (an earlier RE mistakenly decoded
-// TFXEqualizer @0x51E0C0 — same coef shape, different module):
-//   • triangle LFO  (abs of a 32-bit phase accumulator @0x520531-34, NOT sine)
-//   • fractional delay with LINEAR interpolation  (buf[i]+frac·(buf[i+1]-buf[i]) @0x520579)
-//   • feedback comb:  buf[w] = in·inGain + feedback·delayed                     (@0x5205A9)
-//   • dry/wet mix:    out = in + mix·(delayed − in)                            (@0x5205BD)
-//   • per-channel LFO phase offset (L/R Phase) + host-BPM Sync (@0x520493).
-// (VAZ's inner loop is fixed-point Q23; we use float — topology-exact, not bit-exact.)
+// **TFXFlanger** (class @0x51FCD4, block proc FUN_00520418 @0x520418).  It is a
+// textbook **delay-line flanger**, NOT a biquad comb (an earlier RE mistakenly
+// decoded TFXEqualizer @0x51E0C0 — that 4-section/5-mode biquad is the EQ, now
+// built as plugins/VAZEqualizer; re-confirmed via vaz_fx_all.c 2026-06-15):
+//   • triangle LFO  (abs of a 32-bit phase accumulator, NOT sine)
+//   • fractional delay with LINEAR interpolation  (buf[i]+frac·(buf[i+1]-buf[i]))
+//   • feedback comb:  buf[w] = in·inGain + feedback·delayed
+//   • Feedback Phase = polarity negation (FUN_005207d0: +0x264 = ±value), NOT a mode change
+//   • Delay Time → base delay (FUN_0052076c @0x52076c): samples = (sr·25/256000)·(value+1),
+//     value 0..255 → 0.098 .. 25 ms  (continuous: delay_ms = (value+1)/10.24)
+//   • dry/wet mix + per-channel LFO phase offset (L/R Phase) + host-BPM Sync.
+// (VAZ's inner loop FUN_004c3ad0 is fixed-point + outside the FX dump → rate/depth/feedback
+//  *magnitude* scaling is not extractable; we match topology + the confirmed delay range.)
 //==============================================================================
 struct FlangerChannel
 {
     std::vector<float> buf;          // circular delay line (power-of-2)
     int  mask = 0;                   // size − 1
     int  wpos = 0;                   // write index
+    int  length() const noexcept { return mask + 1; }
     void prepare (double sr) noexcept
     {
-        int n = 1; const int need = (int) (0.060 * sr) + 4;   // ≤ 60 ms delay headroom
+        int n = 1; const int need = (int) (0.090 * sr) + 4;   // 90 ms headroom (base 25 ms + sweep)
         while (n < need) n <<= 1;
         buf.assign ((size_t) n, 0.0f); mask = n - 1; wpos = 0;
     }

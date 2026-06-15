@@ -65,12 +65,14 @@ void VAZFlangerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     const float fGain   = apvts.getRawParameterValue (ParameterIDs::gain)->load();
     const float fbPhase = apvts.getRawParameterValue (ParameterIDs::feedback_phase)->load();
 
-    // Real flanger (RE'd from Core.dll TFXFlanger @0x5204F4): a delay-line flanger.
-    // Delay Time = minimum delay; the triangle LFO sweeps 'depth' samples on top of it.
-    const double baseMs    = 0.5 + (double) fDelay * 5.0;             // Delay Time → 0.5 .. 5.5 ms minimum delay
-    const double depthMs   = (double) fDepth * (baseMs * 1.6 + 1.0); // LFO sweep amount above the base
+    // Real flanger (Core.dll TFXFlanger, block proc FUN_00520418 @0x520418): a delay-line flanger.
+    // Delay Time → base delay via FUN_0052076c @0x52076c: samples = (sr·25/256000)·(value+1), value 0..255
+    // → 0.098 .. 25 ms (continuous form delay_ms = (value+1)/10.24). The triangle LFO sweeps on top.
+    const double baseMs    = ((double) fDelay * 255.0 + 1.0) / 10.24;   // VAZ-confirmed: 0.098 .. 25 ms
+    const double depthMs   = (double) fDepth * (baseMs + 0.5);          // LFO sweep ∝ base (+0.5 ms floor for tight settings)
     const double baseSamp  = baseMs  * 0.001 * sr;
     const double depthSamp = depthMs * 0.001 * sr;
+    const double maxDelay  = (double) chL.length() - 2.0;              // clamp reads inside the delay line
     const double fbSign    = fbPhase > 0.5f ? -1.0 : 1.0;            // Feedback Phase: − inverts the feedback
     const double feedback  = (double) fFb * 0.92 * fbSign;          // feedback comb gain (real [+0x264])
     const double mix       = (double) fMix;
@@ -107,13 +109,13 @@ void VAZFlangerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
 
     for (int i = 0; i < n; ++i)
     {
-        const double dL = baseSamp + triangle (lfoPhase) * depthSamp;     // swept fractional delay
+        const double dL = juce::jmin (maxDelay, baseSamp + triangle (lfoPhase) * depthSamp);   // swept fractional delay
         L[i] = (float) (chL.process ((double) L[i], dL, feedback, mix, inGain) * gain);
 
         if (R != nullptr)
         {
             double pr = lfoPhase + lrOffset; if (pr >= 1.0) pr -= 1.0;     // L/R Phase offset
-            const double dR = baseSamp + triangle (pr) * depthSamp;
+            const double dR = juce::jmin (maxDelay, baseSamp + triangle (pr) * depthSamp);
             R[i] = (float) (chR.process ((double) R[i], dR, feedback, mix, inGain) * gain);
         }
 
