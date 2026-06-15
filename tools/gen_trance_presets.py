@@ -15,21 +15,27 @@ class Cursor:
     def __init__(self, d, pos):
         self.d = d; self.n = len(d); self.pos = pos
         self.off = {}      # field name -> byte offset where its read started
+        self.val = {}      # field name -> parsed value (every named read)
     def u32(self, name=None):
         if name: self.off[name] = self.pos
         p = self.pos
         v = int.from_bytes(self.d[p:p+4], 'little') if p+4 <= self.n else 0
-        self.pos += 4; return v
+        self.pos += 4
+        if name: self.val[name] = v
+        return v
     def byte(self, name=None):
         if name: self.off[name] = self.pos
         v = self.d[self.pos] if 0 <= self.pos < self.n else 0
-        self.pos += 1; return v
+        self.pos += 1
+        if name: self.val[name] = v
+        return v
     def modsrc(self, ver, name=None):
         if name: self.off[name] = self.pos
         p = self.pos
         v = int.from_bytes(self.d[p:p+4], 'little') if p+4 <= self.n else 0
         self.pos += 4
         if ver < 200 and v > 6: v += 1
+        if name: self.val[name] = v
         return v
     def strsample(self):
         self.byte(); self.byte(); ln = self.u32(); self.pos += ln
@@ -121,7 +127,7 @@ def trace(d, prst):
     P['uniDetune']=c.u32('uniDetune')
     if v >= 200: P['polyDetune']=c.u32('polyDetune')
     P['portamento']=c.u32('portamento')
-    return ver, c.off, P
+    return ver, c.off, c.val      # c.val = every named field's value (superset of P)
 
 def landmarks(d):
     prst = find_tag(d, 'PRST')
@@ -145,12 +151,18 @@ def build_patch(template, params, name=None):
         if field not in off: raise KeyError(field)
         o = off[field]
         struct.pack_into('<I', d, o, int(val) & 0xFFFFFFFF)   # 4-byte LE; small vals leave high bytes 0
-    # baseline — neutralise template quirks so each patch is fully determined by `params`
+    # baseline — neutralise template quirks + the "pro VAZ grid" found on basically every &Eh/AH bank
+    # patch: filter key-tracking (Osc1 Pitch -> cutoff) + velocity -> cutoff & amp. Each patch then sets
+    # the Env2 filter sweep (fcut1*) and the LFO->waveshape amount (o1pwmd/o2pwmd) on top.
+    SRC_OSC1PIT, SRC_VEL, SRC_LFO2 = 10, 17, 2
     base = dict(noise=0, o1level=255, bandwidth=0, hpCut=0,
-                o1fm1d=0, o1fm2d=0, o1pwmd=0, o2fm1d=0, o2fm2d=0, o2pwmd=0,
-                am1d=0, am2d=0, am3d=0, e2modamt=0, ma1amamt=0,
-                fcut1s=SRC_NONE, fcut1d=0, fcut2s=SRC_NONE, fcut2d=0, fcut3s=SRC_NONE, fcut3d=0,
-                fresS=SRC_NONE, fresD=0, o1tune=NEUTRAL_TUNE, o2tune=NEUTRAL_TUNE)
+                o1fm1d=0, o1fm2d=0, o2fm1d=0, o2fm2d=0, am1d=0, am3d=0, e2modamt=0, ma1amamt=0,
+                fcut2s=SRC_OSC1PIT, fcut2d=70,   # Osc1 Pitch -> cutoff: the filter follows the keyboard
+                fcut3s=SRC_VEL,     fcut3d=30,   # Velocity   -> cutoff: harder = brighter
+                am2s=SRC_VEL,       am2d=42,     # Velocity   -> amp:    dynamics
+                fresS=SRC_NONE, fresD=0,
+                o1pwms=SRC_LFO1, o1pwmd=0, o2pwms=SRC_LFO2, o2pwmd=0,   # LFO -> waveshape/PWM (amount per patch)
+                o1tune=NEUTRAL_TUNE, o2tune=NEUTRAL_TUNE)
     base.update(params)
     for k, v in base.items():
         setv(k, v)
@@ -177,47 +189,50 @@ def patches():
     for i in range(10):
         f = i / 9.0
         L.append(("Leads", f"TR Lead {i+1:02d}", dict(
-            o1wave=2 if i % 3 else 0, o1shape=140 + int(90*f),
-            o2wave=2 if i % 3 else 0, o2level=150 + i*8, o2tune=cents(fine=8 + i),
-            filterMode=19 if i % 2 else 15, cutoff=185 + i*6, reso=30 + i*5,
-            e1a=8 + i*3, e1d=120, e1s=235, e1r=60 + i*8,
+            o1wave=2 if i % 3 else 0, o1shape=150 + int(80*f),
+            o2wave=2 if i % 3 else 0, o2level=160 + i*8, o2tune=cents(fine=8 + i),
+            filterMode=19 if i % 2 else 9, cutoff=180 + i*6, reso=45 + i*5,
+            e1a=8 + i*3, e1d=120, e1s=235, e1r=70 + i*8,
             e2a=2, e2d=130 + i*10, e2s=165 + i*4, e2r=80,
-            fcut1s=SRC_ENV2, fcut1d=40 + i*6,
-            overdrive=45 + i*8, voiceMode=2 if i % 2 else 1,
+            fcut1s=SRC_ENV2, fcut1d=50 + i*5,
+            o1pwmd=70, o2pwmd=70, lfo1rate=40, lfo2rate=28,    # LFO->waveshape = the trancy shimmer
+            overdrive=55 + i*7, voiceMode=2 if i % 2 else 1,
             uniDetune=40 + i*10, polyDetune=20 + i*4, portamento=0 if i < 6 else 18 + i*3)))
     # ---- BASSES: offbeat rolling, mono, plucky, strong filter-env sweep, octave down ----
     for i in range(10):
         L.append(("Basses", f"TR Bass {i+1:02d}", dict(
             o1wave=1 if i % 4 == 0 else 0, o1shape=40 + i*12,
             o2level=120 + i*6, o2tune=cents(fine=4),
-            filterMode=19 if i % 2 else 1, cutoff=90 + i*6, reso=95 + i*8,
-            # TONAL: both sustains up — amp (Env1) for level, filter (Env2) so the filter stays open on the
-            # held note (was 0 = filter slammed shut = silent sustain). Env still gives a bright attack.
+            filterMode=19 if i % 2 else 16, cutoff=90 + i*6, reso=64 + i*6,
+            # TONAL: amp (Env1) sustain for level + filter (Env2) sustain so the held note stays open.
             e1a=5, e1d=150 + i*12, e1s=195 + i*4, e1r=60 + i*5,
             e2a=0, e2d=95 + i*8, e2s=150 + i*4, e2r=45,
-            fcut1s=SRC_ENV2, fcut1d=120 + i*9,
-            overdrive=70 + i*8, voiceMode=0,
+            fcut1s=SRC_ENV2, fcut1d=120 + i*6,
+            o1pwmd=0, o2pwmd=0,                                 # bass stays tight (no LFO PWM)
+            overdrive=130 + i*8, voiceMode=2 if i % 3 == 0 else 0,
             o1tune=cents(octaves=-1) if i % 2 else NEUTRAL_TUNE, portamento=0 if i < 5 else 12 + i*2)))
     # ---- MID-BASSES: more body/sustain than bass, often unison, mid filter ----
     for i in range(10):
         L.append(("MidBasses", f"TR MidBass {i+1:02d}", dict(
             o1wave=0 if i % 3 else 2, o1shape=70 + i*10,
             o2wave=0, o2level=140 + i*7, o2tune=cents(fine=7 + i),
-            filterMode=19 if i % 2 else 15, cutoff=120 + i*6, reso=70 + i*7,
+            filterMode=19 if i % 2 else 9, cutoff=120 + i*6, reso=60 + i*7,
             e1a=5, e1d=170 + i*10, e1s=200 + i*4, e1r=70 + i*5,
             e2a=0, e2d=110 + i*8, e2s=155 + i*4, e2r=55,
-            fcut1s=SRC_ENV2, fcut1d=85 + i*7,
-            overdrive=55 + i*7, voiceMode=2 if i % 2 else 0,
+            fcut1s=SRC_ENV2, fcut1d=90 + i*7,
+            o1pwmd=45, o2pwmd=45, lfo1rate=32, lfo2rate=24,     # mild LFO->waveshape animation
+            overdrive=110 + i*7, voiceMode=2 if i % 2 else 0,
             uniDetune=30 + i*8, portamento=0)))
     # ---- PADS: slow, lush, wide, slow filter LFO, full sustain ----
     for i in range(10):
         L.append(("Pads", f"TR Pad {i+1:02d}", dict(
             o1wave=2, o1shape=170 + i*7,
             o2wave=2, o2level=170 + i*6, o2tune=cents(fine=10 + i*2),
-            filterMode=10 if i % 2 else 19, cutoff=120 + i*8, reso=18 + i*3,
+            filterMode=10 if i % 2 else 19, cutoff=130 + i*8, reso=18 + i*3,
             e1a=110 + i*14, e1d=200, e1s=255, e1r=170 + i*14,
             e2a=90 + i*10, e2d=220, e2s=200, e2r=180,
-            fcut2s=SRC_LFO1, fcut2d=30 + i*5, lfo1rate=20 + i*5,
+            fcut1s=SRC_ENV2, fcut1d=35 + i*4,
+            o1pwmd=90, o2pwmd=90, lfo1rate=30, lfo2rate=22,     # the lush, moving pad shimmer
             overdrive=0 if i < 6 else 20 + i*3, voiceMode=1 if i % 2 else 2,
             uniDetune=70 + i*10, polyDetune=40 + i*6, portamento=0)))
     # ---- PLUCKS: percussive, instant attack, zero sustain, sharp filter-env tick ----
@@ -225,13 +240,13 @@ def patches():
         L.append(("Plucks", f"TR Pluck {i+1:02d}", dict(
             o1wave=1 if i % 3 == 0 else 0, o1shape=60 + i*14,
             o2level=110 + i*6, o2tune=cents(fine=6),
-            filterMode=15 if i % 2 else 19, cutoff=80 + i*5, reso=100 + i*8,
-            # TONAL pluck: both sustains up so the held note rings (Env2 keeps the filter open), but a quick
-            # filter-env decay still gives the percussive pluck attack.
+            filterMode=15 if i % 2 else 19, cutoff=80 + i*5, reso=100 + i*5,
+            # TONAL pluck: held note rings (Env1+Env2 sustain up), quick filter-env decay = percussive attack.
             e1a=4, e1d=130 + i*9, e1s=180 + i*5, e1r=55 + i*4,
             e2a=0, e2d=80 + i*6, e2s=145 + i*4, e2r=45,
-            fcut1s=SRC_ENV2, fcut1d=130 + i*8,
-            overdrive=30 + i*6, voiceMode=1,
+            fcut1s=SRC_ENV2, fcut1d=120 + i*8,
+            o1pwmd=25, o2pwmd=0, lfo1rate=18,                   # subtle waveshape movement
+            overdrive=60 + i*6, voiceMode=1,
             uniDetune=0, portamento=0)))
     return L
 
