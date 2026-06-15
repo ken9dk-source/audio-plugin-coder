@@ -19,11 +19,14 @@ private:
     juce::WebSliderRelay       rightRelay { ParameterIDs::right_limit };
     juce::WebSliderRelay       rateRelay  { ParameterIDs::rate };
     juce::WebToggleButtonRelay waveRelay  { ParameterIDs::waveform_sine };
+    juce::WebToggleButtonRelay syncRelay  { ParameterIDs::mod_sync };
+    juce::WebComboBoxRelay     periodRelay { ParameterIDs::mod_period };
 
     std::unique_ptr<juce::WebBrowserComponent> webView;
 
     std::unique_ptr<juce::WebSliderParameterAttachment> leftAtt, rightAtt, rateAtt;
-    std::unique_ptr<juce::WebToggleButtonParameterAttachment> waveAtt;
+    std::unique_ptr<juce::WebToggleButtonParameterAttachment> waveAtt, syncAtt;
+    std::unique_ptr<juce::WebComboBoxParameterAttachment> periodAtt;
 
     std::optional<juce::WebBrowserComponent::Resource> getResource (const juce::String& url);
     static const char* getMimeForExtension (const juce::String& extension);

@@ -42,6 +42,12 @@
       "runtimeExecutable": "py",
       "runtimeArgs": ["-m", "http.server", "8759", "--directory", "plugins/VAZCompressor/Source/ui/public"],
       "port": 8759
+    },
+    {
+      "name": "autopanui",
+      "runtimeExecutable": "py",
+      "runtimeArgs": ["-m", "http.server", "8760", "--directory", "plugins/VAZAutopan/Source/ui/public"],
+      "port": 8760
     }
   ]
 }

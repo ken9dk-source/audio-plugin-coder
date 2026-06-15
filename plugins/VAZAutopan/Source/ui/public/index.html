@@ -26,6 +26,8 @@
   .tog { display:inline-block; font-size:10px; padding:1px 10px; margin-left:8px; border:1px solid #100;
     border-radius:2px; background:#2c0d0d; color:#c89; cursor:pointer; }
   .tog.on { background: linear-gradient(#ffd9a0, #d98a3a); color:#1a0606; }
+  .period { flex:1; font-size:10px; background:#2c0d0d; color:#e8d0c0; border:1px solid #100;
+    border-radius:2px; padding:1px 3px; cursor:pointer; }
 </style>
 </head>
 <body>
@@ -47,10 +49,19 @@
     </div>
 
     <div class="row">
-      <div class="lbl">Rate</div>
+      <div class="lbl">Rate <span class="tog" data-toggle="mod_sync" title="Tempo-sync the pan rate (replaces Rate)">Sync</span></div>
       <div class="sld"><span class="end">Slow</span>
         <div class="slider" data-param="rate"><div class="thumb"></div></div>
         <span class="end r">Fast</span></div>
+      <div class="sld" style="margin-top:6px;"><span class="end">Period</span>
+        <select class="period" data-combo="mod_period">
+          <option>1/32T</option><option>1/32</option><option>1/16T</option><option>1/16</option>
+          <option>1/8T</option><option>1/8</option><option>1/4T</option><option>1/4</option>
+          <option>2b</option><option>3b</option><option>4b</option><option>5b</option>
+          <option>6b</option><option>8b</option><option>12b</option><option>16b</option>
+          <option>24b</option><option>32b</option><option>48b</option><option>64b</option>
+          <option>96b</option><option>128b</option><option>192b</option><option>256b</option>
+        </select></div>
     </div>
 
     <div class="row">
@@ -818,12 +829,24 @@ function bindToggle(paramId, el) {
   el.addEventListener("click", () => st.setValue(!st.getValue()));
 }
 
+function bindCombo(paramId, el) {
+  let state; try { state = getComboBoxState(paramId); } catch (e) { state = null; }
+  if (!state) return;
+  const update = () => { el.selectedIndex = state.getChoiceIndex(); };
+  if (state.valueChangedEvent && state.valueChangedEvent.addListener) state.valueChangedEvent.addListener(update);
+  update();
+  el.addEventListener("change", () => state.setChoiceIndex(el.selectedIndex));
+}
+
 function init() {
   document.querySelectorAll("[data-param]").forEach((el) => {
     bindSlider(el.getAttribute("data-param"), el);
   });
   document.querySelectorAll("[data-toggle]").forEach((el) => {
     bindToggle(el.getAttribute("data-toggle"), el);
+  });
+  document.querySelectorAll("[data-combo]").forEach((el) => {
+    bindCombo(el.getAttribute("data-combo"), el);
   });
 }
 

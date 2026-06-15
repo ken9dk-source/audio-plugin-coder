@@ -26,6 +26,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout VAZAutopanAudioProcessor::cr
     layout.add (pct (ParameterIDs::rate,        "Rate",        0.3f));   // ~moderate
     layout.add (std::make_unique<AudioParameterBool>(
         ParameterID { ParameterIDs::waveform_sine, 1 }, "Waveform Sine", false));   // Triangle by default
+    layout.add (std::make_unique<AudioParameterBool>(
+        ParameterID { ParameterIDs::mod_sync, 1 }, "Sync", false));
+    const StringArray modPeriods { "1/32T","1/32","1/16T","1/16","1/8T","1/8","1/4T","1/4",
+        "2b","3b","4b","5b","6b","8b","12b","16b","24b","32b","48b","64b","96b","128b","192b","256b" };
+    layout.add (std::make_unique<AudioParameterChoice> (
+        ParameterID { ParameterIDs::mod_period, 1 }, "Period", modPeriods, 10));   // default 4 beats
     return layout;
 }
 
@@ -53,7 +59,21 @@ void VAZAutopanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     const float  fRate  = apvts.getRawParameterValue (ParameterIDs::rate)->load();
     const bool   sine   = apvts.getRawParameterValue (ParameterIDs::waveform_sine)->load() > 0.5f;
 
-    const double lfoInc = (0.1 + (double) fRate * (double) fRate * 19.9) / sr;   // 0.1 .. 20 Hz
+    // Rate: free 0.1..20 Hz, or tempo-synced (host BPM ÷ note division) — one full pan cycle per Period.
+    static constexpr double periodBeats[24] = { 1.0/12, 1.0/8, 1.0/6, 1.0/4, 1.0/3, 1.0/2, 2.0/3, 1.0,
+        2.0, 3.0, 4.0, 5.0, 6.0, 8.0, 12.0, 16.0, 24.0, 32.0, 48.0, 64.0, 96.0, 128.0, 192.0, 256.0 };
+    double lfoInc;
+    if (apvts.getRawParameterValue (ParameterIDs::mod_sync)->load() > 0.5f)
+    {
+        double bpm = 120.0;
+        if (auto* ph = getPlayHead())
+            if (auto pos = ph->getPosition())
+                if (auto b = pos->getBpm()) bpm = *b > 1.0 ? *b : 120.0;
+        const int p = juce::jlimit (0, 23, (int) apvts.getRawParameterValue (ParameterIDs::mod_period)->load());
+        lfoInc = ((bpm / 60.0) / periodBeats[p]) / sr;
+    }
+    else
+        lfoInc = (0.1 + (double) fRate * (double) fRate * 19.9) / sr;   // free: 0.1 .. 20 Hz
     const double halfPi = juce::MathConstants<double>::halfPi;
     const double twoPi  = juce::MathConstants<double>::twoPi;
 

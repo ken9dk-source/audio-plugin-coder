@@ -1,4 +1,6 @@
-// VAZReverb WebView bridge — binds [data-param] sliders to JUCE parameters.
+// VAZAutopan WebView bridge — binds sliders / toggles / combos to JUCE parameters.
+// NOTE: the SHIPPED UI is the self-contained index.html (this JUCE interop + these bindings are
+// inlined there). This module mirrors the inlined bindings as the readable source of truth.
 import * as Juce from "./juce/index.js";
 
 function bindSlider(paramId, el) {
@@ -28,9 +30,33 @@ function bindSlider(paramId, el) {
   window.addEventListener("mouseup", () => { dragging = false; });
 }
 
+function bindToggle(paramId, el) {
+  let st; try { st = Juce.getToggleState(paramId); } catch (e) { st = null; }
+  if (!st) return;
+  const upd = () => { el.classList.toggle("on", st.getValue()); };
+  if (st.valueChangedEvent && st.valueChangedEvent.addListener) st.valueChangedEvent.addListener(upd);
+  upd();
+  el.addEventListener("click", () => st.setValue(!st.getValue()));
+}
+
+function bindCombo(paramId, el) {
+  let state; try { state = Juce.getComboBoxState(paramId); } catch (e) { state = null; }
+  if (!state) return;
+  const update = () => { el.selectedIndex = state.getChoiceIndex(); };
+  if (state.valueChangedEvent && state.valueChangedEvent.addListener) state.valueChangedEvent.addListener(update);
+  update();
+  el.addEventListener("change", () => state.setChoiceIndex(el.selectedIndex));
+}
+
 function init() {
   document.querySelectorAll("[data-param]").forEach((el) => {
     bindSlider(el.getAttribute("data-param"), el);
+  });
+  document.querySelectorAll("[data-toggle]").forEach((el) => {
+    bindToggle(el.getAttribute("data-toggle"), el);
+  });
+  document.querySelectorAll("[data-combo]").forEach((el) => {
+    bindCombo(el.getAttribute("data-combo"), el);
   });
 }
 

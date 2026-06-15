@@ -19,7 +19,9 @@ VAZAutopanAudioProcessorEditor::VAZAutopanAudioProcessorEditor (VAZAutopanAudioP
             .withOptionsFrom (leftRelay)
             .withOptionsFrom (rightRelay)
             .withOptionsFrom (rateRelay)
-            .withOptionsFrom (waveRelay));
+            .withOptionsFrom (waveRelay)
+            .withOptionsFrom (syncRelay)
+            .withOptionsFrom (periodRelay));
 
     addAndMakeVisible (*webView);
 
@@ -33,9 +35,13 @@ VAZAutopanAudioProcessorEditor::VAZAutopanAudioProcessorEditor (VAZAutopanAudioP
     rateAtt  = attach (ParameterIDs::rate,        rateRelay);
     waveAtt  = std::make_unique<juce::WebToggleButtonParameterAttachment>(
                    *audioProcessor.apvts.getParameter (ParameterIDs::waveform_sine), waveRelay, nullptr);
+    syncAtt  = std::make_unique<juce::WebToggleButtonParameterAttachment>(
+                   *audioProcessor.apvts.getParameter (ParameterIDs::mod_sync), syncRelay, nullptr);
+    periodAtt = std::make_unique<juce::WebComboBoxParameterAttachment>(
+                   *audioProcessor.apvts.getParameter (ParameterIDs::mod_period), periodRelay, nullptr);
 
     webView->goToURL (juce::WebBrowserComponent::getResourceProviderRoot());
-    setSize (250, 195);
+    setSize (250, 235);
 }
 
 VAZAutopanAudioProcessorEditor::~VAZAutopanAudioProcessorEditor() {}
