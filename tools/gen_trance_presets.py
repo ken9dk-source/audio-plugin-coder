@@ -191,8 +191,9 @@ def patches():
             o1wave=1 if i % 4 == 0 else 0, o1shape=40 + i*12,
             o2level=120 + i*6, o2tune=cents(fine=4),
             filterMode=19 if i % 2 else 1, cutoff=55 + i*7, reso=95 + i*8,
-            e1a=0, e1d=55 + i*6, e1s=0 if i < 7 else 40, e1r=22 + i*3,
-            e2a=0, e2d=70 + i*8, e2s=0, e2r=30,
+            # click-safe: small attack, audible decay, non-zero sustain so held notes have body (not a click)
+            e1a=5, e1d=150 + i*12, e1s=85 + i*6, e1r=60 + i*5,
+            e2a=0, e2d=95 + i*8, e2s=0, e2r=45,
             fcut1s=SRC_ENV2, fcut1d=120 + i*9,
             overdrive=70 + i*8, voiceMode=0,
             o1tune=cents(octaves=-1) if i % 2 else NEUTRAL_TUNE, portamento=0 if i < 5 else 12 + i*2)))
@@ -202,8 +203,8 @@ def patches():
             o1wave=0 if i % 3 else 2, o1shape=70 + i*10,
             o2wave=0, o2level=140 + i*7, o2tune=cents(fine=7 + i),
             filterMode=19 if i % 2 else 15, cutoff=95 + i*7, reso=70 + i*7,
-            e1a=2, e1d=90 + i*8, e1s=110 + i*8, e1r=50 + i*6,
-            e2a=0, e2d=95 + i*8, e2s=40, e2r=45,
+            e1a=5, e1d=170 + i*10, e1s=150 + i*8, e1r=70 + i*5,
+            e2a=0, e2d=110 + i*8, e2s=45, e2r=55,
             fcut1s=SRC_ENV2, fcut1d=85 + i*7,
             overdrive=55 + i*7, voiceMode=2 if i % 2 else 0,
             uniDetune=30 + i*8, portamento=0)))
@@ -224,8 +225,9 @@ def patches():
             o1wave=1 if i % 3 == 0 else 0, o1shape=60 + i*14,
             o2level=110 + i*6, o2tune=cents(fine=6),
             filterMode=15 if i % 2 else 19, cutoff=45 + i*6, reso=100 + i*8,
-            e1a=0, e1d=45 + i*5, e1s=0, e1r=28 + i*4,
-            e2a=0, e2d=55 + i*6, e2s=0, e2r=32,
+            # plucky but click-safe: short-ish decay to a low (non-zero) sustain, small attack/release
+            e1a=4, e1d=130 + i*9, e1s=55 + i*5, e1r=55 + i*4,
+            e2a=0, e2d=80 + i*6, e2s=0, e2r=45,
             fcut1s=SRC_ENV2, fcut1d=130 + i*8,
             overdrive=30 + i*6, voiceMode=1,
             uniDetune=0, portamento=0)))
