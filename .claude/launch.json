@@ -36,6 +36,12 @@
       "runtimeExecutable": "py",
       "runtimeArgs": ["-m", "http.server", "8758", "--directory", "plugins/VAZEqualizer/Source/ui/public"],
       "port": 8758
+    },
+    {
+      "name": "vazcomp",
+      "runtimeExecutable": "py",
+      "runtimeArgs": ["-m", "http.server", "8759", "--directory", "plugins/VAZCompressor/Source/ui/public"],
+      "port": 8759
     }
   ]
 }
