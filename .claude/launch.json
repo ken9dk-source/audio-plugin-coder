@@ -48,6 +48,12 @@
       "runtimeExecutable": "py",
       "runtimeArgs": ["-m", "http.server", "8760", "--directory", "plugins/VAZAutopan/Source/ui/public"],
       "port": 8760
+    },
+    {
+      "name": "delayui",
+      "runtimeExecutable": "py",
+      "runtimeArgs": ["-m", "http.server", "8761", "--directory", "plugins/VAZDelay/Source/ui/public"],
+      "port": 8761
     }
   ]
 }

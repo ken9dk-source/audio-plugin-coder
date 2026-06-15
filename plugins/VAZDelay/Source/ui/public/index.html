@@ -28,6 +28,7 @@
     border: 1px solid #100; box-shadow: inset 0 1px 2px #000; cursor: pointer; }
   .slider .thumb { position: absolute; top: 1px; left: 0; width: 9%; height: 9px;
     border-radius: 2px; background: linear-gradient(#ffd9a0, #d98a3a); box-shadow: 0 1px 2px #000; }
+  .dval { float: right; color: #ffcf80; font-size: 9px; font-family: monospace; font-weight: bold; }
 </style>
 </head>
 <body>
@@ -41,7 +42,7 @@
     <div class="cols">
       <div class="col">
         <div class="colhdr">Left</div>
-        <div class="row"><div class="lbl">Delay <select class="note" data-combo="note_l"><option>32nd triplet</option><option>32nd note</option><option>16th triplet</option><option>16th note</option><option>8th triplet</option><option>16th dotted</option><option>8th note</option><option>1/4 triplet</option><option>8th dotted</option><option>1/4 note</option><option>1/4 dotted</option><option>2 beats</option><option>3 beats</option><option>4 beats</option></select></div><div class="slider" data-param="delay_l"><div class="thumb"></div></div></div>
+        <div class="row"><div class="lbl">Delay <select class="note" data-combo="note_l"><option>32nd triplet</option><option>32nd note</option><option>16th triplet</option><option>16th note</option><option>8th triplet</option><option>16th dotted</option><option>8th note</option><option>1/4 triplet</option><option>8th dotted</option><option>1/4 note</option><option>1/4 dotted</option><option>2 beats</option><option>3 beats</option><option>4 beats</option></select><span class="dval" data-dval="delay_l"></span></div><div class="slider" data-param="delay_l"><div class="thumb"></div></div></div>
         <div class="row"><div class="lbl">Feedback</div><div class="slider" data-param="fb_l"><div class="thumb"></div></div></div>
         <div class="row"><div class="lbl">Tone</div><div class="slider" data-param="tone_l"><div class="thumb"></div></div></div>
         <div class="row"><div class="lbl">Wet</div><div class="slider" data-param="wet_l"><div class="thumb"></div></div></div>
@@ -49,7 +50,7 @@
       </div>
       <div class="col">
         <div class="colhdr">Right</div>
-        <div class="row"><div class="lbl">Delay <select class="note" data-combo="note_r"><option>32nd triplet</option><option>32nd note</option><option>16th triplet</option><option>16th note</option><option>8th triplet</option><option>16th dotted</option><option>8th note</option><option>1/4 triplet</option><option>8th dotted</option><option>1/4 note</option><option>1/4 dotted</option><option>2 beats</option><option>3 beats</option><option>4 beats</option></select></div><div class="slider" data-param="delay_r"><div class="thumb"></div></div></div>
+        <div class="row"><div class="lbl">Delay <select class="note" data-combo="note_r"><option>32nd triplet</option><option>32nd note</option><option>16th triplet</option><option>16th note</option><option>8th triplet</option><option>16th dotted</option><option>8th note</option><option>1/4 triplet</option><option>8th dotted</option><option>1/4 note</option><option>1/4 dotted</option><option>2 beats</option><option>3 beats</option><option>4 beats</option></select><span class="dval" data-dval="delay_r"></span></div><div class="slider" data-param="delay_r"><div class="thumb"></div></div></div>
         <div class="row"><div class="lbl">Feedback</div><div class="slider" data-param="fb_r"><div class="thumb"></div></div></div>
         <div class="row"><div class="lbl">Tone</div><div class="slider" data-param="tone_r"><div class="thumb"></div></div></div>
         <div class="row"><div class="lbl">Wet</div><div class="slider" data-param="wet_r"><div class="thumb"></div></div></div>
@@ -836,6 +837,30 @@ function bindCombo(paramId, el) {
   el.addEventListener("change", () => st.setChoiceIndex(el.selectedIndex));
 }
 
+// Delay readout: in Sync mode show the musical multiplier as a % (MUST mirror the processor's
+// syncMult bands); in Free mode show the time (5 ms..6 s, log). Updates on drag + Sync toggle.
+function syncMultJS(p) {
+  return p < 0.15 ? 0.5 : p < 0.32 ? 2 / 3 : p < 0.45 ? 0.75 : p < 0.74 ? 1.0 : p < 0.84 ? 4 / 3 : p < 0.93 ? 1.5 : 2.0;
+}
+function fmtDelay(p, isSync) {
+  if (isSync) return Math.round(syncMultJS(p) * 100) + "%";
+  const ms = 5 * Math.pow(1200, p);
+  return ms >= 1000 ? (ms / 1000).toFixed(2) + " s" : Math.round(ms) + " ms";
+}
+function bindDelayReadout(paramId) {
+  const valEl = document.querySelector('[data-dval="' + paramId + '"]');
+  if (!valEl) return;
+  let sld; try { sld = getSliderState(paramId); } catch (e) { sld = null; }
+  let syncSt; try { syncSt = getToggleState("sync"); } catch (e) { syncSt = null; }
+  if (!sld) return;
+  const render = () => { valEl.textContent = fmtDelay(sld.getNormalisedValue(), syncSt ? syncSt.getValue() : false); };
+  if (sld.valueChangedEvent && sld.valueChangedEvent.addListener) sld.valueChangedEvent.addListener(render);
+  if (syncSt && syncSt.valueChangedEvent && syncSt.valueChangedEvent.addListener) syncSt.valueChangedEvent.addListener(render);
+  const slEl = document.querySelector('[data-param="' + paramId + '"]');
+  if (slEl) slEl.addEventListener("pointermove", render);   // live update while dragging
+  render();
+}
+
 function init() {
   try { const _iu = new ControlParameterIndexUpdater("controlparameterindex"); window.addEventListener("mousemove", (e) => _iu.handleMouseMove(e)); } catch (e) {}
   document.querySelectorAll("[data-param]").forEach((el) => {
@@ -847,6 +872,8 @@ function init() {
   document.querySelectorAll("[data-combo]").forEach((el) => {
     bindCombo(el.getAttribute("data-combo"), el);
   });
+  bindDelayReadout("delay_l");
+  bindDelayReadout("delay_r");
 }
 
 if (document.readyState === "loading")
