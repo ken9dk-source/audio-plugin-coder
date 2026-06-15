@@ -1,0 +1,5 @@
+# Runtime
+customtkinter>=5.2.0
+
+# Build only (creating the standalone .exe)
+pyinstaller>=6.0

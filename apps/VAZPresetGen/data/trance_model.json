@@ -1,0 +1,1417 @@
+{
+  "_meta": {
+    "dataset": "Vaz sound banks",
+    "presets_analysed": 190,
+    "parser": "clone parseV2P (version-gated); values in native .v2p units",
+    "units": {
+      "cutoff/res/overdrive/levels/detune/shape/sustain": "0-255",
+      "amp/filter env attack/decay/release": "0-425",
+      "osc tune": "cents (0 = unison)",
+      "clone_normalisation": "cutoff/res/od/level/sustain /255 ; A/D/R /425 ; modsrc index 0-21"
+    },
+    "fx_chain_note": "Chorus/Delay/Reverb are NOT in the synth .v2p PRST params (VAZ effects are separate insert plugins) -> not modelled here."
+  },
+  "preset_classification": {
+    "types_found": {
+      "bass": 32,
+      "lead": 82,
+      "pad": 37,
+      "pluck": 7,
+      "other": 32
+    },
+    "method": "name keyword + envelope-feature fallback (slow-attack+high-sustain=pad; low-sustain+short-decay=pluck; mono=bass; else lead)",
+    "type_defining_params": [
+      "voiceMode",
+      "amp_env.attack",
+      "amp_env.sustain",
+      "filter_env.decay",
+      "cutoff"
+    ],
+    "trance_defining_params": [
+      "o1wave/o2wave",
+      "osc2_detune+unison_detune",
+      "cutoff",
+      "resonance",
+      "filter_env->cutoff (fcut1=Env2)",
+      "keytrack->cutoff (fcut=Osc1Pitch)",
+      "lfo->waveshape (o1/o2_ws)",
+      "overdrive",
+      "voiceMode"
+    ]
+  },
+  "parameter_statistics": {
+    "lead": {
+      "n": 82,
+      "oscillator": {
+        "osc1_wave_pct": {
+          "Pulse": 41,
+          "Saw": 27,
+          "Sample": 20,
+          "Ext/Sync": 12
+        },
+        "osc2_wave_pct": {
+          "Pulse": 38,
+          "Saw": 32,
+          "Sample": 17,
+          "Ext/Sync": 13
+        },
+        "osc1_shape_0_255": {
+          "min": 0,
+          "max": 255,
+          "sweet_spot": 22,
+          "recommended": [
+            0,
+            115
+          ]
+        },
+        "osc2_level_0_255": {
+          "min": 0,
+          "max": 255,
+          "sweet_spot": 185,
+          "recommended": [
+            122,
+            255
+          ]
+        },
+        "osc2_detune_cents": {
+          "min": -2396,
+          "max": 3608,
+          "sweet_spot": 1200,
+          "recommended": [
+            2,
+            1900
+          ]
+        },
+        "osc2_used_pct": 88
+      },
+      "filter": {
+        "mode_pct": {
+          "C4P+HP-SM": 22,
+          "A-LP": 18,
+          "C4P+HP-RM": 13,
+          "C2P+HP-RM": 12,
+          "B-BP": 9
+        },
+        "cutoff_0_255": {
+          "min": 65,
+          "max": 255,
+          "sweet_spot": 188,
+          "recommended": [
+            160,
+            206
+          ]
+        },
+        "resonance_0_255": {
+          "min": 0,
+          "max": 255,
+          "sweet_spot": 96,
+          "recommended": [
+            52,
+            191
+          ]
+        }
+      },
+      "amp_env_A_D_R_0_425__S_0_255": {
+        "attack": {
+          "min": 0,
+          "max": 273,
+          "sweet_spot": 36,
+          "recommended": [
+            0,
+            63
+          ]
+        },
+        "decay": {
+          "min": 0,
+          "max": 425,
+          "sweet_spot": 148,
+          "recommended": [
+            108,
+            242
+          ]
+        },
+        "sustain": {
+          "min": 0,
+          "max": 255,
+          "sweet_spot": 133,
+          "recommended": [
+            94,
+            181
+          ]
+        },
+        "release": {
+          "min": 0,
+          "max": 375,
+          "sweet_spot": 165,
+          "recommended": [
+            126,
+            249
+          ]
+        }
+      },
+      "filter_env_A_D_R_0_425__S_0_255": {
+        "attack": {
+          "min": 0,
+          "max": 425,
+          "sweet_spot": 44,
+          "recommended": [
+            0,
+            98
+          ]
+        },
+        "decay": {
+          "min": 0,
+          "max": 389,
+          "sweet_spot": 164,
+          "recommended": [
+            101,
+            281
+          ]
+        },
+        "sustain": {
+          "min": 0,
+          "max": 255,
+          "sweet_spot": 100,
+          "recommended": [
+            0,
+            164
+          ]
+        },
+        "release": {
+          "min": 0,
+          "max": 425,
+          "sweet_spot": 187,
+          "recommended": [
+            134,
+            277
+          ]
+        }
+      },
+      "voices": {
+        "voice_mode_pct": {
+          "Poly": 89,
+          "Unison": 6,
+          "Mono": 5
+        },
+        "unison_detune_0_255": {
+          "min": 0,
+          "max": 128,
+          "sweet_spot": 0,
+          "recommended": [
+            0,
+            0
+          ]
+        },
+        "poly_detune_0_255": {
+          "min": 0,
+          "max": 124,
+          "sweet_spot": 0,
+          "recommended": [
+            0,
+            0
+          ]
+        },
+        "unison_voice_count_v2only": {
+          "min": 2,
+          "max": 16,
+          "sweet_spot": 2,
+          "recommended": [
+            2,
+            16
+          ]
+        }
+      },
+      "overdrive_0_255": {
+        "min": 0,
+        "max": 242,
+        "sweet_spot": 30,
+        "recommended": [
+          0,
+          92
+        ]
+      },
+      "modulation_grid_pct": {
+        "env_to_cutoff": 76,
+        "keytrack_to_cutoff": 41,
+        "velocity_to_cutoff": 24,
+        "lfo_to_cutoff": 32,
+        "velocity_to_amp": 32,
+        "lfo_to_waveshape": 37
+      },
+      "lfo_rate_when_used_0_255": {
+        "min": 0,
+        "max": 255,
+        "sweet_spot": 96,
+        "recommended": [
+          42,
+          144
+        ]
+      }
+    },
+    "pad": {
+      "n": 37,
+      "oscillator": {
+        "osc1_wave_pct": {
+          "Ext/Sync": 32,
+          "Saw": 27,
+          "Sample": 22,
+          "Pulse": 19
+        },
+        "osc2_wave_pct": {
+          "Ext/Sync": 35,
+          "Sample": 24,
+          "Saw": 24,
+          "Pulse": 16
+        },
+        "osc1_shape_0_255": {
+          "min": 0,
+          "max": 255,
+          "sweet_spot": 0,
+          "recommended": [
+            0,
+            129
+          ]
+        },
+        "osc2_level_0_255": {
+          "min": 0,
+          "max": 255,
+          "sweet_spot": 255,
+          "recommended": [
+            115,
+            255
+          ]
+        },
+        "osc2_detune_cents": {
+          "min": -1200,
+          "max": 2405,
+          "sweet_spot": 0,
+          "recommended": [
+            0,
+            1200
+          ]
+        },
+        "osc2_used_pct": 89
+      },
+      "filter": {
+        "mode_pct": {
+          "A-LP": 19,
+          "C4P+HP-SM": 14,
+          "B-BP": 14,
+          "R4P+HP-RM": 11,
+          "C4P+HP-HM": 8
+        },
+        "cutoff_0_255": {
+          "min": 82,
+          "max": 255,
+          "sweet_spot": 170,
+          "recommended": [
+            147,
+            195
+          ]
+        },
+        "resonance_0_255": {
+          "min": 0,
+          "max": 233,
+          "sweet_spot": 65,
+          "recommended": [
+            24,
+            139
+          ]
+        }
+      },
+      "amp_env_A_D_R_0_425__S_0_255": {
+        "attack": {
+          "min": 0,
+          "max": 372,
+          "sweet_spot": 172,
+          "recommended": [
+            115,
+            245
+          ]
+        },
+        "decay": {
+          "min": 0,
+          "max": 425,
+          "sweet_spot": 147,
+          "recommended": [
+            0,
+            280
+          ]
+        },
+        "sustain": {
+          "min": 60,
+          "max": 255,
+          "sweet_spot": 225,
+          "recommended": [
+            181,
+            255
+          ]
+        },
+        "release": {
+          "min": 69,
+          "max": 387,
+          "sweet_spot": 256,
+          "recommended": [
+            164,
+            291
+          ]
+        }
+      },
+      "filter_env_A_D_R_0_425__S_0_255": {
+        "attack": {
+          "min": 0,
+          "max": 425,
+          "sweet_spot": 130,
+          "recommended": [
+            0,
+            235
+          ]
+        },
+        "decay": {
+          "min": 0,
+          "max": 389,
+          "sweet_spot": 256,
+          "recommended": [
+            98,
+            323
+          ]
+        },
+        "sustain": {
+          "min": 0,
+          "max": 255,
+          "sweet_spot": 170,
+          "recommended": [
+            128,
+            255
+          ]
+        },
+        "release": {
+          "min": 0,
+          "max": 403,
+          "sweet_spot": 298,
+          "recommended": [
+            148,
+            358
+          ]
+        }
+      },
+      "voices": {
+        "voice_mode_pct": {
+          "Poly": 76,
+          "Unison": 16,
+          "Mono": 8
+        },
+        "unison_detune_0_255": {
+          "min": 0,
+          "max": 128,
+          "sweet_spot": 0,
+          "recommended": [
+            0,
+            1
+          ]
+        },
+        "poly_detune_0_255": {
+          "min": 0,
+          "max": 124,
+          "sweet_spot": 0,
+          "recommended": [
+            0,
+            0
+          ]
+        },
+        "unison_voice_count_v2only": {
+          "min": 2,
+          "max": 16,
+          "sweet_spot": 9,
+          "recommended": [
+            2,
+            16
+          ]
+        }
+      },
+      "overdrive_0_255": {
+        "min": 0,
+        "max": 192,
+        "sweet_spot": 64,
+        "recommended": [
+          0,
+          110
+        ]
+      },
+      "modulation_grid_pct": {
+        "env_to_cutoff": 73,
+        "keytrack_to_cutoff": 54,
+        "velocity_to_cutoff": 41,
+        "lfo_to_cutoff": 19,
+        "velocity_to_amp": 57,
+        "lfo_to_waveshape": 49
+      },
+      "lfo_rate_when_used_0_255": {
+        "min": 0,
+        "max": 255,
+        "sweet_spot": 65,
+        "recommended": [
+          42,
+          148
+        ]
+      }
+    },
+    "bass": {
+      "n": 32,
+      "oscillator": {
+        "osc1_wave_pct": {
+          "Pulse": 50,
+          "Ext/Sync": 22,
+          "Saw": 22,
+          "Sample": 6
+        },
+        "osc2_wave_pct": {
+          "Pulse": 41,
+          "Saw": 31,
+          "Ext/Sync": 22,
+          "Sample": 6
+        },
+        "osc1_shape_0_255": {
+          "min": 0,
+          "max": 255,
+          "sweet_spot": 0,
+          "recommended": [
+            0,
+            130
+          ]
+        },
+        "osc2_level_0_255": {
+          "min": 0,
+          "max": 255,
+          "sweet_spot": 177,
+          "recommended": [
+            120,
+            255
+          ]
+        },
+        "osc2_detune_cents": {
+          "min": -2400,
+          "max": 3100,
+          "sweet_spot": 0,
+          "recommended": [
+            -1198,
+            700
+          ]
+        },
+        "osc2_used_pct": 81
+      },
+      "filter": {
+        "mode_pct": {
+          "K-HP+LP": 12,
+          "K-LP": 9,
+          "C4P+HP-SM": 9,
+          "C4P+HP-RM": 9,
+          "A-LP": 9
+        },
+        "cutoff_0_255": {
+          "min": 65,
+          "max": 255,
+          "sweet_spot": 132,
+          "recommended": [
+            96,
+            177
+          ]
+        },
+        "resonance_0_255": {
+          "min": 0,
+          "max": 255,
+          "sweet_spot": 113,
+          "recommended": [
+            64,
+            195
+          ]
+        }
+      },
+      "amp_env_A_D_R_0_425__S_0_255": {
+        "attack": {
+          "min": 0,
+          "max": 144,
+          "sweet_spot": 0,
+          "recommended": [
+            0,
+            63
+          ]
+        },
+        "decay": {
+          "min": 64,
+          "max": 403,
+          "sweet_spot": 196,
+          "recommended": [
+            147,
+            270
+          ]
+        },
+        "sustain": {
+          "min": 0,
+          "max": 255,
+          "sweet_spot": 128,
+          "recommended": [
+            64,
+            198
+          ]
+        },
+        "release": {
+          "min": 52,
+          "max": 291,
+          "sweet_spot": 208,
+          "recommended": [
+            161,
+            252
+          ]
+        }
+      },
+      "filter_env_A_D_R_0_425__S_0_255": {
+        "attack": {
+          "min": 0,
+          "max": 256,
+          "sweet_spot": 0,
+          "recommended": [
+            0,
+            63
+          ]
+        },
+        "decay": {
+          "min": 96,
+          "max": 389,
+          "sweet_spot": 248,
+          "recommended": [
+            214,
+            295
+          ]
+        },
+        "sustain": {
+          "min": 0,
+          "max": 227,
+          "sweet_spot": 115,
+          "recommended": [
+            91,
+            168
+          ]
+        },
+        "release": {
+          "min": 70,
+          "max": 425,
+          "sweet_spot": 245,
+          "recommended": [
+            216,
+            298
+          ]
+        }
+      },
+      "voices": {
+        "voice_mode_pct": {
+          "Mono": 56,
+          "Poly": 28,
+          "Unison": 16
+        },
+        "unison_detune_0_255": {
+          "min": 0,
+          "max": 128,
+          "sweet_spot": 0,
+          "recommended": [
+            0,
+            0
+          ]
+        },
+        "poly_detune_0_255": {
+          "min": 0,
+          "max": 18,
+          "sweet_spot": 0,
+          "recommended": [
+            0,
+            0
+          ]
+        },
+        "unison_voice_count_v2only": {
+          "min": 2,
+          "max": 32,
+          "sweet_spot": 16,
+          "recommended": [
+            2,
+            16
+          ]
+        }
+      },
+      "overdrive_0_255": {
+        "min": 0,
+        "max": 246,
+        "sweet_spot": 143,
+        "recommended": [
+          120,
+          193
+        ]
+      },
+      "modulation_grid_pct": {
+        "env_to_cutoff": 94,
+        "keytrack_to_cutoff": 31,
+        "velocity_to_cutoff": 38,
+        "lfo_to_cutoff": 6,
+        "velocity_to_amp": 59,
+        "lfo_to_waveshape": 31
+      },
+      "lfo_rate_when_used_0_255": {
+        "min": 0,
+        "max": 255,
+        "sweet_spot": 11,
+        "recommended": [
+          0,
+          192
+        ]
+      }
+    },
+    "pluck": {
+      "n": 7,
+      "oscillator": {
+        "osc1_wave_pct": {
+          "Pulse": 86,
+          "Saw": 14
+        },
+        "osc2_wave_pct": {
+          "Pulse": 71,
+          "Saw": 14,
+          "Ext/Sync": 14
+        },
+        "osc1_shape_0_255": {
+          "min": 0,
+          "max": 82,
+          "sweet_spot": 0,
+          "recommended": [
+            0,
+            82
+          ]
+        },
+        "osc2_level_0_255": {
+          "min": 0,
+          "max": 255,
+          "sweet_spot": 29,
+          "recommended": [
+            23,
+            255
+          ]
+        },
+        "osc2_detune_cents": {
+          "min": 0,
+          "max": 3603,
+          "sweet_spot": 500,
+          "recommended": [
+            0,
+            2904
+          ]
+        },
+        "osc2_used_pct": 86
+      },
+      "filter": {
+        "mode_pct": {
+          "A-LP": 57,
+          "C4P+HP-RM": 29,
+          "C2P+HP-RM": 14
+        },
+        "cutoff_0_255": {
+          "min": 168,
+          "max": 221,
+          "sweet_spot": 200,
+          "recommended": [
+            185,
+            202
+          ]
+        },
+        "resonance_0_255": {
+          "min": 14,
+          "max": 193,
+          "sweet_spot": 126,
+          "recommended": [
+            52,
+            136
+          ]
+        }
+      },
+      "amp_env_A_D_R_0_425__S_0_255": {
+        "attack": {
+          "min": 0,
+          "max": 105,
+          "sweet_spot": 18,
+          "recommended": [
+            0,
+            61
+          ]
+        },
+        "decay": {
+          "min": 50,
+          "max": 242,
+          "sweet_spot": 80,
+          "recommended": [
+            69,
+            99
+          ]
+        },
+        "sustain": {
+          "min": 0,
+          "max": 90,
+          "sweet_spot": 14,
+          "recommended": [
+            0,
+            24
+          ]
+        },
+        "release": {
+          "min": 46,
+          "max": 259,
+          "sweet_spot": 82,
+          "recommended": [
+            69,
+            143
+          ]
+        }
+      },
+      "filter_env_A_D_R_0_425__S_0_255": {
+        "attack": {
+          "min": 0,
+          "max": 115,
+          "sweet_spot": 42,
+          "recommended": [
+            0,
+            82
+          ]
+        },
+        "decay": {
+          "min": 14,
+          "max": 351,
+          "sweet_spot": 14,
+          "recommended": [
+            14,
+            75
+          ]
+        },
+        "sustain": {
+          "min": 0,
+          "max": 255,
+          "sweet_spot": 0,
+          "recommended": [
+            0,
+            118
+          ]
+        },
+        "release": {
+          "min": 23,
+          "max": 403,
+          "sweet_spot": 69,
+          "recommended": [
+            23,
+            82
+          ]
+        }
+      },
+      "voices": {
+        "voice_mode_pct": {
+          "Poly": 100
+        },
+        "unison_detune_0_255": {
+          "min": 0,
+          "max": 0,
+          "sweet_spot": 0,
+          "recommended": [
+            0,
+            0
+          ]
+        },
+        "poly_detune_0_255": {
+          "min": 0,
+          "max": 0,
+          "sweet_spot": 0,
+          "recommended": [
+            0,
+            0
+          ]
+        },
+        "unison_voice_count_v2only": null
+      },
+      "overdrive_0_255": {
+        "min": 0,
+        "max": 115,
+        "sweet_spot": 37,
+        "recommended": [
+          0,
+          69
+        ]
+      },
+      "modulation_grid_pct": {
+        "env_to_cutoff": 100,
+        "keytrack_to_cutoff": 29,
+        "velocity_to_cutoff": 0,
+        "lfo_to_cutoff": 29,
+        "velocity_to_amp": 0,
+        "lfo_to_waveshape": 29
+      },
+      "lfo_rate_when_used_0_255": {
+        "min": 130,
+        "max": 212,
+        "sweet_spot": 171,
+        "recommended": [
+          130,
+          212
+        ]
+      }
+    }
+  },
+  "trance_signature_rules": {
+    "uplifting_trance_lead": {
+      "voiceMode": "Poly",
+      "osc1_wave": [
+        "Saw",
+        "MultiSaw",
+        "Pulse"
+      ],
+      "cutoff": ">=180 (bright)",
+      "resonance": "low-mid (40-120)",
+      "overdrive": "LOW (0-60) <- leads are clean (bank median 30)",
+      "amp_env": {
+        "attack": "fast-moderate (0-60)",
+        "sustain": "high (130-235)",
+        "release": "moderate-long (120-220)"
+      },
+      "must_have": [
+        "Env2->cutoff sweep",
+        "keytrack->cutoff"
+      ],
+      "movement": "LFO->waveshape (rate 28-45)"
+    },
+    "asot_supersaw": {
+      "_data_note": "MultiSaw oscillator mode is UNUSED in this 190-bank (0 presets). Width is built from Saw/Pulse + 2 osc + unison_detune + osc2 detune. MultiSaw (wave 2) remains available in the synth.",
+      "osc1_wave": "Saw (bank method) | MultiSaw (synth's dedicated supersaw mode)",
+      "osc2_wave": "match osc1",
+      "osc1_shape": "Saw->Tri morph or MultiSaw detune (0-130)",
+      "osc2_detune_cents": "small (+2..+18) for width",
+      "unison_detune": "high (40-128)",
+      "voiceMode": [
+        "Unison",
+        "Poly"
+      ],
+      "cutoff": "high (190-255)",
+      "resonance": "low (20-70)",
+      "movement": "LFO1->o1_ws + LFO2->o2_ws (rate ~30-40)",
+      "overdrive": "low (0-50)"
+    },
+    "pluck_stab": {
+      "osc1_wave": "Pulse",
+      "voiceMode": "Poly",
+      "amp_env": {
+        "attack": "0-10",
+        "decay": "50-110",
+        "sustain": "LOW (0-90) = the pluck",
+        "release": "short-moderate"
+      },
+      "filter_env": "short decay, sustain 0",
+      "two_approaches": {
+        "amp_pluck (bank)": "high cutoff (~200) + amp env plucks",
+        "filter_pluck (trance)": "low cutoff + Env2->cutoff opens it"
+      }
+    },
+    "pad": {
+      "voiceMode": "Poly/Unison",
+      "amp_env": {
+        "attack": "slow (120-250)",
+        "sustain": "full (200-255)",
+        "release": "long (200-300)"
+      },
+      "resonance": "low (10-80)",
+      "movement": "LFO->waveshape (48% of pads)",
+      "width": "osc2 detune + high unison_detune",
+      "overdrive": "low/none (0-40)"
+    },
+    "energy": [
+      "high overdrive (bass 120-200)",
+      "high resonance (90-180)",
+      "fast amp attack",
+      "Env2->cutoff full depth"
+    ],
+    "width": [
+      "MultiSaw osc1+osc2",
+      "osc2 detune +5..+18c",
+      "unison_detune 40-120",
+      "Unison/Poly voiceMode"
+    ],
+    "drive": [
+      "overdrive 120-220 (bass)",
+      "resonance + Type K/R filter"
+    ],
+    "movement": [
+      "LFO->waveshape (PWM) rate 28-45",
+      "filter key-tracking",
+      "velocity->cutoff"
+    ]
+  },
+  "generation_rules": {
+    "lead": {
+      "allowed_ranges": {
+        "cutoff": [
+          65,
+          255
+        ],
+        "resonance": [
+          0,
+          255
+        ],
+        "overdrive": [
+          0,
+          242
+        ],
+        "amp_attack": [
+          0,
+          273
+        ],
+        "amp_decay": [
+          0,
+          425
+        ],
+        "amp_sustain": [
+          0,
+          255
+        ],
+        "amp_release": [
+          0,
+          375
+        ],
+        "osc1_wave": [
+          "Pulse",
+          "Saw",
+          "Sample",
+          "Ext/Sync"
+        ],
+        "voice_mode": [
+          "Poly",
+          "Unison",
+          "Mono"
+        ]
+      },
+      "recommended_ranges": {
+        "cutoff": [
+          160,
+          206
+        ],
+        "resonance": [
+          52,
+          191
+        ],
+        "overdrive": [
+          0,
+          92
+        ],
+        "amp_attack": [
+          0,
+          63
+        ],
+        "amp_decay": [
+          108,
+          242
+        ],
+        "amp_sustain": [
+          94,
+          181
+        ],
+        "amp_release": [
+          126,
+          249
+        ],
+        "filter_env_decay": [
+          101,
+          281
+        ],
+        "osc1_wave": "Pulse",
+        "voice_mode": "Poly"
+      },
+      "forbidden_combinations": [
+        {
+          "rule": "amp_sustain==0 AND amp_decay<120 AND amp_attack<4",
+          "reason": "click/transient (0 of 190 bank presets do this on tonal types)"
+        },
+        {
+          "rule": "filter_env->cutoff AND filter_sustain==0 AND cutoff<70",
+          "reason": "held note filtered to silence (only kicks do this in the bank)"
+        },
+        {
+          "rule": "overdrive>120",
+          "reason": "leads in the bank stay clean (median 30); high drive belongs to bass"
+        }
+      ]
+    },
+    "pad": {
+      "allowed_ranges": {
+        "cutoff": [
+          82,
+          255
+        ],
+        "resonance": [
+          0,
+          233
+        ],
+        "overdrive": [
+          0,
+          192
+        ],
+        "amp_attack": [
+          0,
+          372
+        ],
+        "amp_decay": [
+          0,
+          425
+        ],
+        "amp_sustain": [
+          60,
+          255
+        ],
+        "amp_release": [
+          69,
+          387
+        ],
+        "osc1_wave": [
+          "Ext/Sync",
+          "Saw",
+          "Sample",
+          "Pulse"
+        ],
+        "voice_mode": [
+          "Poly",
+          "Unison",
+          "Mono"
+        ]
+      },
+      "recommended_ranges": {
+        "cutoff": [
+          147,
+          195
+        ],
+        "resonance": [
+          24,
+          139
+        ],
+        "overdrive": [
+          0,
+          110
+        ],
+        "amp_attack": [
+          115,
+          245
+        ],
+        "amp_decay": [
+          0,
+          280
+        ],
+        "amp_sustain": [
+          181,
+          255
+        ],
+        "amp_release": [
+          164,
+          291
+        ],
+        "filter_env_decay": [
+          98,
+          323
+        ],
+        "osc1_wave": "Ext/Sync",
+        "voice_mode": "Poly"
+      },
+      "forbidden_combinations": [
+        {
+          "rule": "amp_sustain==0 AND amp_decay<120 AND amp_attack<4",
+          "reason": "click/transient (0 of 190 bank presets do this on tonal types)"
+        },
+        {
+          "rule": "filter_env->cutoff AND filter_sustain==0 AND cutoff<70",
+          "reason": "held note filtered to silence (only kicks do this in the bank)"
+        }
+      ]
+    },
+    "bass": {
+      "allowed_ranges": {
+        "cutoff": [
+          65,
+          255
+        ],
+        "resonance": [
+          0,
+          255
+        ],
+        "overdrive": [
+          0,
+          246
+        ],
+        "amp_attack": [
+          0,
+          144
+        ],
+        "amp_decay": [
+          64,
+          403
+        ],
+        "amp_sustain": [
+          0,
+          255
+        ],
+        "amp_release": [
+          52,
+          291
+        ],
+        "osc1_wave": [
+          "Pulse",
+          "Ext/Sync",
+          "Saw",
+          "Sample"
+        ],
+        "voice_mode": [
+          "Mono",
+          "Poly",
+          "Unison"
+        ]
+      },
+      "recommended_ranges": {
+        "cutoff": [
+          96,
+          177
+        ],
+        "resonance": [
+          64,
+          195
+        ],
+        "overdrive": [
+          120,
+          193
+        ],
+        "amp_attack": [
+          0,
+          63
+        ],
+        "amp_decay": [
+          147,
+          270
+        ],
+        "amp_sustain": [
+          64,
+          198
+        ],
+        "amp_release": [
+          161,
+          252
+        ],
+        "filter_env_decay": [
+          214,
+          295
+        ],
+        "osc1_wave": "Pulse",
+        "voice_mode": "Mono"
+      },
+      "forbidden_combinations": [
+        {
+          "rule": "amp_sustain==0 AND amp_decay<120 AND amp_attack<4",
+          "reason": "click/transient (0 of 190 bank presets do this on tonal types)"
+        },
+        {
+          "rule": "filter_env->cutoff AND filter_sustain==0 AND cutoff<70",
+          "reason": "held note filtered to silence (only kicks do this in the bank)"
+        }
+      ]
+    },
+    "pluck": {
+      "allowed_ranges": {
+        "cutoff": [
+          168,
+          221
+        ],
+        "resonance": [
+          14,
+          193
+        ],
+        "overdrive": [
+          0,
+          115
+        ],
+        "amp_attack": [
+          0,
+          105
+        ],
+        "amp_decay": [
+          50,
+          242
+        ],
+        "amp_sustain": [
+          0,
+          90
+        ],
+        "amp_release": [
+          46,
+          259
+        ],
+        "osc1_wave": [
+          "Pulse",
+          "Saw"
+        ],
+        "voice_mode": [
+          "Poly"
+        ]
+      },
+      "recommended_ranges": {
+        "cutoff": [
+          185,
+          202
+        ],
+        "resonance": [
+          52,
+          136
+        ],
+        "overdrive": [
+          0,
+          69
+        ],
+        "amp_attack": [
+          0,
+          61
+        ],
+        "amp_decay": [
+          69,
+          99
+        ],
+        "amp_sustain": [
+          0,
+          24
+        ],
+        "amp_release": [
+          69,
+          143
+        ],
+        "filter_env_decay": [
+          14,
+          75
+        ],
+        "osc1_wave": "Pulse",
+        "voice_mode": "Poly"
+      },
+      "forbidden_combinations": [
+        {
+          "rule": "amp_sustain==0 AND amp_decay<120 AND amp_attack<4",
+          "reason": "click/transient (0 of 190 bank presets do this on tonal types)"
+        },
+        {
+          "rule": "filter_env->cutoff AND filter_sustain==0 AND cutoff<70",
+          "reason": "held note filtered to silence (only kicks do this in the bank)"
+        }
+      ]
+    }
+  },
+  "parameter_interactions": {
+    "work_together": {
+      "width_stack": {
+        "params": [
+          "osc1+osc2 (Saw/Pulse)",
+          "osc2_detune",
+          "unison_detune",
+          "voiceMode=Uni/Poly"
+        ],
+        "multisaw_mode_used_in_bank": 0,
+        "evidence_wide_subset": {
+          "n": 140,
+          "median_uniDetune": {
+            "min": 0,
+            "max": 128,
+            "sweet_spot": 0,
+            "recommended": [
+              0,
+              0
+            ]
+          },
+          "median_osc2_level": {
+            "min": 0,
+            "max": 255,
+            "sweet_spot": 228,
+            "recommended": [
+              174,
+              255
+            ]
+          },
+          "voiceMode_pct": {
+            "Poly": 71,
+            "Mono": 17,
+            "Unison": 11
+          }
+        }
+      },
+      "filter_movement": {
+        "params": [
+          "filter_env->cutoff (Env2)",
+          "base cutoff",
+          "resonance",
+          "filter_env.decay"
+        ],
+        "evidence_filterEnv_subset": {
+          "n": 130,
+          "median_reso": {
+            "min": 0,
+            "max": 255,
+            "sweet_spot": 88,
+            "recommended": [
+              50,
+              172
+            ]
+          },
+          "median_cutoff": {
+            "min": 44,
+            "max": 255,
+            "sweet_spot": 165,
+            "recommended": [
+              130,
+              195
+            ]
+          }
+        }
+      },
+      "animation": {
+        "params": [
+          "lfo1/2_rate",
+          "o1/o2_ws_amount"
+        ],
+        "note": "rate>0 AND ws_amount>0 both required or no movement"
+      },
+      "drive": {
+        "params": [
+          "overdrive",
+          "resonance",
+          "filterMode=K/R"
+        ],
+        "evidence_highOD_subset": {
+          "n": 36,
+          "median_reso": {
+            "min": 0,
+            "max": 255,
+            "sweet_spot": 99,
+            "recommended": [
+              50,
+              193
+            ]
+          }
+        }
+      },
+      "playability": {
+        "params": [
+          "keytrack->cutoff",
+          "cutoff"
+        ],
+        "note": "without keytrack the filter is fixed across the keyboard"
+      }
+    },
+    "oppose": {
+      "lead_vs_overdrive": "leads use LOW overdrive (median 30); high OD belongs to bass/aggressive",
+      "tonal_vs_zero_sustain": "amp.sustain=0 opposes a held tone -> click/transient only",
+      "silent_combo": "filter_env->cutoff + filter.sustain=0 + low base cutoff -> held note filtered to silence"
+    },
+    "pulse_vs_saw": {
+      "pulse_n": 77,
+      "saw_n": 49,
+      "note": "Pulse is the most common osc1 wave for bass/lead/pluck; pairs with LFO->PWM for movement"
+    }
+  }
+}
