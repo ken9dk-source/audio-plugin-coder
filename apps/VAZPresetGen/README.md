@@ -94,20 +94,31 @@ Lead · Supersaw · Pad · Pluck · Bass · FX. Styles: **uplifting**, **ASOT**,
   `filter-env→cutoff + filter_sustain=0 + cutoff<70` (silent), `lead overdrive>120`;
 * invalid candidates are discarded and regenerated, so saved presets are always loadable.
 
-## 6. Run from source
+## 6. Run from source (Windows / macOS / Linux)
 
-```powershell
-cd apps\VAZPresetGen
-py -m pip install customtkinter
-py run.py
+The app is pure Python + CustomTkinter — it runs on all three from the same source.
+
+```bash
+cd apps/VAZPresetGen
+python3 -m pip install customtkinter      # Windows: py -m pip install customtkinter
+python3 run.py                            # Windows: py run.py
 ```
+macOS only: use **python.org Python 3** or `brew install python-tk` (Apple's system Python ships
+without a usable Tk, which CustomTkinter needs).
 
-## 7. Build the standalone .exe
+## 7. Build a standalone app
+
+PyInstaller cannot cross-compile — build each OS's artifact **on that OS** (the source is shared, on
+GitHub). The spec is OS-aware.
 
 ```powershell
-cd apps\VAZPresetGen
+# Windows  ->  dist\VAZ Preset Generator.exe
 powershell -ExecutionPolicy Bypass -File .\build.ps1
-# -> dist\VAZ Preset Generator.exe   (double-click; no Python/terminal needed)
+```
+```bash
+# macOS   ->  dist/VAZ Preset Generator.app   (drag to /Applications; right-click > Open first time)
+# Linux   ->  dist/VAZ Preset Generator
+chmod +x build.sh && ./build.sh
 ```
 
 ## 8. Use the presets

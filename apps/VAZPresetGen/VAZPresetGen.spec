@@ -1,5 +1,9 @@
-# PyInstaller spec — builds a single-file Windows .exe (no console, no terminal needed).
-#   py -m PyInstaller --noconfirm VAZPresetGen.spec   ->   dist/VAZ Preset Generator.exe
+# PyInstaller spec — cross-platform, single-file, windowed (no console / no terminal).
+#   Windows :  py  -m PyInstaller --noconfirm VAZPresetGen.spec  -> dist/VAZ Preset Generator.exe
+#   macOS   :  python3 -m PyInstaller --noconfirm VAZPresetGen.spec -> dist/VAZ Preset Generator.app
+#   Linux   :  python3 -m PyInstaller --noconfirm VAZPresetGen.spec -> dist/VAZ Preset Generator
+# PyInstaller cannot cross-compile: build the macOS .app ON a Mac, the .exe ON Windows.
+import sys
 from PyInstaller.utils.hooks import collect_data_files
 
 block_cipher = None
@@ -26,7 +30,17 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 exe = EXE(
     pyz, a.scripts, a.binaries, a.zipfiles, a.datas, [],
     name="VAZ Preset Generator",
-    debug=False, bootloader_ignore_signals=False, strip=False, upx=True,
+    debug=False, bootloader_ignore_signals=False, strip=False, upx=(sys.platform == "win32"),
     runtime_tmpdir=None, console=False, disable_windowed_traceback=False,
     icon=None,
 )
+
+# macOS: wrap the single-file executable in a proper .app bundle.
+if sys.platform == "darwin":
+    app = BUNDLE(
+        exe,
+        name="VAZ Preset Generator.app",
+        icon=None,
+        bundle_identifier="com.apc.vazpresetgen",
+        info_plist={"NSHighResolutionCapable": True, "CFBundleShortVersionString": "1.0.0"},
+    )
