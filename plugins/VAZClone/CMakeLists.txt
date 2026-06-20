@@ -3,6 +3,7 @@
 
 set(NEEDS_WEBVIEW2 FALSE)
 set(NEEDS_WEB_BROWSER FALSE)
+set(LV2_URI "")
 
 if(WIN32)
     set(PLUGIN_FORMATS VST3 Standalone)
@@ -10,8 +11,9 @@ if(WIN32)
 elseif(APPLE)
     set(PLUGIN_FORMATS VST3 AU Standalone)
 elseif(UNIX)
-    set(PLUGIN_FORMATS VST3 Standalone)
+    set(PLUGIN_FORMATS VST3 LV2 Standalone)
     set(NEEDS_WEB_BROWSER TRUE)
+    set(LV2_URI "https://github.com/noizefield/audio-plugin-coder/VAZClone")
 endif()
 
 message(STATUS "VAZClone: Building for ${PLUGIN_FORMATS}")
@@ -41,6 +43,7 @@ juce_add_plugin(VAZClone
     IS_SYNTH TRUE
     NEEDS_MIDI_INPUT TRUE
     VST3_CATEGORIES Instrument Synth
+    LV2URI ${LV2_URI}
 )
 
 # ============================================
