@@ -286,7 +286,7 @@ struct VAZEnv
     // runtime rate tables (VAZEnvTables.h, dumped from Vaz2010Core.dll). Level is VAZ's Q30 integer
     // (1.0 = 0x40000000); each stage is L += rate·(target − L) >> 32 exactly as the voice render does
     // (vaz_big.c @0x4dbddc lines 384-443). Replaces the old empirical RC fit (aCoef/x⁴-time, ±10-20%).
-    enum { Idle = 0, Attack, Decay, Sustain, Release };
+    enum { Idle = 0, Attack, Decay, Sustain, Release, PreAttack };   // PreAttack = VAZ stage-0 ramp-down (Reset mode)
     int     stage = Idle;
     int64_t L = 0;                                            // Q30 level (0 .. 0x3fffffff)
     int32_t atkRate = 0, decRate = 0, relRate = 0, susTarget = 0;
@@ -312,7 +312,7 @@ struct VAZEnv
         susTarget = curve ? VAZEnvT::kSusCurve[s] : (int32_t) (s * 0x404040);
     }
     void setModes (bool reset, bool cycle, bool /*curve→setADSR*/) noexcept { mReset = reset; mCycle = cycle; }
-    void noteOn()  noexcept { if (mReset) L = 0; stage = Attack; }
+    void noteOn()  noexcept { stage = mReset ? PreAttack : Attack; }   // Reset → VAZ stage-0 ramp to 0 first (no hard-zero click); else re-attack from current L
     void noteOff() noexcept { stage = Release; }
     void reset()   noexcept { stage = Idle; L = 0; }
     bool isActive() const noexcept { return stage != Idle; }
@@ -335,6 +335,10 @@ struct VAZEnv
             case Release:                                             // exp approach to 0 (target −OVS, floors at 0)
                 L -= ((int64_t) relRate * (OVS + L)) >> 32;
                 if (L < 1) { L = 0; stage = Idle; }
+                break;
+            case PreAttack:                                          // VAZ stage-0 (vaz_big.c:413-419): linear ramp to 0, then Attack
+                L -= (int64_t) std::llround ((double) VAZEnvT::kStage0Dec * srRatio);
+                if (L < 1) { L = 0; stage = Attack; }
                 break;
             default: break;
         }
