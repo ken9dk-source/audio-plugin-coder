@@ -71,21 +71,17 @@ struct WaveTables
         return m;
     }
 
-    // 4-point cubic (Catmull-Rom) interpolation — VAZ uses cubic wavetable interpolation
-    // (Ghidra: 4-sample Hermite read), not linear. SIZE is a power of two so we mask-wrap.
+    // 2-point LINEAR interpolation — matches VAZ's wavetable oscillator exactly
+    // (FUN_004dbddc:171-173: tbl[i] + (tbl[i+1]-tbl[i])·frac, 256-entry table, 24-bit fraction).
+    // NB the earlier comment claimed VAZ uses 4-point cubic/Hermite here — that is FALSE per the
+    // binary: VAZ uses linear on the wavetable osc and cubic only on the SAMPLE osc. (Audit M3-1.)
     static float read (const float* tbl, double phase) noexcept   // phase in [0,1)
     {
         const int   m = SIZE - 1;
         double x = phase * SIZE;
         int    i = (int) x;
         float  f = (float) (x - (double) i);
-        float y0 = tbl[(i - 1) & m];
-        float y1 = tbl[i & m];
-        float y2 = tbl[(i + 1) & m];
-        float y3 = tbl[(i + 2) & m];
-        return y1 + 0.5f * f * ((y2 - y0)
-                   + f * ((2.0f * y0 - 5.0f * y1 + 4.0f * y2 - y3)
-                   + f * (3.0f * (y1 - y2) + y3 - y0)));
+        return tbl[i & m] + (tbl[(i + 1) & m] - tbl[i & m]) * f;
     }
 };
 

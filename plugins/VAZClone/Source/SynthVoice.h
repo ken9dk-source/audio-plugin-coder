@@ -23,16 +23,17 @@ struct ModBus
             case 1:  return lfo1 ? lfo1[i] : 0.0f;
             case 2:  return lfo2 ? lfo2[i] : 0.0f;
             case 3:  return lfo3 ? lfo3[i] : 0.0f;
-            case 5:  return env2 ? env2[i] : 0.0f;
+            case 5:  return env2 ? env2[i] * 2.0f - 1.0f : -1.0f;   // bipolar env mod source (VAZ +0x14), rest -1
             case 6:  return ma1  ? ma1[i]  : 0.0f;     // Mod Amplifier 1
             case 7:  return ma2  ? ma2[i]  : 0.0f;     // Mod Amplifier 2
             case 8:  return lag  ? lag[i]  : 0.0f;     // Lag Processor
             case 10: return keyTrack;
             case 12: return noise ? noise[i] : 0.0f;   // Noise
             case 17: return velocity;
-            case 18: return aftertouch;                // MIDI Pressure (channel aftertouch)
-            case 19: return modWheel;
-            case 20: return ctrlB;                     // MIDI Control B (CC11 / Expression)
+            // VAZ stores these bipolar: pressure·0x20000-0x800000 (rest -1), CC·0x20000-0x7fffff (centred 64). (P1/M13-1.)
+            case 18: return aftertouch * 2.0f - 1.0f;  // MIDI Pressure (channel aftertouch)
+            case 19: return modWheel * 2.0f - 1.0f;
+            case 20: return ctrlB * 2.0f - 1.0f;       // MIDI Control B (CC11 / Expression)
             default: return 0.0f;     // None + not-yet-implemented sources
         }
     }
@@ -240,8 +241,10 @@ public:
             auto mv = [&] (int src, int i) -> float           // per-voice mod values (Env1/Env2/KeyTrack/Velocity)
             {
                 switch (src) {
-                    case 4:  return env1;
-                    case 5:  return env2v;
+                    // VAZ stores envelopes as BIPOLAR mod sources: +0x10/+0x14 = (L>>6)-0x800000 → -1..+1,
+                    // rest -1 (vaz_big.c:445,541). The VCA below still uses the raw unipolar env1. (Audit P1/M8-1.)
+                    case 4:  return env1 * 2.0f - 1.0f;
+                    case 5:  return env2v * 2.0f - 1.0f;
                     case 10: return (float) voiceKeyTrack;
                     case 9:  return lastO1;          // Oscillator 1 (audio-rate, previous sample)
                     case 11: return lastO2;          // Oscillator 2
