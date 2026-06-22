@@ -125,3 +125,29 @@ target_link_libraries(VazRender PRIVATE
     juce::juce_graphics
     juce::juce_gui_basics
     juce::juce_recommended_config_flags)
+
+# ============================================
+# DSP AUDIT TEST SUITE — VazDSPAudit
+# Renders the real processor headlessly and runs click/aliasing/voice-drop/DC/gain detectors.
+# Returns the number of failures; several tests are EXPECTED to fail (they pin audited bugs).
+# ============================================
+juce_add_console_app(VazDSPAudit PRODUCT_NAME "VazDSPAudit")
+target_sources(VazDSPAudit PRIVATE Source/dsp_audit_main.cpp Source/PluginProcessor.cpp)
+target_include_directories(VazDSPAudit PRIVATE Source)
+target_compile_definitions(VazDSPAudit PRIVATE
+    VAZ_HEADLESS=1
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_MODAL_LOOPS_PERMITTED=0
+    _USE_MATH_DEFINES=1)
+target_link_libraries(VazDSPAudit PRIVATE
+    juce::juce_audio_basics
+    juce::juce_audio_formats
+    juce::juce_audio_processors
+    juce::juce_core
+    juce::juce_data_structures
+    juce::juce_dsp
+    juce::juce_events
+    juce::juce_graphics
+    juce::juce_gui_basics
+    juce::juce_recommended_config_flags)
