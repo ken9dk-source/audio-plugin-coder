@@ -157,13 +157,12 @@ struct OscBlock
                 float t = WaveTables::read (wt.tri[mip], ph);
                 return (double) s * (1.0 - waveshape) + (double) t * waveshape;
             }
-            case 1: {  // Pulse = saw(t) − saw(t−pw); pw set by waveshape (band-limited)
+            case 1: {  // Pulse = saw(t) − saw(t−pw); pw set by waveshape (band-limited difference-of-saws)
                 double ph  = adv (phase[0], inc);
-                double pw  = 0.5 - 0.49 * waveshape;            // 0.5 square → narrow pulse
-                // HARNESS FINDING (2026-06-09): the REAL pulse is SQUARE at waveshape 0.5 (shape byte 128), i.e.
-                // pw ≈ waveshape — NOT square at ws=0 like this map. BUT naively setting pw=waveshape (→0.5) makes
-                // saw(t)−saw(t−0.5) render flat/wrong here (a saw-pair pulse bug near pw=0.5). Reverted; needs a
-                // different pulse impl (e.g. centred PW or a polyBLEP pulse) before re-fixing the PW position.
+                // VAZ pulse width: SQUARE at waveshape 0.5 (shape byte 128), narrowing to 5%/widening to 95% at
+                // the extremes. The difference-of-saws (below) is a true square at pw=0.5 (even harmonics cancel),
+                // so the earlier "flat near pw=0.5" caveat does not apply to this impl. (DSP audit fix D5.)
+                double pw  = 0.05 + 0.9 * waveshape;            // 0.05 (narrow) … 0.5 (square) … 0.95 (wide)
                 double ph2 = ph - pw; if (ph2 < 0.0) ph2 += 1.0;
                 float a = WaveTables::read (wt.saw[mip], ph);
                 float b = WaveTables::read (wt.saw[mip], ph2);

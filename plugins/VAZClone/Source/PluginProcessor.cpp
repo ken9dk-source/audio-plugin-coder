@@ -224,7 +224,7 @@ void VAZCloneAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
     smoothCutoff.reset (sampleRate, 0.02);
     smoothRes.reset (sampleRate, 0.02);
     filterEnv.setSampleRate (sampleRate);
-    activeNotes = 0;
+    activeNotes = 0; heldNoteSet.clear();
     baseSampleRate = sampleRate; osActive = false;       // oversample state (re-set in processBlock when the toggle flips)
     oversampler.initProcessing ((size_t) samplesPerBlock);
     oversampler.reset();
@@ -870,14 +870,15 @@ void VAZCloneAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
         const auto m = meta.getMessage();
         if (m.isNoteOn())
         {
-            if (activeNotes == 0) filterEnv.noteOn();
+            if (heldNoteSet.empty()) filterEnv.noteOn();   // gate the bus env on UNIQUE held notes (audit fix D4)
+            heldNoteSet.insert (m.getNoteNumber());
             ++activeNotes;
             randomVal    = modRng.nextFloat() * 2.0f - 1.0f;
             keyTrack     = juce::jlimit (0.0f, 1.0f, (m.getNoteNumber() - 24) / 72.0f);   // C1..C7
             lastVelocity = m.getFloatVelocity();
             modLfo.trigger(); modLfo2.trigger();                                          // LFO Trig (reset cycle/fade on note)
         }
-        else if (m.isNoteOff()) { if (activeNotes > 0) --activeNotes; if (activeNotes == 0) filterEnv.noteOff(); }
+        else if (m.isNoteOff()) { if (activeNotes > 0) --activeNotes; heldNoteSet.erase (m.getNoteNumber()); if (heldNoteSet.empty()) filterEnv.noteOff(); }
         else if (m.isController() && m.getControllerNumber() == 1) modWheel = m.getControllerValue() / 127.0f;
         else if (m.isController() && m.getControllerNumber() == 11) midiCtrlB = m.getControllerValue() / 127.0f;
         else if (m.isChannelPressure()) aftertouch = m.getChannelPressureValue() / 127.0f;
@@ -948,6 +949,7 @@ void VAZCloneAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
     // ── Pre-compute the mod-source bus for this block (LFO1/2/3 + Env2) — read by voices AND filter ──
     for (int i = 0; i < numSamples; ++i)
     {
+        noiseModBuf[(size_t) i] = modRng.nextFloat() * 2.0f - 1.0f;   // Noise mod source (audit fix D1: was never written → dead)
         lfo1Buf[(size_t) i] = (float) modLfo .next (w1, (double) shape1);
         if (lfo2RmAmt > 0.0001f)   // LFO2 Rate Modulation — speeds up / slows down per sample (±2 oct)
             modLfo2.setRate (lfo2Hz * std::pow (2.0, (double) (lfo2RmAmt * 2.0f) * modBus.value (lfo2RmSrc, i)), currentSampleRate);
@@ -998,6 +1000,19 @@ void VAZCloneAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
     if (osOn) for (const auto m : useMidi) scaledMidi.addEvent (m.getMessage(), m.samplePosition * osFactor);
     synth.renderNextBlock (work, osOn ? scaledMidi : useMidi, 0, numSamples);
     if (osOn) oversampler.processSamplesDown (hostBlock);         // 2× → host SR (anti-aliased decimation)
+
+    // ── Master safety soft-limiter (audit fix D2): per-voice levels sum un-normalised, so unison / big
+    //    chords can sum past ±1. Transparent below 0.8, then tanh-saturates so the bus can't hard-clip. ──
+    for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+    {
+        float* d = buffer.getWritePointer (ch);
+        for (int i = 0, ns = buffer.getNumSamples(); i < ns; ++i)
+        {
+            const float a = std::abs (d[i]);
+            if (a > 0.8f)
+                d[i] = (d[i] < 0.0f ? -1.0f : 1.0f) * (0.8f + 0.2f * (float) std::tanh ((a - 0.8f) / 0.2f));
+        }
+    }
 
     // ── Filter + amp-mod are now applied PER VOICE (osc→filter→amp, inside VAZVoice). ──
     //    The voices already wrote the final filtered/amplified signal to all channels.

@@ -6,6 +6,7 @@
 #include <vector>
 #include <utility>
 #include <functional>
+#include <set>
 #include "SynthVoice.h"
 
 //==============================================================================
@@ -93,6 +94,7 @@ private:
     VAZEnv     filterEnv;                    // Env2 (with Reset/Cycle/Curve modes)
     double     lagState = 0.0;              // Lag Processor slew state
     int        activeNotes = 0;
+    std::set<int> heldNoteSet;        // unique held MIDI notes — gates the bus filter-env (audit fix D4)
 
     // Modulation-source bus state (sources usable in the filter mod matrix).
     float modWheel     = 0.0f;   // MIDI Control A (CC1)

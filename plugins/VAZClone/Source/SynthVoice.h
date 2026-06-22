@@ -75,6 +75,7 @@ struct VoiceParams
     float e2Atk = 0.0f, e2Dec = 0.3f, e2Sus = 1.0f, e2Rel = 0.2f;
     bool  e2Reset = false, e2Cycle = false, e2Curve = false;
     bool  e1Multi = false, e2Multi = false;        // Multi-trigger (re-attack env on a legato mono note)
+    bool  resetPhase = false;                      // opt-in: hard-reset osc phase on note-on (deterministic attack — used by TranceKick for a stable kick transient; VAZClone leaves it false → free-running)
     const SampleData* osc1Sample = nullptr;        // Sample-osc data (OSC1 / OSC2), owned by the processor
     const SampleData* osc2Sample = nullptr;
     int   e2ModSrc = 0, e2Dest = 4;                // Env2 self-mod: source + dest (4=None)
@@ -154,8 +155,11 @@ public:
         voiceVel = velocity;
         osc1.sample = p.osc1Sample; osc2.sample = p.osc2Sample;   // Sample-osc data (stable ptr)
         osc1.samplePhase = 0.0; osc2.samplePhase = 0.0;           // retrigger sample from start
-        // Oscillators are FREE-RUNNING (no phase reset on note-on) — this avoids the
-        // correlated-start transient/click on Multi-Saw that VAZ doesn't have.
+        // Oscillators are FREE-RUNNING by default (no phase reset on note-on) — this avoids the
+        // correlated-start transient/click on Multi-Saw that VAZ doesn't have. Opt-in resetPhase
+        // forces a deterministic phase-0 start (a stable, click-free attack — TranceKick kicks).
+        if (p.resetPhase)
+            for (int i = 0; i < OscBlock::N; ++i) { osc1.phase[i] = 0.0; osc2.phase[i] = 0.0; }
         updateAmp(); updateFilterEnv();
         amp.noteOn(); env2.noteOn();
         smoothCut = p.baseCut;        // settle the cutoff smoother at note-on → no onset ramp, the env DONK stays sharp
@@ -226,6 +230,7 @@ public:
         const bool  fm1b = (std::abs (p.o1Fm2Amt) > 0.0001f), fm2b = (std::abs (p.o2Fm2Amt) > 0.0001f);  // 2nd FM input/osc
         const bool  ws1 = (std::abs (p.o1WsAmt) > 0.0001f), ws2 = (std::abs (p.o2WsAmt) > 0.0001f);
         const double hpHzBase = 20.0 * std::pow (100.0, (double) p.hpNorm);   // +HP stage 20Hz..2kHz
+        const double dc2R = 1.0 - 2.0 * juce::MathConstants<double>::pi * 10.0 / juce::jmax (8000.0, getSampleRate());  // ~10Hz post-clip DC block (audit fix D3)
 
         for (int n = 0; n < numSamples; ++n)
         {
@@ -308,6 +313,11 @@ public:
                 const double x = juce::jlimit (-X0, X0, fs * drive * A);
                 fs = (x - x * x * x) / A;                     // cubic soft-clip + unity makeup (fs ≈ unity at od=0)
             }
+            {   // DSP audit fix D3: the odd-symmetry cubic re-introduces DC on asymmetric signals (narrow/wide
+                // pulse, extreme PWM); the pre-clip DC-block can't catch it → block it again post-clip. Faster
+                // (~10Hz) than the pre-clip block so it settles quickly without touching musical bass.
+                dc2Y = dc2R * dc2Y + fs - dc2X;  dc2X = fs;  fs = dc2Y;
+            }
             if (std::abs (p.ampAmt) > 0.0001f) fs *= juce::jlimit (0.0, 2.0, 1.0 + (double) p.ampAmt * (double) mv (p.ampSrc, idx)); // tremolo (±)
             if (std::abs (p.amp2Amt) > 0.0001f) fs *= juce::jlimit (0.0, 2.0, 1.0 + (double) p.amp2Amt * (double) mv (p.amp2Src, idx)); // 2nd amp AM (series VCA)
             const float vv = (float) fs * env1 * level * p.ampLevel * 0.6f;   // ampLevel = Amplitude-Mod slot-1 depth
@@ -352,6 +362,7 @@ private:
     VAZMultiFilter filt;          // per-voice filter
     VAZEnv    env2;               // per-voice filter envelope
     double    dcX = 0.0, dcY = 0.0, dcR = 0.9999;   // output DC-block (one-pole HP) state + coef (VAZ 0.9999 @44.1k)
+    double    dc2X = 0.0, dc2Y = 0.0;               // 2nd DC-block AFTER the soft-clip (audit fix D3)
     double    smoothCut = 0.0, cutAlpha = 0.00154;  // VAZ base-cutoff smoother (~15 ms one-pole, DAT_006d45e4)
     double    voiceKeyTrack = 0.0;
     float     voiceVel = 1.0f;
