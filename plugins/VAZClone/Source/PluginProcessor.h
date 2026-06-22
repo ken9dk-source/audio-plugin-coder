@@ -95,6 +95,7 @@ private:
     double     lagState = 0.0;              // Lag Processor slew state
     int        activeNotes = 0;
     std::set<int> heldNoteSet;        // unique held MIDI notes — gates the bus filter-env (audit fix D4)
+    bool       sustainPedal = false;  // CC64 ≥64 — defers the bus filter-env release (audit fix M13-2)
 
     // Modulation-source bus state (sources usable in the filter mod matrix).
     float modWheel     = 0.0f;   // MIDI Control A (CC1)

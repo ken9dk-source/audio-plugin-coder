@@ -101,15 +101,18 @@ struct SampleData
     bool loaded() const noexcept { return ! data.empty(); }
     int  length() const noexcept { return (int) data.size(); }
 
-    float read (double pos) const noexcept                  // linear interpolation
+    float read (double pos) const noexcept    // 4-point cubic — VAZ's SAMPLE osc is cubic (vaz_big.c:979-991), audit M3-1
     {
         const int n = (int) data.size();
         if (n == 0) return 0.0f;
-        int i0 = (int) pos;
-        if (i0 < 0) i0 = 0; else if (i0 >= n) i0 = n - 1;
-        int i1 = i0 + 1; if (i1 >= n) i1 = i0;
-        const float f = (float) (pos - (double) i0);
-        return data[(size_t) i0] + (data[(size_t) i1] - data[(size_t) i0]) * f;
+        int i1 = (int) pos;
+        if (i1 < 0) i1 = 0; else if (i1 >= n) i1 = n - 1;
+        const float f = (float) (pos - (double) i1);
+        auto at = [&] (int i) noexcept { i = i < 0 ? 0 : (i >= n ? n - 1 : i); return data[(size_t) i]; };
+        const float y0 = at (i1 - 1), y1 = at (i1), y2 = at (i1 + 1), y3 = at (i1 + 2);
+        return y1 + 0.5f * f * ((y2 - y0)
+                   + f * ((2.0f * y0 - 5.0f * y1 + 4.0f * y2 - y3)
+                   + f * (3.0f * (y1 - y2) + y3 - y0)));
     }
 };
 

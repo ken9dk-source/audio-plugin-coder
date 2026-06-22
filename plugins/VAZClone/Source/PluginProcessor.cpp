@@ -224,7 +224,7 @@ void VAZCloneAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
     smoothCutoff.reset (sampleRate, 0.02);
     smoothRes.reset (sampleRate, 0.02);
     filterEnv.setSampleRate (sampleRate);
-    activeNotes = 0; heldNoteSet.clear();
+    activeNotes = 0; heldNoteSet.clear(); sustainPedal = false;
     baseSampleRate = sampleRate; osActive = false;       // oversample state (re-set in processBlock when the toggle flips)
     oversampler.initProcessing ((size_t) samplesPerBlock);
     oversampler.reset();
@@ -878,7 +878,8 @@ void VAZCloneAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
             lastVelocity = m.getFloatVelocity();
             modLfo.trigger(); modLfo2.trigger();                                          // LFO Trig (reset cycle/fade on note)
         }
-        else if (m.isNoteOff()) { if (activeNotes > 0) --activeNotes; heldNoteSet.erase (m.getNoteNumber()); if (heldNoteSet.empty()) filterEnv.noteOff(); }
+        else if (m.isNoteOff()) { if (activeNotes > 0) --activeNotes; heldNoteSet.erase (m.getNoteNumber()); if (heldNoteSet.empty() && ! sustainPedal) filterEnv.noteOff(); }   // M13-2: hold bus Env2 while sustain down
+        else if (m.isController() && m.getControllerNumber() == 64) { sustainPedal = m.getControllerValue() >= 64; if (! sustainPedal && heldNoteSet.empty()) filterEnv.noteOff(); }   // CC64 sustain (VAZ FUN_004db8d4 deferred release)
         else if (m.isController() && m.getControllerNumber() == 1) modWheel = m.getControllerValue() / 127.0f;
         else if (m.isController() && m.getControllerNumber() == 11) midiCtrlB = m.getControllerValue() / 127.0f;
         else if (m.isChannelPressure()) aftertouch = m.getChannelPressureValue() / 127.0f;
