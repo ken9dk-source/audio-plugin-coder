@@ -20,6 +20,7 @@ on:
           - VAZDelay
           - VAZFlanger
           - VAZChorus
+          - QuadraFuzz
           - all
       platforms:
         description: 'Which platforms to build?'

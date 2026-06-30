@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>QuadraFuzz</title>
+<style>
+* { box-sizing:border-box; margin:0; padding:0; }
+
+body {
+  width:365px; height:213px;
+  overflow:hidden;
+  background:#A2ADAF;
+  font-family:Arial,sans-serif;
+  font-size:11px;
+  color:#1A1A1A;
+  user-select:none;
+  cursor:default;
+}
+
+/* ── Two views: knob panel and EQ panel ── */
+#view-knobs, #view-eq {
+  position:absolute;
+  top:0; left:0;
+  width:365px; height:213px;
+  overflow:hidden;
+}
+#view-eq { display:none; }
+
+/* Background images from the extracted DLL bitmap.
+   Frame 1 (knob panel) = left 365px of 730px image.
+   Frame 2 (EQ panel)   = right 365px. */
+#bg-knobs {
+  position:absolute;
+  top:0; left:0;
+  width:730px; height:213px;
+  background:url('extracted/png/1000.png') 0 0 / 730px 213px no-repeat;
+  image-rendering:pixelated;
+}
+#bg-eq {
+  position:absolute;
+  top:0; left:0;
+  width:730px; height:213px;
+  background:url('extracted/png/1000.png') -365px 0 / 730px 213px no-repeat;
+  image-rendering:pixelated;
+}
+
+/* ── Knob canvases (overlaid on frame 1 background) ── */
+.knob-wrap {
+  position:absolute;
+  cursor:ns-resize;
+  image-rendering:pixelated;
+}
+
+/* ── Shape-preview canvases (transparent — drawn over the bitmap box) ── */
+.shape-prev {
+  position:absolute;
+  pointer-events:none;
+  image-rendering:pixelated;
+  background:transparent;
+}
+
+/* ── EQ overlay canvas (transparent over frame 2) ── */
+#eq-canvas {
+  position:absolute;
+  left:12px; top:30px;
+  width:273px; height:157px;
+  cursor:crosshair;
+  background:transparent;
+}
+
+/* ── Shape button sprites (in frame 2) ── */
+.sh-btn {
+  position:absolute;
+  cursor:pointer;
+  image-rendering:pixelated;
+}
+.sh-btn canvas { display:block; }
+
+/* ── Clickable edit / close buttons ── */
+#btn-edit {
+  position:absolute;
+  cursor:pointer;
+  image-rendering:pixelated;
+}
+#btn-close {
+  position:absolute;
+  top:5px; right:8px;
+  width:16px; height:12px;
+  font-size:9px;
+  background:#A2ADAF;
+  border:1px solid #707070;
+  cursor:pointer;
+  display:flex; align-items:center; justify-content:center;
+  color:#333;
+  font-weight:bold;
+}
+
+/* ── Band labels in EQ view ── */
+.band-label {
+  position:absolute;
+  font-size:8px;
+  color:#CCCCCC;
+  pointer-events:none;
+}
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════ VIEW 1: KNOBS ═══════════════════════════════ -->
+<div id="view-knobs">
+  <!-- Original DLL bitmap as background (frame 1) -->
+  <div id="bg-knobs"></div>
+
+  <!-- Shape-preview canvases over the gray boxes in the DLL bitmap.
+       From 4x zoom: box top≈y=10, knob top≈y=36. Box is 42px wide.
+       These show the waveshaper curve for each band. -->
+  <canvas id="sp0" class="shape-prev" width="42" height="26" style="left:41px;top:10px;"></canvas>
+  <canvas id="sp1" class="shape-prev" width="42" height="26" style="left:121px;top:10px;"></canvas>
+  <canvas id="sp2" class="shape-prev" width="42" height="26" style="left:201px;top:10px;"></canvas>
+  <canvas id="sp3" class="shape-prev" width="42" height="26" style="left:281px;top:10px;"></canvas>
+
+  <!-- Knob canvases — measured from DLL bitmap:
+       Center x=62,142,222,302  knob top y=36  size 42×42 -->
+  <div class="knob-wrap" id="kw0" style="left:41px;top:36px;" data-param="0" data-val="0.5">
+    <canvas width="42" height="42"></canvas>
+  </div>
+  <div class="knob-wrap" id="kw1" style="left:121px;top:36px;" data-param="1" data-val="0.5">
+    <canvas width="42" height="42"></canvas>
+  </div>
+  <div class="knob-wrap" id="kw2" style="left:201px;top:36px;" data-param="2" data-val="0.5">
+    <canvas width="42" height="42"></canvas>
+  </div>
+  <div class="knob-wrap" id="kw3" style="left:281px;top:36px;" data-param="3" data-val="0.5">
+    <canvas width="42" height="42"></canvas>
+  </div>
+
+  <!-- Floating value tooltip — shown only during knob drag -->
+  <div id="knob-val" style="position:absolute;display:none;background:#001930;color:#00DD00;
+       font:8px 'Courier New',monospace;padding:1px 3px;pointer-events:none;z-index:10;"></div>
+
+  <!-- Edit button (sprite from #1002) — appears around x=329, y=192 -->
+  <div id="btn-edit" style="left:329px;top:193px;">
+    <canvas id="edit-sprite" width="25" height="16"></canvas>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════ VIEW 2: EQ ═══════════════════════════════ -->
+<div id="view-eq">
+  <!-- Original DLL bitmap as background (frame 2 = right 365px) -->
+  <div id="bg-eq"></div>
+
+  <!-- EQ response canvas overlay (transparent bg, draws curve only) -->
+  <canvas id="eq-canvas" width="273" height="157"></canvas>
+
+  <!-- Shape button sprites in right column (local x=298 → start of shape column)
+       5 buttons: sprite files 1006–1010, each 35×32px (top=inactive, bottom=active)
+       Stacked vertically from y≈22 -->
+  <div class="sh-btn" id="sh0" data-idx="0" style="left:300px;top:22px;">
+    <canvas width="35" height="16"></canvas>
+  </div>
+  <div class="sh-btn" id="sh1" data-idx="1" style="left:300px;top:42px;">
+    <canvas width="35" height="16"></canvas>
+  </div>
+  <div class="sh-btn" id="sh2" data-idx="2" style="left:300px;top:62px;">
+    <canvas width="35" height="16"></canvas>
+  </div>
+  <div class="sh-btn" id="sh3" data-idx="3" style="left:300px;top:82px;">
+    <canvas width="35" height="16"></canvas>
+  </div>
+  <div class="sh-btn" id="sh4" data-idx="4" style="left:300px;top:102px;">
+    <canvas width="35" height="16"></canvas>
+  </div>
+
+  <!-- Close / back button -->
+  <div id="btn-close" onclick="setView(1)">◀</div>
+</div>
+
+<script>
+/* ══════════════════════════════════════════════════════════════
+   STATE
+══════════════════════════════════════════════════════════════ */
+const state = {
+  // Per-band gain (0..1 → -20..+20 dB in display)
+  gain:  [0.5, 0.5, 0.5, 0.5],
+  // Crossover frequencies (Hz): f1=250, f2=1000, f3=4000
+  freq:  [250, 1000, 4000],
+  // Shape per band (0..4)
+  shape: [0, 0, 0, 0],
+  // Active band (for EQ handles)
+  activeBand: -1
+};
+
+const BAND_COLORS = ['#E05050', '#50C878', '#4FA3E0', '#D4A84B'];
+const BAND_NAMES  = ['Low', 'Low Mid', 'High Mid', 'High'];
+
+// Map normalized gain 0..1 → dB
+function gainToDB(n) { return (n - 0.5) * 40; } // ±20 dB
+function dbToGain(db) { return db / 40 + 0.5; }
+
+/* ══════════════════════════════════════════════════════════════
+   VIEWS
+══════════════════════════════════════════════════════════════ */
+function setView(n) {
+  document.getElementById('view-knobs').style.display = n === 1 ? 'block' : 'none';
+  document.getElementById('view-eq').style.display    = n === 2 ? 'block' : 'none';
+  if (n === 2) drawEQ();
+}
+
+/* ══════════════════════════════════════════════════════════════
+   KNOBS — filmstrip from extracted/png/1012.png (42×2730, 65 frames)
+══════════════════════════════════════════════════════════════ */
+const KNOB_IMG = new Image();
+KNOB_IMG.src = 'extracted/png/1012.png';
+const KNOB_FRAMES = 65, KNOB_FRAME_H = 42, KNOB_W = 42;
+
+function drawKnob(canvas, norm) {
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, KNOB_W, KNOB_FRAME_H);
+  if (!KNOB_IMG.complete || !KNOB_IMG.naturalWidth) return;
+  const frame = Math.round(norm * (KNOB_FRAMES - 1));
+  ctx.drawImage(KNOB_IMG, 0, frame * KNOB_FRAME_H, KNOB_W, KNOB_FRAME_H, 0, 0, KNOB_W, KNOB_FRAME_H);
+}
+
+function drawAllKnobs() {
+  document.querySelectorAll('.knob-wrap').forEach((wrap, i) => {
+    drawKnob(wrap.querySelector('canvas'), state.gain[i]);
+  });
+}
+
+KNOB_IMG.onload = () => { drawAllKnobs(); drawAllShapePrevs(); };
+
+/* ══════════════════════════════════════════════════════════════
+   SHAPE PREVIEW (small canvas over the bitmap box, y=10-36)
+   Draws a tiny waveshaper curve for band i using shape[i]
+══════════════════════════════════════════════════════════════ */
+function drawShapePrev(bandIdx) {
+  const cv  = document.getElementById('sp'+bandIdx);
+  const ctx = cv.getContext('2d');
+  const W = cv.width, H = cv.height;
+  ctx.clearRect(0, 0, W, H);
+
+  const shp = state.shape[Math.min(bandIdx, 4)];
+  // draw a small white curve representing the waveshaper
+  ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+  ctx.lineWidth   = 1.2;
+  ctx.beginPath();
+  const steps = 40;
+  for (let s = 0; s <= steps; s++) {
+    const x = (s / steps) * W;
+    const inp = (s / steps) * 2 - 1; // -1..+1
+    let out;
+    if (shp === 0) { // soft clip
+      out = inp / (1 + Math.abs(inp));
+    } else if (shp === 1) { // hard clip
+      out = Math.max(-0.7, Math.min(0.7, inp));
+    } else if (shp === 2) { // asymmetric
+      out = inp > 0 ? inp / (1 + inp) : inp;
+    } else if (shp === 3) { // fold
+      const t = Math.abs(inp) % 2;
+      out = (t > 1 ? 2 - t : t) * Math.sign(inp);
+    } else { // sine
+      out = Math.sin(inp * Math.PI * 0.5);
+    }
+    const y = H * 0.5 - out * (H * 0.4);
+    s === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+}
+function drawAllShapePrevs() {
+  [0,1,2,3].forEach(i => drawShapePrev(i));
+}
+
+/* ══════════════════════════════════════════════════════════════
+   EDIT BUTTON sprite (#1002, 25×32 = 2 states × 16px)
+══════════════════════════════════════════════════════════════ */
+const EDIT_IMG = new Image();
+EDIT_IMG.src = 'extracted/png/1002.png';
+EDIT_IMG.onload = () => {
+  const cv = document.getElementById('edit-sprite');
+  const ctx = cv.getContext('2d');
+  ctx.drawImage(EDIT_IMG, 0, 0, 25, 16, 0, 0, 25, 16);
+};
+document.getElementById('btn-edit').addEventListener('click', () => setView(2));
+
+/* ══════════════════════════════════════════════════════════════
+   SHAPE BUTTONS — sprites #1006–#1010 (35×32 each, top=off/bottom=on)
+══════════════════════════════════════════════════════════════ */
+const SHAPE_IMGS = Array.from({length:5}, (_, i) => {
+  const img = new Image();
+  img.src = `extracted/png/${1006+i}.png`;
+  img.onload = () => drawShapeBtn(i);
+  return img;
+});
+
+function drawShapeBtn(i) {
+  const el  = document.getElementById('sh'+i);
+  const cv  = el.querySelector('canvas');
+  const ctx = cv.getContext('2d');
+  const img = SHAPE_IMGS[i];
+  if (!img.complete || !img.naturalWidth) return;
+  const active = (state.shape[Math.min(i, state.shape.length-1)] === i);
+  // Top 16px = inactive, bottom 16px = active
+  const sy = active ? 16 : 0;
+  ctx.drawImage(img, 0, sy, 35, 16, 0, 0, 35, 16);
+}
+
+function setShape(bandIdx, shapeIdx) {
+  state.shape[bandIdx] = shapeIdx;
+  for (let i=0; i<5; i++) drawShapeBtn(i);
+  drawEQ();
+}
+
+document.querySelectorAll('.sh-btn').forEach(el => {
+  el.addEventListener('click', () => {
+    const i = parseInt(el.dataset.idx);
+    // Cycle shape for the active band (default band 0 if none selected)
+    const band = state.activeBand >= 0 ? state.activeBand : 0;
+    setShape(band, i);
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════
+   EQ CANVAS
+   - Background: transparent (dark comes from bitmap background)
+   - Shows 4 horizontal gain bars between crossover lines
+   - X axis: log freq 25..20000 Hz
+   - Y axis: -20..+20 dB
+   - Draggable crossover handles on x-axis (bottom)
+   - Draggable gain handles per band
+══════════════════════════════════════════════════════════════ */
+const EQC = document.getElementById('eq-canvas');
+const EQ_W = 273, EQ_H = 157;
+const DB_RANGE = 20; // ±20 dB
+
+// Freq → x pixel
+const FMIN = 25, FMAX = 20000;
+function fToX(f) {
+  return (Math.log10(Math.max(FMIN, Math.min(FMAX, f))) - Math.log10(FMIN)) /
+         (Math.log10(FMAX) - Math.log10(FMIN)) * EQ_W;
+}
+function xToF(x) {
+  return Math.pow(10, (x / EQ_W) * (Math.log10(FMAX) - Math.log10(FMIN)) + Math.log10(FMIN));
+}
+
+// dB → y pixel (0dB at center)
+function dbToY(db) { return EQ_H * 0.5 - (db / DB_RANGE) * (EQ_H * 0.5 - 4); }
+function yToDB(y)  { return (EQ_H * 0.5 - y) / (EQ_H * 0.5 - 4) * DB_RANGE; }
+
+function drawEQ() {
+  const ctx = EQC.getContext('2d');
+  ctx.clearRect(0, 0, EQ_W, EQ_H);
+
+  // Grid lines
+  ctx.strokeStyle = 'rgba(100,130,150,0.25)';
+  ctx.lineWidth   = 0.5;
+  ctx.setLineDash([3,3]);
+
+  // Horizontal grid (every 5 dB)
+  for (let db = -20; db <= 20; db += 5) {
+    const y = dbToY(db);
+    ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(EQ_W,y); ctx.stroke();
+  }
+
+  // Vertical grid (decade ticks)
+  [50, 100, 200, 500, 1000, 2000, 5000, 10000].forEach(f => {
+    const x = fToX(f);
+    ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,EQ_H); ctx.stroke();
+  });
+  ctx.setLineDash([]);
+
+  // 0 dB center line
+  ctx.strokeStyle = 'rgba(180,200,220,0.45)';
+  ctx.lineWidth   = 1;
+  const y0 = dbToY(0);
+  ctx.beginPath(); ctx.moveTo(0,y0); ctx.lineTo(EQ_W,y0); ctx.stroke();
+
+  // Crossover x positions
+  const cx = state.freq.map(f => fToX(f));
+  // Band x-ranges: [0, cx[0]], [cx[0], cx[1]], [cx[1], cx[2]], [cx[2], EQ_W]
+  const bx = [
+    [0,         cx[0]],
+    [cx[0],     cx[1]],
+    [cx[1],     cx[2]],
+    [cx[2],     EQ_W ]
+  ];
+
+  // Draw per-band gain rectangles
+  bx.forEach(([x0, x1], i) => {
+    const db  = gainToDB(state.gain[i]);
+    const yT  = dbToY(Math.max(0, db));
+    const yB  = dbToY(Math.min(0, db));
+    const col = BAND_COLORS[i];
+
+    // Fill
+    ctx.fillStyle = col.replace(')', ',0.18)').replace('rgb', 'rgba');
+    // For hex colors, convert manually
+    ctx.globalAlpha = 0.22;
+    ctx.fillStyle = col;
+    ctx.fillRect(x0, yT, x1-x0, yB-yT);
+    ctx.globalAlpha = 1;
+
+    // Top edge line (gain level)
+    ctx.strokeStyle = col;
+    ctx.lineWidth   = 1.5;
+    const yLine = dbToY(db);
+    ctx.beginPath(); ctx.moveTo(x0, yLine); ctx.lineTo(x1, yLine); ctx.stroke();
+
+    // Gain handle (draggable diamond at band center)
+    const xMid = (x0 + x1) / 2;
+    ctx.fillStyle   = col;
+    ctx.strokeStyle = '#FFFFFF';
+    ctx.lineWidth   = 0.8;
+    ctx.beginPath();
+    ctx.moveTo(xMid, yLine-5);
+    ctx.lineTo(xMid+5, yLine);
+    ctx.lineTo(xMid, yLine+5);
+    ctx.lineTo(xMid-5, yLine);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+
+    // Band label (freq range) at bottom
+    ctx.fillStyle   = col;
+    ctx.font        = '7px monospace';
+    ctx.textAlign   = 'center';
+    ctx.fillText(BAND_NAMES[i], xMid, EQ_H - 3);
+  });
+
+  // Crossover vertical lines
+  state.freq.forEach((f, i) => {
+    const x   = cx[i];
+    const col = ['#A0A0A0','#A0A0A0','#A0A0A0'][i];
+    ctx.strokeStyle = 'rgba(200,220,255,0.55)';
+    ctx.lineWidth   = 1;
+    ctx.setLineDash([4,3]);
+    ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x, EQ_H-14); ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Crossover handle (triangle on bottom)
+    ctx.fillStyle = 'rgba(200,220,255,0.8)';
+    ctx.beginPath();
+    ctx.moveTo(x-5, EQ_H-14);
+    ctx.lineTo(x+5, EQ_H-14);
+    ctx.lineTo(x,   EQ_H-2);
+    ctx.closePath();
+    ctx.fill();
+
+    // Freq label
+    ctx.fillStyle = 'rgba(200,220,255,0.7)';
+    ctx.font      = '7px monospace';
+    ctx.textAlign = 'center';
+    const lbl = f >= 1000 ? (f/1000).toFixed(1)+'k' : f+'';
+    ctx.fillText(lbl, x, EQ_H - 15);
+  });
+
+  // dB scale on right edge (inside canvas)
+  ctx.fillStyle   = 'rgba(160,190,210,0.7)';
+  ctx.font        = '7px monospace';
+  ctx.textAlign   = 'right';
+  [-20,-10,0,10,20].forEach(db => {
+    const y = dbToY(db);
+    ctx.fillText(db === 0 ? '0' : (db > 0 ? '+'+db : ''+db), EQ_W-2, y+3);
+  });
+}
+
+/* ══════════════════════════════════════════════════════════════
+   DRAG: KNOB
+══════════════════════════════════════════════════════════════ */
+let drag = null;
+const valTip = document.getElementById('knob-val');
+
+document.querySelectorAll('.knob-wrap').forEach((wrap, i) => {
+  const cv = wrap.querySelector('canvas');
+  cv.addEventListener('mousedown', e => {
+    drag = { type:'knob', idx:i, y0:e.clientY, v0:state.gain[i], wrap };
+    valTip.style.display = 'block';
+    e.preventDefault();
+  });
+  cv.addEventListener('dblclick', () => {
+    state.gain[i] = 0.5;
+    drawKnob(cv, 0.5);
+    if (document.getElementById('view-eq').style.display !== 'none') drawEQ();
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════
+   DRAG: EQ handles (crossover + gain)
+══════════════════════════════════════════════════════════════ */
+let eqDrag = null;
+const HANDLE_R = 7; // hit-test radius
+
+EQC.addEventListener('mousedown', e => {
+  const r = EQC.getBoundingClientRect();
+  const mx = e.clientX - r.left;
+  const my = e.clientY - r.top;
+
+  // Test crossover handles (bottom triangles)
+  for (let i=0; i<state.freq.length; i++) {
+    const cx = fToX(state.freq[i]);
+    if (Math.abs(mx-cx) < HANDLE_R && my > EQ_H-18) {
+      eqDrag = { type:'cross', idx:i, x0:mx, f0:state.freq[i] };
+      return;
+    }
+  }
+
+  // Test gain diamonds
+  const bx = getBandX();
+  for (let i=0; i<4; i++) {
+    const [x0, x1] = bx[i];
+    const xMid = (x0+x1)/2;
+    const db   = gainToDB(state.gain[i]);
+    const yLine = dbToY(db);
+    if (Math.abs(mx-xMid) < HANDLE_R && Math.abs(my-yLine) < HANDLE_R) {
+      eqDrag = { type:'gain', idx:i, y0:my, db0:db };
+      state.activeBand = i;
+      return;
+    }
+  }
+});
+
+function getBandX() {
+  const cx = state.freq.map(f => fToX(f));
+  return [[0,cx[0]],[cx[0],cx[1]],[cx[1],cx[2]],[cx[2],EQ_W]];
+}
+
+document.addEventListener('mousemove', e => {
+  // Knob drag
+  if (drag && drag.type === 'knob') {
+    const delta = (drag.y0 - e.clientY) / 120;
+    const v = Math.max(0, Math.min(1, drag.v0 + delta));
+    state.gain[drag.idx] = v;
+    drawKnob(drag.wrap.querySelector('canvas'), v);
+    // Update floating tooltip
+    const db = gainToDB(v);
+    valTip.textContent = (db >= 0 ? '+' : '') + db.toFixed(1) + 'dB';
+    const wr = drag.wrap.getBoundingClientRect();
+    const pr = document.getElementById('view-knobs').getBoundingClientRect();
+    valTip.style.left = (wr.left - pr.left + 21 - valTip.offsetWidth/2) + 'px';
+    valTip.style.top  = (wr.top - pr.top + 44) + 'px';
+    if (document.getElementById('view-eq').style.display !== 'none') drawEQ();
+    return;
+  }
+
+  // EQ drag
+  if (eqDrag) {
+    const r  = EQC.getBoundingClientRect();
+    const mx = e.clientX - r.left;
+    const my = e.clientY - r.top;
+
+    if (eqDrag.type === 'cross') {
+      // Clamp so crossovers don't cross each other
+      let f = xToF(mx);
+      if (eqDrag.idx === 0) f = Math.max(FMIN*2, Math.min(state.freq[1]*0.9, f));
+      if (eqDrag.idx === 1) f = Math.max(state.freq[0]*1.1, Math.min(state.freq[2]*0.9, f));
+      if (eqDrag.idx === 2) f = Math.max(state.freq[1]*1.1, Math.min(FMAX*0.9, f));
+      state.freq[eqDrag.idx] = Math.round(f);
+      drawEQ();
+    }
+    if (eqDrag.type === 'gain') {
+      const db = Math.max(-DB_RANGE, Math.min(DB_RANGE, yToDB(my)));
+      state.gain[eqDrag.idx] = dbToGain(db);
+      // Also update knob
+      const wrap = document.querySelector(`.knob-wrap[data-param="${eqDrag.idx}"]`);
+      if (wrap) drawKnob(wrap.querySelector('canvas'), state.gain[eqDrag.idx]);
+      drawEQ();
+    }
+  }
+});
+
+document.addEventListener('mouseup', () => {
+  drag = null; eqDrag = null;
+  valTip.style.display = 'none';
+});
+
+// Initialise
+function init() {
+  setView(1);
+  drawAllKnobs();
+  drawAllShapePrevs();
+}
+
+// Wait for all resources
+window.addEventListener('load', init);
+</script>
+</body>
+</html>
