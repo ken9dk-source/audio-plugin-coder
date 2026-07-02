@@ -4,6 +4,7 @@
 #endif
 #include "ParameterIDs.hpp"
 #include "VAZInitTemplate.h"
+#include "../reference/vaz_detune.h"   // VAZ deterministic detune spread (FUN_004e0618 port)
 
 //==============================================================================
 VAZCloneAudioProcessor::VAZCloneAudioProcessor()
@@ -18,7 +19,7 @@ VAZCloneAudioProcessor::VAZCloneAudioProcessor()
                                         -0.82, 0.82, -0.45, 0.45, -0.68, 0.68, -0.20, 0.20,
                                         -0.95, 0.95, -0.55, 0.55, -0.30, 0.30, -0.07, 0.07 };
     for (int i = 0; i < kNumVoices; ++i)
-        synth.addVoice (new VAZVoice (voiceParams, spread[i % 32]));
+        synth.addVoice (new VAZVoice (voiceParams, spread[i % 32], i));
     sampleFormatMgr.registerBasicFormats();          // WAV/AIFF/FLAC for the sample oscillator
     voiceParams.osc1Sample = &osc1SampleData;        // stable ptrs (contents swapped under the callback lock)
     voiceParams.osc2Sample = &osc2SampleData;
@@ -805,6 +806,18 @@ void VAZCloneAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
     synth.monoVoiceIdx = (! arpOn && vmode == 0) ? 0 : -1;   // MONO → dedicate voice 0 for legato glide; else normal voice allocation
     { const int vc = (int) apvts.getRawParameterValue (ParameterIDs::voices)->load();   // Voices: 0 = Dynamic (full pool), else fixed 1..32
       synth.voiceLimit = (vc <= 0) ? kNumVoices : juce::jmin (vc, kNumVoices); }
+
+    // ── VAZ deterministic detune spread (reference/vaz_detune.h = port of FUN_004e0618) ──
+    //    Poly = DAT_0052b168[polyN]·polyDetune>>3 spread; Unison = (uniDetune<<9)/uniN spread; both via the
+    //    bit-reversed DAT_0052b0ec order. Replaces the old fixed spread[] positions. Result applied as cents.
+    {
+        int32_t off[32] = {};
+        const int polyN = juce::jmin (synth.voiceLimit, 31);
+        const int uniN  = juce::jlimit (1, 32, (int) std::lround (1.0 + 31.0 * apvts.getRawParameterValue (ParameterIDs::uni_voices)->load()));
+        if      (vmode == 1) vazref::detunePoly   (polyN, (int) std::lround (polyDet * 255.0f), off);
+        else if (vmode == 2) vazref::detuneUnison (uniN,  (int) std::lround (uniDet  * 255.0f), off);
+        for (int i = 0; i < kNumVoices; ++i) voiceParams.detuneOff[i] = (float) off[i < 32 ? i : 31];
+    }
 
     juce::MidiBuffer voiced;
     if (arpOn)                                                  // ── ARPEGGIATOR ──

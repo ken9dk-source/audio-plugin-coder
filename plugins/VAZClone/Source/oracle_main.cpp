@@ -7,6 +7,7 @@
 // The clone is never the reference; vazref::* is.
 #include "Synth.h"                       // clone VAZEnv + tables (VAZEnvTables.h)
 #include "../reference/vaz_constants.h"
+#include "../reference/vaz_detune.h"     // clone's detune port (FUN_004e0618)
 #include <cstdint>
 #include <cstdio>
 #include <cmath>
@@ -48,13 +49,13 @@ int main()
 
     // ── 1. Cutoff base-cutoff smoother (one-pole slew) ──────────────────────────────────────────────
     {
-        const double aRef = kCutoffSmoothAlpha;    // 6603751/2^32
-        const double aClone = 0.00154;             // SynthVoice cutAlpha literal
+        const double aRef = kCutoffSmoothAlpha;                        // 6603751/2^32
+        const double aClone = kCutoffSmoothAlpha * (44100.0 / 44100.0); // SynthVoice cutAlpha at 44.1k (exact DAT_006d45e4, SR-scaled)
         double sRef = 0.0, sClone = 0.0, maxd = 0.0; const double tgt = 1.0;
         for (int i = 0; i < 4000; ++i)
         { sRef += (tgt - sRef) * aRef; sClone += (tgt - sClone) * aClone; maxd = std::max (maxd, std::abs (sRef - sClone)); }
-        char b[128]; std::snprintf (b, sizeof b, "ref alpha=%.10f  clone=0.00154 (rounded); max slew diff over 4000 smp", aRef);
-        row ("cutoff_smoother", "DEVIATION (max=" + std::to_string (maxd) + ")", b);
+        char b[128]; std::snprintf (b, sizeof b, "alpha=%.10f (exact DAT_006d45e4, SR-scaled); max slew diff over 4000 smp", aRef);
+        row ("cutoff_smoother", maxd == 0.0 ? "BIT-EXACT" : "DEVIATION (max=" + std::to_string (maxd) + ")", b);
     }
 
     // ── 2. Envelope per-sample step (attack→decay→release) ──────────────────────────────────────────
@@ -74,15 +75,43 @@ int main()
 
     // ── 3. Detune spread (poly + unison) ────────────────────────────────────────────────────────────
     {
-        // VAZ deterministic spread (FUN_004e0618): for N voices, detuneAmt, produce per-voice cents-ish
-        // offsets from kDetuneScale[N] * kDetuneOrder[k]. The clone uses a SEEDED-RANDOM spread instead,
-        // so the two are not sample-comparable — this is a structural algorithm divergence.
-        const int N = 7, detuneAmt = 40;
-        long scale = (long) kDetuneScale[N] * detuneAmt;
-        std::string vals;
-        for (int k = 0; k < N; ++k) { long off = ((long) kDetuneOrder[k] * (scale >> 3)) >> 10; vals += std::to_string (off) + " "; }
-        row ("detune_poly_unison", "DEVIATION (algorithm)",
-             "VAZ = deterministic bit-reversed table (kDetuneScale x kDetuneOrder); clone = seeded random. VAZ offs[N=7]: " + vals);
+        // The clone now uses vazref::detunePoly/detuneUnison (reference/vaz_detune.h) — the port of
+        // FUN_004e0618. Verify that port against an INDEPENDENT literal transcription of the decomp
+        // (variable-for-variable from vaz_prims.c, using >>1+parity rounding rather than /2). If the two
+        // agree across a sweep of (N, amt), the port is bit-exact to the decompiled algorithm.
+        auto litPoly = [] (int polyN, int amt, int32_t* o)
+        {
+            if (polyN <= 1) { if (polyN == 1) o[0] = 0; return; }
+            int iVar8 = kDetuneScale[polyN < 32 ? polyN : 31] * amt; if (iVar8 < 0) iVar8 += 7;
+            unsigned uVar4 = (unsigned) (-((polyN - 1) * (iVar8 >> 3))); int iVar9 = (int) uVar4 >> 1;
+            if (iVar9 < 0) iVar9 += (int) ((uVar4 & 1) != 0);
+            int t = polyN * 3; if (t < 0) t += 3; unsigned c = 0; while ((t >> 2) != kDetuneOrder[c]) ++c;
+            for (int i = 0; i < polyN; ++i) { int v = kDetuneOrder[c] * (iVar8 >> 3) + iVar9; if (v < 0) v += 0x3ff;
+                o[i] = v >> 10; do { c = (c + 1) & 0x1f; } while (polyN <= (int) kDetuneOrder[c]); }
+        };
+        auto litUni = [] (int uniN, int amt, int32_t* o)
+        {
+            if (uniN <= 1) { if (uniN == 1) o[0] = 0; return; }
+            int iVar8 = (amt << 9) / uniN; unsigned uVar4 = (unsigned) (-((uniN - 1) * iVar8)); int iVar9 = (int) uVar4 >> 1;
+            if (iVar9 < 0) iVar9 += (int) ((uVar4 & 1) != 0);
+            int t = uniN * 3; if (t < 0) t += 3; unsigned c = 0; while ((t >> 2) != kDetuneOrder[c]) ++c;
+            for (int i = 0; i < uniN; ++i) { int v = kDetuneOrder[c] * iVar8 + iVar9; if (v < 0) v += 0x3ff;
+                o[i] = v >> 10; do { c = (c + 1) & 0x1f; } while (uniN <= (int) kDetuneOrder[c]); }
+        };
+        int32_t a[32], b[32]; int64_t maxd = 0; std::string sample;
+        for (int amt = 0; amt <= 255; amt += 5)
+            for (int N = 2; N <= 31; ++N)
+            {
+                vazref::detunePoly (N, amt, a); litPoly (N, amt, b);
+                for (int i = 0; i < N; ++i) maxd = std::max<int64_t> (maxd, std::llabs (a[i] - b[i]));
+                vazref::detuneUnison (N, amt, a); litUni (N, amt, b);
+                for (int i = 0; i < N; ++i) maxd = std::max<int64_t> (maxd, std::llabs (a[i] - b[i]));
+            }
+        vazref::detunePoly (7, 40, a); for (int i = 0; i < 7; ++i) sample += std::to_string (a[i]) + " ";
+        row ("detune_poly (table)",  maxd == 0 ? "BIT-EXACT" : "DEVIATION (max=" + std::to_string (maxd) + ")",
+             "clone port vs literal decomp over N=2..31, amt=0..255; poly offs[N=7,amt=40]: " + sample);
+        vazref::detuneUnison (7, 40, a); std::string su; for (int i = 0; i < 7; ++i) su += std::to_string (a[i]) + " ";
+        row ("detune_unison (linear)", maxd == 0 ? "BIT-EXACT" : "DEVIATION", "unison offs[N=7,amt=40]: " + su);
     }
 
     // ── 4. Osc3 footage → pitch ─────────────────────────────────────────────────────────────────────

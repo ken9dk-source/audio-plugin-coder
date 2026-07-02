@@ -72,7 +72,7 @@ Every mapping below is proven by the no-discard audit: the labeled mirror consum
 | Type K (Sallen-Key) | jump table | VAZTypeK.h | PÅSTÅET | not line-by-line |
 | Type D HP+LP series | (2-section) | Synth.h:522-529 FLOAT | TILNÆRMET | float fallback (no factory patch) |
 | Comb | ≥0x5e path | Synth.h:534 FLOAT | TILNÆRMET | float fallback |
-| **cutoff base smoother** | DAT_006d45e4=6603751 (Q32) | SynthVoice cutAlpha=0.00154 | **TILNÆRMET** | VazOracle max diff 0.000585 (rounded) |
+| **cutoff base smoother** | DAT_006d45e4=6603751 (Q32=0.0015375556) | SynthVoice.h:148 cutAlpha (exact, SR-scaled) | **VERIFICERET** | VazOracle cutoff_smoother BIT-EXACT — FIXED |
 
 > ⚠️ The previous inventory said *"all 22 filter modes bit-exact"* — that was overclaimed. Only **A + R** (≈95% of factory patches) are line-by-line verified; **B/C/D/K are PÅSTÅET**; D-HP+LP and Comb are float.
 
@@ -113,7 +113,7 @@ Every mapping below is proven by the no-discard audit: the labeled mirror consum
 | Mono note-priority Hi/Lo/Last | param+0x2e0 | notePrio | VERIFICERET | address citation |
 | Pitch-bend (8192-centred×range) | FUN_004db958 | handlePitchWheel | VERIFICERET | address citation |
 | Sustain CC64 (deferred note-off) | FUN_004db8d4 | sustainPedal (post-fix) | VERIFICERET | address citation |
-| **Detune spread** | FUN_004e0618 + DAT_0052b168/0x52b0ec (deterministic bit-reversed) | seeded random | **TILNÆRMET** | VazOracle: different algorithm |
+| **Detune spread** | FUN_004e0618 (vaz_prims.c:3316-3388); poly=DAT_0052b168[polyN], unison=(uniDetune<<9)/N; order DAT_0052b0ec | reference/vaz_detune.h + SynthVoice.h detuneOff | **VERIFICERET** | VazOracle detune BIT-EXACT (port vs literal decomp, N=2..31 × amt=0..255) — FIXED |
 | Dynamic voice-free on env-close | FUN_004de6cc (param+0x78) | full-pool + release-free | TILNÆRMET | semantics differ |
 
 ---

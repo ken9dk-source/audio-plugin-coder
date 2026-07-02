@@ -1,6 +1,7 @@
 #pragma once
 #include <juce_audio_basics/juce_audio_basics.h>
 #include "Synth.h"
+#include "../reference/vaz_constants.h"   // exact VAZ constants (cutoff smoother, detune tables)
 
 // Per-sample modulation-source bus, computed once per block by the processor and read
 // by both the voices (FM) and the filter. Index matches modSrcs[]/MODSOURCES[].
@@ -45,7 +46,8 @@ struct VoiceParams
     int   o1Wave = 0, o2Wave = 0, o1Octave = 2, o2Octave = 2;   // 0 = Sawtooth, octave 2 = 8'
     float o1Coarse = 0.5f, o1Fine = 0.5f, o2Coarse = 0.5f, o2Fine = 0.5f; // 0.5 = center (no transpose)
     float o1Shape = 0.0f, o2Shape = 0.0f;          // Waveshape per oscillator
-    float detuneCents = 0.0f;                      // per-voice detune amount (Poly/Unison Detune)
+    float detuneCents = 0.0f;                      // (legacy — pitch detune now uses detuneOff below)
+    float detuneOff[32] = {};                       // per-voice VAZ detune offset in cents (reference/vaz_detune.h, FUN_004e0618)
     double duoHighHz = 0.0;                        // Duo mode: Osc2 plays this (highest held) note
     float o1Level = 1.0f, o2Detune = 0.0f, o2Level = 0.0f, noise = 0.0f;
     float atk = 0.0f, dec = 0.3f, sus = 1.0f, rel = 0.2f;
@@ -131,7 +133,7 @@ class VAZVoice : public juce::SynthesiserVoice
 public:
     // voiceDetune is a fixed −1..+1 position for this voice; scaled by p.detuneCents
     // (per-voice analog drift in Poly, chorus spread in Unison).
-    VAZVoice (const VoiceParams& params, double detunePos) : p (params), voiceDetune (detunePos) {}
+    VAZVoice (const VoiceParams& params, double detunePos, int idx = 0) : p (params), voiceDetune (detunePos), voiceIndex (idx) {}
 
     bool canPlaySound (juce::SynthesiserSound* s) override { return dynamic_cast<VAZSound*> (s) != nullptr; }
 
@@ -144,7 +146,7 @@ public:
         filt.prepare (sr > 0.0 ? sr : 44100.0);
         env2.setSampleRate (sr > 0.0 ? sr : 44100.0);
         dcR = 1.0 - 4.41 / (sr > 0.0 ? sr : 44100.0);   // output DC-block: VAZ DAT_006df6c4 = 0.9999 @44.1k, SR-scaled
-        cutAlpha = 1.0 - std::exp (-1.0 / (0.01475 * (sr > 0.0 ? sr : 44100.0)));   // VAZ base-cutoff slew ~15 ms (DAT_006d45e4)
+        cutAlpha = vazref::kCutoffSmoothAlpha * (44100.0 / (sr > 0.0 ? sr : 44100.0));   // exact DAT_006d45e4 = 6603751 (Q32 = 0.0015375556), SR-scaled like the env
     }
 
     void startNote (int midiNote, float velocity, juce::SynthesiserSound*, int) override
@@ -219,7 +221,7 @@ public:
         }
 
         pitchBend = std::pow (2.0, ((double) wheelRaw - 8192.0) / 8192.0 * (1.0 + 23.0 * (double) p.bendRange) / 12.0); // ±BendRange semitones
-        const double vd = pitchBend * p.uiBend * std::pow (2.0, (voiceDetune * (double) p.detuneCents) / 1200.0); // MIDI bend × on-screen wheel × per-voice detune
+        const double vd = pitchBend * p.uiBend * std::pow (2.0, (double) p.detuneOff[voiceIndex] / 1200.0); // MIDI bend × on-screen wheel × VAZ deterministic detune (reference/vaz_detune.h)
         const double f1base = glidedHz * std::pow (2.0, (double) (p.o1Octave - 2) + o1Semi / 12.0) * vd;
         const double o2note = (p.duoHighHz > 0.0) ? p.duoHighHz : glidedHz;       // Duo: Osc2 plays the highest held note
         const double f2base = o2note * std::pow (2.0, (double) (p.o2Octave - 2) + o2Semi / 12.0)
@@ -366,7 +368,7 @@ private:
     VAZEnv    env2;               // per-voice filter envelope
     double    dcX = 0.0, dcY = 0.0, dcR = 0.9999;   // output DC-block (one-pole HP) state + coef (VAZ 0.9999 @44.1k)
     double    dc2X = 0.0, dc2Y = 0.0;               // 2nd DC-block AFTER the soft-clip (audit fix D3)
-    double    smoothCut = 0.0, cutAlpha = 0.00154;  // VAZ base-cutoff smoother (~15 ms one-pole, DAT_006d45e4)
+    double    smoothCut = 0.0, cutAlpha = vazref::kCutoffSmoothAlpha;  // VAZ base-cutoff smoother, exact DAT_006d45e4 (set per-SR in prepare)
     double    voiceKeyTrack = 0.0;
     float     voiceVel = 1.0f;
     float     lastO1 = 0.0f, lastO2 = 0.0f;
@@ -375,7 +377,8 @@ private:
     double glidedHz = 0.0;        // portamento current frequency
     double pitchBend = 1.0;       // pitch-wheel frequency multiplier
     int    wheelRaw = 8192;       // last raw pitch-wheel value (center = 8192)
-    double voiceDetune = 0.0;     // −1..+1 fixed position for this voice
+    double voiceDetune = 0.0;     // −1..+1 fixed position for this voice (mod source 21 "Voice Number")
+    int    voiceIndex  = 0;       // this voice's slot in the pool → index into VoiceParams::detuneOff
     float  level = 1.0f;
 };
 
