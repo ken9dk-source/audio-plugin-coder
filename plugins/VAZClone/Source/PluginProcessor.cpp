@@ -369,6 +369,7 @@ struct V2PPatch
     int noise = 0, o1level = 255, o2level = 0, voiceMode = 0, portamento = 0, uniDetune = 0, polyDetune = 0;
     int mix1src = 0, mix1post = 0, mix2src = 0, mix2post = 0, mix3src = 0, mix3post = 0;
     int bendRange = 2, uniVoices = 0;   // e0610 (1..24 st), e095c (2..16, v2.0 only; 0 = not present)
+    int consumedEnd = 0;                 // cursor pos after parse (test hook: no-discard audit drift check)
 };
 
 // Sequential cursor mirroring the VAZ stream primitives.
@@ -464,9 +465,21 @@ static V2PPatch parseV2P (const juce::uint8* d, int n, int prst)
     p.uniDetune = c.u32();                             // p2f4 (+0x2f4 = Unison detune)
     if (v >= 200) p.polyDetune = c.u32();              // p2f0 (+0x2f0 = Poly detune, v2.0)
     p.portamento = c.u32();
+    p.consumedEnd = c.pos;
     return p;
 }
 } // namespace
+
+#ifdef VAZ_HEADLESS
+int VAZCloneAudioProcessor::debugV2PConsumedEnd (const juce::MemoryBlock& mb) const
+{
+    const auto* d = (const juce::uint8*) mb.getData();
+    const int   n = (int) mb.getSize();
+    const int   prst = findTag (d, n, "PRST", 0);
+    if (prst < 0 || prst + 12 > n) return -1;
+    return parseV2P (d, n, prst).consumedEnd;
+}
+#endif
 
 bool VAZCloneAudioProcessor::loadV2P (const juce::MemoryBlock& mb)
 {

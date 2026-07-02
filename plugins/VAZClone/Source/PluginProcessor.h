@@ -58,6 +58,9 @@ public:
     void loadSampleDialog (int osc, std::function<void (juce::String)> onDone);   // Sample-osc loader (OSC 0/1)
     void resetSample (int osc);                                                   // back to default Sine
     bool loadV2P (const juce::MemoryBlock& mb);
+   #ifdef VAZ_HEADLESS
+    int  debugV2PConsumedEnd (const juce::MemoryBlock& mb) const;   // test hook (no-discard audit): byte offset after parseV2P
+   #endif
     juce::MemoryBlock buildV2P();
     juce::MemoryBlock lastPatchBytes;                 // template for Save (last loaded patch bytes)
     std::unique_ptr<juce::FileChooser> patchChooser;  // kept alive during async dialog

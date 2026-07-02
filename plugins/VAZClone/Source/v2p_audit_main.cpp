@@ -1,0 +1,195 @@
+// VazV2PAudit — no-discard audit of the .v2p preset parser.
+// ---------------------------------------------------------------------------------------------
+// Mirrors parseV2P (PluginProcessor.cpp) with a LABELED cursor: EVERY consumed byte is tagged
+// either PARAM(field) or WHITELIST(reason). The mirror is validated against the REAL parser by
+// asserting it consumes the EXACT same byte range (proc.debugV2PConsumedEnd) on every factory
+// .v2p file. So if a read is ever added to / removed from parseV2P without a matching (labeled)
+// read here, the end-offsets diverge and the test fails — making the "field read and silently
+// discarded" bug class (voice_count, p2f0 were both silently dropped once) impossible to
+// reintroduce unnoticed. There is NO plain unlabeled read: AuditCursor's read methods REQUIRE a
+// (kind,label) argument, so a discard cannot be written without a whitelist reason.
+//   usage:  VazV2PAudit [vaz-2010-folder]   (default = the standard Steinberg install path)
+#include "PluginProcessor.h"
+#include <iostream>
+#include <vector>
+#include <string>
+#include <set>
+#include <map>
+
+enum Kind { PARAM, WHITELIST };
+struct Read { int off, size; Kind kind; std::string label; };
+
+// Cursor that mirrors V2PCursor's stream primitives but records + labels every read.
+struct AuditCursor
+{
+    const juce::uint8* d; int n; int pos;
+    std::vector<Read> reads;
+
+    int u32 (Kind k, const char* label)
+    { int o = pos; int v = (pos + 4 <= n) ? (d[pos] | (d[pos+1]<<8) | (d[pos+2]<<16) | (d[pos+3]<<24)) : 0;
+      pos += 4; reads.push_back ({ o, 4, k, label }); return v; }
+    int byte (Kind k, const char* label)
+    { int o = pos; int v = (pos >= 0 && pos < n) ? (int) d[pos] : 0; pos += 1; reads.push_back ({ o, 1, k, label }); return v; }
+    int modsrc (int ver, Kind k, const char* label) { int v = u32 (k, label); if (ver < 200 && v > 6) v += 1; return v; }
+    void strsample (const char* label)   // v<0x69/0x6a name path: 2 bytes + u32 length + skip
+    { byte (WHITELIST, label); byte (WHITELIST, label); int o = pos; int ln = u32 (WHITELIST, label);
+      pos += ln; if (ln > 0) reads.push_back ({ o + 4, ln, WHITELIST, label }); }
+    void skipMsmp (const char* label)    // "MSmp" multisample block: 8-byte header + payload
+    { if (pos + 8 <= n && d[pos]=='M' && d[pos+1]=='S' && d[pos+2]=='m' && d[pos+3]=='p')
+      { int o = pos; int sz = 8 + (d[pos+4] | (d[pos+5]<<8) | (d[pos+6]<<16) | (d[pos+7]<<24));
+        pos += sz; reads.push_back ({ o, sz, WHITELIST, label }); } }
+};
+
+static int findTagLocal (const juce::uint8* d, int n, const char* t)
+{
+    for (int i = 0; i + 4 <= n; ++i)
+        if (d[i]==t[0] && d[i+1]==t[1] && d[i+2]==t[2] && d[i+3]==t[3]) return i;
+    return -1;
+}
+
+// EXACT mirror of parseV2P (PluginProcessor.cpp:386-467). Keep line-aligned with it. Every read is
+// labeled PARAM(target) or WHITELIST(why it is deliberately not mapped to a clone parameter).
+static AuditCursor auditParse (const juce::uint8* d, int n, int prst)
+{
+    const int v = d[prst+8] | (d[prst+9]<<8) | (d[prst+10]<<16) | (d[prst+11]<<24);
+    AuditCursor c { d, n, prst + 12, {} };
+
+    if (v >= 0x67) c.byte (PARAM, "mono/preset_enable -> voice_mode");
+    if (v >= 0x6d) c.u32  (WHITELIST, "voice_count: VAZ per-preset voice cap; clone uses a global Voices param, not per-preset [FLAGGED in matrix]");
+    if (v >= 0xc9) c.byte (WHITELIST, "mono dup byte (v2.0): superseded by the preset_enable slot at +12");
+    if (v >= 0xc9) c.u32  (WHITELIST, "+0x94 LFO1 v2.0 field: purpose unconfirmed, not modeled [FLAGGED]");
+    c.u32 (PARAM, "lfo1rate -> lfo_rate");
+    c.u32 (PARAM, "lfo1wave -> lfo_wave");
+    c.u32 (PARAM, "lfo1shape -> lfo_shape"); c.byte (PARAM, "lfo1trig -> lfo_trig");
+    if (v >= 0xc9) c.byte (WHITELIST, "+0xded84 LFO1 v2.0 flag: not modeled [FLAGGED]");
+    if (v >= 0xc9) c.u32  (WHITELIST, "+0xe0 LFO1 v2.0 field: not modeled [FLAGGED]");
+    c.u32 (PARAM, "lfo2rate -> lfo2_rate");
+    if (v >= 200) { c.modsrc (v, WHITELIST, "LFO2 trig-mod src: clone does not model LFO2 trig modulation [FLAGGED]");
+                    c.u32 (WHITELIST, "LFO2 trig-mod depth [FLAGGED]"); }
+    c.byte (PARAM, "lfo2trig -> lfo2_trig");
+    if (v >= 200) c.u32 (PARAM, "lfo2mode -> lfo2_wave");
+    else          c.byte (PARAM, "lfo2mode (v1xx S&H bool) -> lfo2_wave");
+    c.u32 (PARAM, "lfo2delay -> lfo2_delay"); c.u32 (PARAM, "lfo3sel -> lfo3_rate"); c.byte (PARAM, "lfo3wav -> lfo3_wave");
+    // env1
+    if (v < 0x6b) { c.u32 (PARAM,"e1a"); c.u32 (PARAM,"e1d"); c.u32 (PARAM,"e1s"); c.u32 (PARAM,"e1r");
+                    c.byte (WHITELIST,"env1 pre-0x6b trailing flag byte");
+                    c.byte (PARAM,"env1 linear/exp flag -> rate-table offset adjust (affects e1a/d/r)"); }
+    else          { c.u32 (PARAM,"e1a"); c.u32 (PARAM,"e1d"); c.u32 (PARAM,"e1s"); c.u32 (PARAM,"e1r");
+                    c.byte (WHITELIST,"env1 (>=0x6b) trailing flag byte"); }
+    c.byte (PARAM, "e1mode -> e1_reset/e1_cycle/e1_curve");
+    if (v >= 0x6b) c.byte (WHITELIST, "env1 (>=0x6b) extra flag byte");
+    if (v >= 0xca) c.byte (WHITELIST, "env1 (>=0xca) extra flag byte");
+    // env2
+    if (v < 0x6c) { c.u32 (PARAM,"e2a"); c.u32 (PARAM,"e2d"); c.u32 (PARAM,"e2s"); c.u32 (PARAM,"e2r");
+                    c.byte (WHITELIST,"env2 pre-0x6c trailing flag byte");
+                    c.byte (PARAM,"env2 linear/exp flag -> rate-table offset adjust"); }
+    else          { c.u32 (PARAM,"e2a"); c.u32 (PARAM,"e2d"); c.u32 (PARAM,"e2s"); c.u32 (PARAM,"e2r");
+                    c.byte (WHITELIST,"env2 (>=0x6c) trailing flag byte"); }
+    c.byte (WHITELIST, "env2 df140 flag byte");
+    if (v >= 0x6c) c.byte (PARAM, "e2mode -> e2_reset/e2_cycle/e2_curve");
+    if (v >= 0xca) c.byte (WHITELIST, "env2 (>=0xca) extra flag byte");
+    if (v >= 200) { c.modsrc (v, PARAM, "e2modsrc -> e2_mod_src"); c.u32 (PARAM, "e2modamt -> e2_mod_amt"); c.u32 (PARAM, "e2moddest -> e2_dest"); }
+    c.modsrc (v, PARAM, "ma1in -> ma1_in_src");
+    if (v >= 200) c.byte (PARAM, "ma1sq -> ma1_sq");
+    c.modsrc (v, PARAM, "ma1amsrc -> ma1_am_src"); c.u32 (PARAM, "ma1amamt -> ma1_am_amt");
+    if (v >= 200) c.modsrc (v, PARAM, "ma2in -> ma2_in_src");
+    if (v >= 200) c.modsrc (v, PARAM, "ma2amsrc -> ma2_am_src");
+    // osc1
+    c.u32 (PARAM, "o1tune -> o1_oct/o1_coarse/o1_fine"); c.u32 (PARAM, "o1wave -> o1_wave"); c.u32 (PARAM, "o1shape -> o1_shape");
+    if (v >= 200) c.byte (WHITELIST, "osc1 df430 v2.0 flag byte");
+    c.modsrc (v, PARAM, "o1fm1s -> o1_fm_src"); c.u32 (PARAM, "o1fm1d -> o1_fm_amt");
+    c.modsrc (v, PARAM, "o1fm2s -> o1_fm2_src"); c.u32 (PARAM, "o1fm2d -> o1_fm2_amt");
+    c.modsrc (v, PARAM, "o1pwms -> o1_ws_src"); c.u32 (PARAM, "o1pwmd -> o1_ws_amt");
+    if (v < 0x69) c.strsample ("osc1 sample name/data (MSmp1): sample-osc payload, clone loads samples separately");
+    else { c.skipMsmp ("osc1 sample block (MSmp1): sample-osc payload"); c.byte (WHITELIST, "osc1 sample trailing flag byte (One-Shot/No-Trigger): clone sample osc does not model these"); }
+    // osc2
+    c.u32 (PARAM, "o2tune -> o2_oct/o2_coarse/o2_fine"); c.u32 (PARAM, "o2wave -> o2_wave"); c.byte (PARAM, "o1sync -> osc2_sync"); c.u32 (PARAM, "o2shape -> o2_shape");
+    c.modsrc (v, PARAM, "o2fm1s -> o2_fm_src"); c.u32 (PARAM, "o2fm1d -> o2_fm_amt");
+    c.modsrc (v, PARAM, "o2fm2s -> o2_fm2_src"); c.u32 (PARAM, "o2fm2d -> o2_fm2_amt");
+    c.modsrc (v, PARAM, "o2pwms -> o2_ws_src"); c.u32 (PARAM, "o2pwmd -> o2_ws_amt");
+    if (v < 0x6a) c.strsample ("osc2 sample name/data (MSmp2): sample-osc payload");
+    else { c.skipMsmp ("osc2 sample block (MSmp2): sample-osc payload"); c.byte (WHITELIST, "osc2 sample trailing flag byte (One-Shot/No-Trigger)"); }
+    // filter / mixer / output
+    if (v >= 200) c.u32 (PARAM, "mix1src -> mix1_src");
+    c.u32 (PARAM, "o1level -> mix1_level"); c.byte (PARAM, "mix1post -> mix1_post");
+    if (v >= 200) c.u32 (PARAM, "mix2src -> mix2_src");
+    c.u32 (PARAM, "o2level -> mix2_level"); c.byte (PARAM, "mix2post -> mix2_post");
+    c.u32 (PARAM, "mix3src -> mix3_src"); c.u32 (PARAM, "noise -> noise_level"); c.byte (PARAM, "mix3post -> mix3_post");
+    c.u32 (PARAM, "filterMode -> filter_mode"); c.byte (WHITELIST, "filter trailing flag byte (after filterMode)");
+    c.u32 (PARAM, "cutoff -> cutoff"); c.u32 (PARAM, "reso -> resonance"); c.u32 (PARAM, "bandwidth -> flt_aux");
+    if (v >= 200) c.u32 (PARAM, "hpCut -> hp_cutoff");
+    c.modsrc (v, PARAM, "fcut1s -> cut_mod1_src"); c.u32 (PARAM, "fcut1d -> filt_env_amt");
+    c.modsrc (v, PARAM, "fcut2s -> cut_mod2_src"); c.u32 (PARAM, "fcut2d -> cut_mod2_amt");
+    c.modsrc (v, PARAM, "fcut3s -> cut_mod3_src"); c.u32 (PARAM, "fcut3d -> cut_mod3_amt");
+    c.modsrc (v, PARAM, "fresS -> res_mod_src"); c.u32 (PARAM, "fresD -> res_mod_amt");
+    c.modsrc (v, PARAM, "am1s -> amp_mod_src"); c.u32 (PARAM, "am1d -> amp_mod_amt");
+    c.modsrc (v, PARAM, "am2s -> amp_mod2_src"); c.u32 (PARAM, "am2d -> amp_mod2_amt");
+    if (v >= 200) { c.modsrc (v, PARAM, "am3s -> pan_mod_src"); c.u32 (PARAM, "am3d -> pan_mod_amt"); }
+    c.u32 (PARAM, "overdrive -> overdrive");
+    if (v >= 0x65) c.modsrc (v, WHITELIST, "e04f4 extra mod-src slot: not modeled [FLAGGED]");
+    if (v >= 0x65) c.u32  (WHITELIST, "e0504 depth for the e04f4 slot [FLAGGED]");
+    c.u32 (PARAM, "voiceMode -> voice_mode"); c.u32 (WHITELIST, "e05f0 glide/legato flag: not modeled [FLAGGED]"); c.byte (WHITELIST, "e0600 flag: not modeled [FLAGGED]");
+    c.u32 (PARAM, "bendRange -> bend_range");
+    if (v >= 200) c.u32 (PARAM, "uniVoices -> uni_voices");
+    c.u32 (PARAM, "uniDetune -> uni_detune");
+    if (v >= 200) c.u32 (PARAM, "polyDetune -> poly_detune");
+    c.u32 (PARAM, "portamento -> portamento");
+    return c;
+}
+
+int main (int argc, char** argv)
+{
+    juce::ScopedJuceInitialiser_GUI init;
+    const juce::String dir = argc > 1 ? juce::String (argv[1])
+        : juce::String ("C:/Program Files (x86)/Steinberg/Vstplugins/VAZ Synths/VAZ 2010");
+    auto files = juce::File (dir).findChildFiles (juce::File::findFiles, true, "*.v2p");
+    std::cout << "=== VazV2PAudit: no-discard parser audit ===\n" << "folder: " << dir << "\nfound " << files.size() << " .v2p files\n\n";
+    if (files.isEmpty()) { std::cout << "NO FILES — pass the VAZ 2010 folder as argv[1].\n"; return 2; }
+
+    VAZCloneAudioProcessor proc;
+    int nOK = 0, nFail = 0; long totalParam = 0, totalWl = 0;
+    std::set<std::string> whitelist;
+    std::map<int,int> byVersion;
+    std::vector<std::string> failures;
+
+    for (auto& f : files)
+    {
+        juce::MemoryBlock mb;
+        if (! f.loadFileAsData (mb)) { failures.push_back (f.getFileName().toStdString() + ": read error"); ++nFail; continue; }
+        const auto* d = (const juce::uint8*) mb.getData(); const int n = (int) mb.getSize();
+        const int prst = findTagLocal (d, n, "PRST");
+        if (prst < 0 || prst + 12 > n) { failures.push_back (f.getFileName().toStdString() + ": no PRST tag"); ++nFail; continue; }
+        const int ver = d[prst+8] | (d[prst+9]<<8) | (d[prst+10]<<16) | (d[prst+11]<<24);
+
+        auto ac = auditParse (d, n, prst);
+        const int realEnd = proc.debugV2PConsumedEnd (mb);
+        ++byVersion[ver];
+
+        // DRIFT CHECK: the labeled mirror must consume the exact same range as the real parseV2P.
+        if (ac.pos != realEnd)
+        {
+            failures.push_back (f.getFileName().toStdString() + ": MIRROR DRIFT (ver " + std::to_string (ver)
+                + ") audit consumed to " + std::to_string (ac.pos) + " but parseV2P to " + std::to_string (realEnd)
+                + " — a read was added/removed in parseV2P without a labeled read in v2p_audit_main.cpp");
+            ++nFail; continue;
+        }
+        for (auto& r : ac.reads) { if (r.kind == PARAM) ++totalParam; else { ++totalWl; whitelist.insert (r.label); } }
+        ++nOK;
+    }
+
+    std::cout << "files audited OK (mirror == parseV2P): " << nOK << " / " << files.size() << "\n";
+    std::cout << "reads: " << totalParam << " -> param,  " << totalWl << " -> whitelist\n";
+    std::cout << "versions seen: "; for (auto& kv : byVersion) std::cout << "v" << kv.first << "x" << kv.second << " "; std::cout << "\n\n";
+
+    std::cout << "--- WHITELIST (bytes deliberately consumed but NOT mapped to a clone param) ---\n";
+    for (auto& w : whitelist) std::cout << "  * " << w << "\n";
+    std::cout << "  (" << whitelist.size() << " distinct reasons; entries tagged [FLAGGED] are candidates for the parity matrix)\n\n";
+
+    if (! failures.empty())
+    {
+        std::cout << "!!! " << failures.size() << " FAILURES:\n";
+        for (auto& s : failures) std::cout << "  [FAIL] " << s << "\n";
+    }
+    std::cout << "\n=== " << nOK << " ok, " << nFail << " failed ===\n";
+    return nFail == 0 ? 0 : 1;
+}

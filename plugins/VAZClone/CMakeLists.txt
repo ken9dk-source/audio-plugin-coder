@@ -151,3 +151,29 @@ target_link_libraries(VazDSPAudit PRIVATE
     juce::juce_graphics
     juce::juce_gui_basics
     juce::juce_recommended_config_flags)
+
+# ============================================
+# NO-DISCARD PARSER AUDIT — VazV2PAudit  (DEL 1)
+# Mirrors parseV2P with a labeled cursor and asserts every consumed byte in every factory .v2p is
+# either mapped to a param or on an explicit whitelist; drift-checked vs the real parser's end offset.
+# ============================================
+juce_add_console_app(VazV2PAudit PRODUCT_NAME "VazV2PAudit")
+target_sources(VazV2PAudit PRIVATE Source/v2p_audit_main.cpp Source/PluginProcessor.cpp)
+target_include_directories(VazV2PAudit PRIVATE Source)
+target_compile_definitions(VazV2PAudit PRIVATE
+    VAZ_HEADLESS=1
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_MODAL_LOOPS_PERMITTED=0
+    _USE_MATH_DEFINES=1)
+target_link_libraries(VazV2PAudit PRIVATE
+    juce::juce_audio_basics
+    juce::juce_audio_formats
+    juce::juce_audio_processors
+    juce::juce_core
+    juce::juce_data_structures
+    juce::juce_dsp
+    juce::juce_events
+    juce::juce_graphics
+    juce::juce_gui_basics
+    juce::juce_recommended_config_flags)
