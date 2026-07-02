@@ -155,7 +155,7 @@ int main()
         row ("osc3_footage_pitch",
              survivors == 1 ? "VERIFIED (anchors)" : survivors == 0 ? "NOT TESTED (0 survive)" : ("NOT TESTED (" + std::to_string (survivors) + " survive)"),
              survivors == 1 ? ("unique survivor -> that is VAZ's footage role: " + surv)
-                            : ("anchors do NOT disambiguate (footage-exp lives in rateVal, source undecoded); no guess-fix. survivors: " + (surv.empty() ? std::string("none") : surv)));
+                            : ("ambiguous; rateVal=FUN_004a0a68(LFO1)->obj+4/FUN_004a073c whose callers set FIXED/field rates (0x78, obj-fields) not footage-exp -> chain entangled, step-5 report-only. survivors: " + (surv.empty() ? std::string("none") : surv)));
     }
 
     std::printf ("\n  Constants sourced: cutoff-smooth DAT_006d45e4, detune DAT_0052b168/0x52b0ec, env-rate DAT_006db7e8, stage0 DAT_006dc0bc.\n");
