@@ -177,3 +177,25 @@ target_link_libraries(VazV2PAudit PRIVATE
     juce::juce_graphics
     juce::juce_gui_basics
     juce::juce_recommended_config_flags)
+
+# ============================================
+# DECOMPILED REFERENCE-ORACLE — VazOracle  (DEL 2)
+# Diffs the clone's DSP primitives (VAZEnv, cutoff smoother, detune) against reference impls
+# transcribed from the Ghidra decomp + raw constants (reference/vaz_constants.h). Prints a status
+# table BIT-EXACT / DEVIATION(max) / NOT TESTED.
+# ============================================
+juce_add_console_app(VazOracle PRODUCT_NAME "VazOracle")
+target_sources(VazOracle PRIVATE Source/oracle_main.cpp)
+target_include_directories(VazOracle PRIVATE Source reference)
+target_compile_definitions(VazOracle PRIVATE
+    VAZ_HEADLESS=1
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_MODAL_LOOPS_PERMITTED=0
+    _USE_MATH_DEFINES=1)
+target_link_libraries(VazOracle PRIVATE
+    juce::juce_audio_basics
+    juce::juce_core
+    juce::juce_dsp
+    juce::juce_events
+    juce::juce_recommended_config_flags)
