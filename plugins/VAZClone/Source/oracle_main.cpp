@@ -115,7 +115,7 @@ int main()
     }
 
     // ── 4. Osc3 footage → pitch ─────────────────────────────────────────────────────────────────────
-    row ("osc3_footage_pitch", "NOT TESTED", "VAZ footage LUT address not yet confirmed (manual: 32'=48..2'=240); clone uses osc3FootMul");
+    row ("osc3_footage_pitch", "NOT TESTED (form differs)", "VAZ Osc3 incr = x87 ratio round(2^31*48*rate/(60*footage*note)) @0x4dbf12; clone = 2^((byte-144)/48) — reciprocal vs exponential; operands not fully decoded, no guess-fix");
 
     std::printf ("\n  Constants sourced: cutoff-smooth DAT_006d45e4, detune DAT_0052b168/0x52b0ec, env-rate DAT_006db7e8, stage0 DAT_006dc0bc.\n");
     std::printf ("=== oracle complete ===\n");

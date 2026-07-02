@@ -35,13 +35,19 @@ Every mapping below is proven by the no-discard audit: the labeled mirror consum
 
 **Read-and-DISCARDED bytes (documented in the audit whitelist; [FLAGGED] = candidate to wire up):**
 
-| Discarded field | Ghidra ref | parseV2P line | Status | Note |
-|-----------------|-----------|---------------|--------|------|
-| **voice_count** | v≥0x6d u32 | :394 | MANGLER (per-preset) | Clone uses a global Voices param; VAZ stores it per preset. [FLAGGED] |
-| +0x94 / +0xe0 / +0xded84 | v≥0xc9 | :396,400,401 | PÅSTÅET (unknown) | LFO1 v2.0 fields, purpose unconfirmed. [FLAGGED] |
-| LFO2 trig-mod src+depth | v≥200 | :403 | MANGLER | Clone does not model LFO2 trig modulation. [FLAGGED] |
-| e04f4/e0504 extra mod slot | v≥0x65 | :459-460 | MANGLER | An extra mod-src+depth slot not modeled. [FLAGGED] |
-| e05f0/e0600 | u32+byte | :461 | PÅSTÅET | glide/legato flags, not modeled. [FLAGGED] |
+Classified 2026-06-23 (Step 4 — report only, no fixes):
+
+| Discarded field | Ghidra ref | parseV2P line | Verdict | Finding |
+|-----------------|-----------|---------------|---------|---------|
+| **voice_count** | v≥0x6d u32 | :394 | REAL (per-preset) | Clone uses a global Voices param; VAZ stores it per preset. |
+| **+0x94** | v≥0xc9 u32 | :396 | **REAL — Osc3** | LFO1 audio-rate FOOTAGE. Setter FUN_004d6c3c:125-129; USED in the Osc3 increment x87 calc @0x4dbf1b. Part of the Osc3 gap. |
+| **ded84 byte** | v≥0xc9 byte | :400 | **REAL — Osc3/LFO1** | Osc v2.0 property via setter FUN_004ded84 (FUN_004d6c3c:148-152), in the LFO1/Osc3 load region. |
+| **+0xe0** | v≥0xc9 u32 | :401 | **REAL — Osc3** | 2nd audio-rate FOOTAGE (mirrors +0x94; render +0xe8 block @vaz_big.c:69-79). |
+| LFO2-section mod src+depth | v≥200 | :403 | NICHE (unconfirmed) | A modsrc+depth pair loaded in the LFO2 block; exact destination not pinned. |
+| e04f4/e0504 mod src+depth | v≥0x65 | :459-460 | NICHE (unconfirmed) | Extra mod-src+depth slot; destination unconfirmed (not one of the clone's 3 cut / res / amp slots). |
+| e05f0/e0600 | u32+byte | :461 | NICHE (performance) | Copied to +0x70c/+0x71c; +0x600 → FUN_004a2d44 (vaz_big.c:5885). Voice/performance flags (glide/legato/Link-ish). |
+
+> **Takeaway:** three flagged fields (**+0x94, +0xe0, ded84**) are all **Osc3 / audio-rate footage** — confirming Osc3 is a real *data-carrying* gap (the .v2p stores footage the clone discards, and there is no Osc3 DSP). The rest are niche mod-slots / performance flags. **None fixed this session (report only).**
 | sample One-Shot/No-Trigger flags | MSmp trailing byte | :436,442 | MANGLER | Sample-osc loop-mode bits; clone sample osc is basic. |
 | env/filter trailing flag bytes | various | :414,421,449… | PÅSTÅET | Assumed inert; not individually confirmed. |
 
@@ -120,7 +126,8 @@ Every mapping below is proven by the no-discard audit: the labeled mirror consum
 
 ## 8. Missing features (unchanged from prior research — all MANGLER)
 
-- **Osc3 audio-rate** (LFO1 key-tracked; footage 32'=48..2'=240) — mixer opt exists, no DSP. `osc3_footage` = **NOT TESTED** in oracle.
+- **Osc3 audio-rate** (LFO1 key-tracked; footage 32'=48..2'=240) — mixer opt exists, no DSP. `osc3_footage` = **NOT TESTED**.
+  - **Step-3 trace (2026-06-23):** VAZ's Osc3 increment = `param+0x9c` (used at `vaz_big.c:159` when the Osc3 flag `param+0x234≠0`), recomputed on note/rate change by an **x87 ratio** at `0x4dbf12-0x4dbf43`: `round( C · 48 · rateVal / (60 · footage · noteVal) )` with `60.0` @0x4de538 and `C = 2^31−1` (INT_MAX, phase full-scale) @0x4de53c (80-bit). The clone (`PluginProcessor.cpp:930`) uses `2^((rate·255−144)/48)` — an **exponential**, which cannot equal VAZ's **reciprocal ratio**. **Status: DEVIATION (form) confirmed; exact operand roles (which term is the footage octave) NOT fully decoded → NOT fixed (would be a guess), test stays NOT TESTED.** Next: confirm `param+0x94`(footage?) / `*(*(param+0x1c))`(note period?) semantics via more x87 tracing before reimplementing.
 - **Microtuning / .tun loader** — clone is hard 12-TET.
 - **Full Sample Loader** (multisample/Drums/loop modes).
 - **Arp**: Random 2, Trigger-Free, exact Range semantics.
@@ -129,9 +136,9 @@ Every mapping below is proven by the no-discard audit: the labeled mirror consum
 
 ## 9. Honest headline
 
-- **Proven bit-exact (test or line-by-line):** .v2p param mapping (all 260 files), envelope recurrence, filter **A + R**, cutoff dispatch/map, mod-source bipolarity, mixer/voice/MIDI structure.
-- **Known deviations (TILNÆRMET):** cutoff smoother (rounded 0.00154), **detune spread (random vs VAZ's deterministic table)**, D-HP+LP / Comb (float), mixer src restriction, Dynamic-mode semantics.
-- **Unproven (PÅSTÅET) — do NOT call these done:** filter B/C/D/K line-by-line, LFO 8-waveforms + sync ratios, pulse-width map, velocity/keytrack polarity, the [FLAGGED] discarded .v2p fields.
-- **Missing (MANGLER):** Osc3 DSP, microtuning, sample loader, arp completeness, sequencer, MIDI-map.
+- **Proven bit-exact (test or line-by-line):** .v2p param mapping (all 260 files), envelope recurrence, **detune spread (poly + unison)**, **cutoff base smoother**, filter **A + R**, cutoff dispatch/map, mod-source bipolarity, mixer/voice/MIDI structure. *(detune + smoother FIXED this session, VazOracle BIT-EXACT.)*
+- **Known deviations (TILNÆRMET):** **Osc3 footage (VAZ x87 reciprocal ratio vs clone's exponential — confirmed different FORM, not yet reimplemented)**, D-HP+LP / Comb (float), mixer src restriction, Dynamic-mode semantics.
+- **Unproven (PÅSTÅET) — do NOT call these done:** filter B/C/D/K line-by-line, LFO 8-waveforms + sync ratios, pulse-width map, velocity/keytrack polarity.
+- **Missing (MANGLER) — Osc3 is a confirmed data-carrying gap:** Osc3 DSP + its footage fields (+0x94/+0xe0/ded84), microtuning, sample loader, arp completeness, sequencer, MIDI-map.
 
 **Prioritisation is yours** — this matrix only reports; no deviations were fixed in this session.
