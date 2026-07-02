@@ -13,6 +13,7 @@
 #include <cmath>
 #include <vector>
 #include <string>
+#include <functional>
 
 using namespace vazref;
 
@@ -115,7 +116,47 @@ int main()
     }
 
     // ── 4. Osc3 footage → pitch ─────────────────────────────────────────────────────────────────────
-    row ("osc3_footage_pitch", "NOT TESTED (form differs)", "VAZ Osc3 incr = x87 ratio round(2^31*48*rate/(60*footage*note)) @0x4dbf12; clone = 2^((byte-144)/48) — reciprocal vs exponential; operands not fully decoded, no guess-fix");
+    // ── 4. Osc3 footage — EMPIRICAL operand decode via anchors ──────────────────────────────────────
+    {
+        // Direct C port of VAZ's Osc3-increment x87 sequence (the branch that feeds param+0x9c, used at
+        // vaz_big.c:159 when Osc3 flag param+0x234≠0). Disasm 0x4dbf12-0x4dbf43:
+        //   0x4dbf12 fild  qword[ebp-0x18] = note        ; st0 = note
+        //   0x4dbf15 fmul  dword[0x4de538]=60.0          ; st0 = note*60
+        //   0x4dbf1e fild  dword[ebp-0x1c] = footage      ; 0x4dbf21 fmulp -> st0 = note*60*footage
+        //   0x4dbf2b-33 rate*48 (add eax,eax; shl eax,3; lea eax,[eax+eax*2])
+        //   0x4dbf36 fild  dword[ebp-0x20] = rate*48      ; 0x4dbf39 fdivrp -> st0 = (rate*48)/(note*60*footage)
+        //   0x4dbf3b fld   xword[0x4de53c]=2^31-1(INT_MAX); 0x4dbf41 fmulp ; 0x4dbf43 call 0x402bf4 (round)
+        // NOTE: MSVC long double == 64-bit; VAZ used x87 80-bit, so this is best-effort (sub-ULP gap on round).
+        auto inc = [] (long double rate, long double footage, long double note) -> long double
+        { const long double C = 2147483647.0L; return std::round (C * (rate * 48.0L) / (note * 60.0L * footage)); };
+
+        // Anchors from the manual: footage byte 48=32'(=f/4), 144=8'(=f), 240=2'(=4f). note fixed -> cancels in ratios.
+        auto footMul = [] (int b) { return std::pow (2.0L, (long double) (b - 144) / 48.0L); };
+        const long double note = 44100.0L / 440.0L;   // one plausible note-slot value (period); cancels in the ratio
+        struct Hyp { const char* name; std::function<long double(int)> rate, foot; };
+        std::vector<Hyp> H = {
+            { "rate=b, foot=b",                [] (int b){ return (long double) b; },        [] (int b){ return (long double) b; } },
+            { "rate=footMul, foot=1 (=clone)", [&](int b){ return footMul (b); },            [] (int)  { return 1.0L; } },
+            { "rate=footMul, foot=b",          [&](int b){ return footMul (b); },            [] (int b){ return (long double) b; } },
+            { "rate=1, foot=footMul",          [] (int)  { return 1.0L; },                   [&](int b){ return footMul (b); } },
+            { "rate=b, foot=1",                [] (int b){ return (long double) b; },        [] (int)  { return 1.0L; } },
+            { "rate=footMul*b, foot=b",        [&](int b){ return footMul (b) * b; },        [] (int b){ return (long double) b; } },
+        };
+        std::printf ("\n  -- Osc3 footage anchor test (32'=byte48->f/4, 8'=byte144->f, 2'=byte240->4f) --\n");
+        int survivors = 0; std::string surv;
+        for (auto& h : H)
+        {
+            auto p = [&] (int b) { return inc (h.rate (b), h.foot (b), note); };
+            const long double r32 = p (48) / p (144), r2 = p (240) / p (144);
+            const bool pass = std::abs (r32 - 0.25L) < 0.0025L && std::abs (r2 - 4.0L) < 0.04L;   // 1% relative (round() quantization is sub-%)
+            std::printf ("     [%s] %-24s 32'/8'=%.4f  2'/8'=%.4f\n", pass ? "PASS" : "fail", h.name, (double) r32, (double) r2);
+            if (pass) { ++survivors; surv += std::string (h.name) + "; "; }
+        }
+        row ("osc3_footage_pitch",
+             survivors == 1 ? "VERIFIED (anchors)" : survivors == 0 ? "NOT TESTED (0 survive)" : ("NOT TESTED (" + std::to_string (survivors) + " survive)"),
+             survivors == 1 ? ("unique survivor -> that is VAZ's footage role: " + surv)
+                            : ("anchors do NOT disambiguate (footage-exp lives in rateVal, source undecoded); no guess-fix. survivors: " + (surv.empty() ? std::string("none") : surv)));
+    }
 
     std::printf ("\n  Constants sourced: cutoff-smooth DAT_006d45e4, detune DAT_0052b168/0x52b0ec, env-rate DAT_006db7e8, stage0 DAT_006dc0bc.\n");
     std::printf ("=== oracle complete ===\n");
