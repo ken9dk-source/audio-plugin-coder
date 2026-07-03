@@ -63,7 +63,40 @@ namespace vazfx
     inline constexpr int kChorusTrapClampBias = 0x20000000;         // 2^29 (trapezoid |ph|−2^29)
     inline constexpr int kChorusTrapClampMax  = 0x40000000;         // 2^30 (trapezoid upper clamp)
 
-    // ── (constants for PHASER / DELAY / AUTOPAN / DECIMATOR / EQ — pending extraction) ──
+    // ── PHASER (TFXPhaser@0x52107C, render FUN_005218d8 @0x5218d8, coef-LUT FUN_00521aa0 @0x521aa0) ─────────
+    //   N-stage 1st-order allpass chain (N = [+0x2a0]); coef from a 512-entry LUT (+0x310) indexed by the LFO:
+    //     idx = ( (|phase|>>16)·depth[+0x280] + center[+0x264]·0x8000 ) >> 15      (LFO = abs = triangle)
+    //   allpass: y = buf − coef·x ; buf = coef·y + x.  Feedback [+0x29c] on last stage; linear mix [+0x288].
+    //   Stereo = SEPARATE banks (+0x2b0 L / +0x2e0 R), R phase offset lrPhase[+0x284]. Effect-type +0x58 = 5.
+    //   LUT builder: coef[i] = (1.0 − (i·5·ln2·K)·440/255 / sr) · 2^30, clamped ≥ 0   (i = 0..511):
+    inline constexpr float kPhaserLutFreqBase = 440.0f;   // DAT_00521b50 (A440 reference)
+    inline constexpr float kPhaserLutDiv255   = 255.0f;   // DAT_00521b4c
+    inline constexpr int   kPhaserLutQ30       = 0x40000000; // DAT_00521b58 = 2^30 (Q30 coef scale)
+    inline constexpr int   kPhaserLutEntries   = 0x200;   // 512-entry coef LUT (clone uses per-sample tan() bilinear)
+
+    // ── DELAY (TFXDelay@0x51AF18, render FUN_0051bba8 @0x51bba8, prepare FUN_0051bf78 @0x51bf78) ───────────
+    //   Stereo circular buffer (+0x2e0, 8 B/frame, size pow2 mask +0x2dc = (sr·0x9f6/1000) rounded up).
+    //   Separate L/R read taps (+0x2cc,+0x2d0); feedback [+0x27c] L / [+0x298] R with a ONE-POLE damping LP
+    //   in the loop (coef +0x2a8/+0x2ac, state +0x2b0/+0x2b4). Dry gain +0x2c0, wet gain +0x2b8. Type +0x58 = 2.
+    //   MODES ([+0x260]):  0 = Stereo (independent L/R) · 1 = Ping-Pong (cross-feedback) · ≥2 = MONO (L+R sum,
+    //   one delay, dual-mono out).  ⚠ clone mode 2 = "Double" (series delays) ≠ VAZ mode 2 = mono.
+    inline constexpr int kDelayBufCoef = 0x9f6;           // 2550: bufSamples = sr·2550/1000 (≈2.55 s) → pow2
+
+    // ── AUTOPAN (TFXAutopan@~0x517598, render FUN_00517d34 @0x517d34, ctor FUN_00517ae4 @0x517ae4) ────────
+    //   LFO → pan pos = min[+0x260] + lfo·(max[+0x264]−min[+0x260]).  LFO: mode0 = triangle (|phase|>>9),
+    //   mode1 = 256-entry sine LUT (+0x684, interp).  CONSTANT-POWER pan via a 257-entry LUT (+0x280 / +0x284):
+    //   gainL = LUT[255−idx], gainR = LUT[idx]  (idx = pan>>22, 8-bit).  Type +0x58 = 8.
+    //   Clone uses cos/sin(pan·π/2) = the exact continuous form of the same equal-power law (TILNÆRMET-BEVIDST).
+    inline constexpr int kAutopanPanLutEntries = 0x101;   // 257-entry constant-power pan LUT
+
+    // ── DECIMATOR (TFXDecimator@~0x51D8C8, render FUN_0051dbcc @0x51dbcc, quant-LUT FUN_0051d784) ─────────
+    //   Sample-rate reduction: 11-bit accumulator [+0x268] += rate[+0x26c]; when > 0x7ff → sample-&-hold.
+    //   BITCRUSH = truncation: held = (input & mask[+0x270]) + bias[+0x274]   ← clone uses round(x/q)·q instead.
+    //   Post S&H there is a SMOOTHING one-pole (coef[+0x280], state[+0x284]/[+0x288]) that the clone OMITS.
+    //   Quant/level table (FUN_0051d784): table[i] = i·ln2·K / 256 / 2  (257-entry exp).  Type +0x58 = 10.
+    inline constexpr int kDecimatorRateMask = 0x7ff;      // 11-bit S&H accumulator threshold (2047)
+    inline constexpr int kDecimatorQuantEntries = 0x101;  // 257-entry exp bit-depth LUT
+
     // Shared FX float-pool note: f32 = -0.241 recurs at 0x519054/0x51c11c/0x51e954/0x51f098/0x52089c (Chorus/
     // EQ/Flanger/Phaser) — role UNVERIFIED (needs per-site decode; do NOT assume it's a coefficient yet).
 }

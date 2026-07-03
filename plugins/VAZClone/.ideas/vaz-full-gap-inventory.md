@@ -215,16 +215,85 @@ RE-doc `chorus-ghidra-re.md` confirmed on the LFO/mode structure; **corrected** 
 trapezoid in VAZ but triangle in the clone). The **mono-shared-line + 3-combined-tap** topology and the base-delay
 curve are the deeper deviations. `fx_chorus_basedelay` now machine-flags the delay mismatch in VazOracle.
 
-### FX-D…G — pending extraction
+### FX-D — Phaser (`TFXPhaser`, render `FUN_005218d8` @0x5218d8) — AUDITED · fixed-point (Q30)
 
-| Effect | Core.dll | RE doc | Clone | Status |
+Virtual render force-decompiled (`tools/vaz_fx_render4.c`). Clone `VAZPhaser` = 1st-order allpass chain (float).
+
+| Part | Ghidra ref (VAZ) | Clone (VAZPhaser) | Deviation class | Status |
 |---|---|---|---|---|
-| Phaser | `TFXPhaser@0x52107C`, DSP @0x5218D8 | phaser-ghidra-re.md (N-allpass, triangle LFO, coef LUT) | VAZPhaser (151 ln) | PÅSTÅET — LUT constants + cross-check PENDING |
-| Delay | `TFXDelay@0x51AF18` | none | VAZDelay (219 ln) | PÅSTÅET — sync/interp/feedback-filter PENDING |
-| Autopan | Core.dll (Decimator/Autopan classes) | none | VAZAutopan (125 ln) | PÅSTÅET — LFO/pan-law/sync PENDING |
-| Decimator | Core.dll | none | VAZDecimator (98 ln) | PÅSTÅET — bitcrush/downsample math PENDING |
-| Equalizer | `TFXEqualizer@0x51E0C0` (4 RBJ biquads) | (was mis-ID'd as flanger) | VAZEqualizer | PÅSTÅET — RBJ coef formulas + band freqs PENDING |
+| Engine | N-stage 1st-order allpass, coef from 512-entry LUT, feedback, linear mix | N allpass, coef via `tan()` bilinear, feedback, linear mix | TILNÆRMET (topology matches) | @0x5218d8 line-by-line |
+| Allpass coef | 512-LUT: `(1−i·5·ln2·440/255/sr)·2^30` clamp≥0 (FUN_00521aa0) | `(1−t)/(1+t)`, t=`tan(π·fc/sr)`, fc=`fcBase·2^(depth·lfo)` | **TILNÆRMET ALGORITME** (LUT vs tan curve → notch positions drift) | LUT DAT_00521b50=440/b4c=255/b58=2^30 |
+| LFO→coef | idx=`(\|ph\|>>16·depth[+0x280]+center[+0x264]·0x8000)>>15` (linear into LUT) | fc exp mapping | TILNÆRMET | @0x5218d8:19-21 |
+| Stages | N = [+0x2a0] (default not extracted) | 2 + 2·round(f·5) → 2..12 (even) | **PÅSTÅET** (VAZ default/range not pinned) | .cpp:70 |
+| Feedback | [+0x29c] (scale not extracted) | f·0.72 | **PÅSTÅET** (0.72 clone guess) | .cpp:75 |
+| LFO / mix / stereo | triangle=abs, linear mix [+0x288], separate banks +0x2b0/+0x2e0 + lrPhase[+0x284] | triangle, linear mix, chL/chR + lrOffset | VERIFICERET (matches) | @0x5218d8:16,38,45 |
 
-> **Honest scope:** this pass = source map + Flanger (1/7). The other 6 need the same treatment (param schema
-> incl. global/sync fields, topology, RAW constants → vaz_fx_constants.h, fil:linje cross-check, oracle primitive).
-> Reverb is the richest constant target (comb/allpass lengths) and the least RE'd — do it next.
+### FX-E — Delay (`TFXDelay`, render `FUN_0051bba8` @0x51bba8) — AUDITED · fixed-point
+
+| Part | Ghidra ref (VAZ) | Clone (VAZDelay) | Deviation class | Status |
+|---|---|---|---|---|
+| Engine | stereo circular buf, damped feedback (1-pole LP), sep L/R taps | same shape (bufL/bufR, tone LP in fb, sep L/R) | VERIFICERET (topology matches) | @0x51bba8 line-by-line |
+| Modes [+0x260] | 0 Stereo · 1 Ping-Pong · **≥2 = MONO** (L+R sum, one delay, dual-mono out) | 0 Stereo · 1 Ping-Pong · **2 = "Double"** (series delays) | **FORKERT TOPOLOGI** (mode 2 semantics) | @0x51bba8:131-171 vs .cpp:171-178 |
+| Feedback tone LP | in-loop 1-pole (coef +0x2a8/+0x2ac, state +0x2b0/+0x2b4) | `toneZ += tc·(dly−toneZ)` in fb | VERIFICERET (both damp the feedback) | @0x51bba8:54-56 vs .cpp:159 |
+| Delay-time map | prepare uses sr; buf = sr·0x9f6/1000 (≈2.55 s) → pow2 | free 5·1200^p ms (5ms..6s); sync note-table | **PÅSTÅET** (VAZ time-map + sync not extracted) | FUN_0051bf78:168 vs .cpp:128 |
+| Dry/wet | sep dry[+0x2c0]/wet[+0x2b8] gains | sep dry/wet per ch | VERIFICERET | @0x51bba8:59-62 |
+
+### FX-F — Autopan (`TFXAutopan`, render `FUN_00517d34` @0x517d34) — AUDITED · fixed-point · **cleanest match**
+
+| Part | Ghidra ref (VAZ) | Clone (VAZAutopan) | Deviation class | Status |
+|---|---|---|---|---|
+| Pan law | CONSTANT-POWER via 257-LUT: gainL=LUT[255−idx], gainR=LUT[idx] | `gL=cos(pan·π/2), gR=sin(pan·π/2)` | **TILNÆRMET-BEVIDST** (cos/sin = exact continuous form of the LUT; float chosen, law verified) | @0x517d34:713-726 vs .cpp:91-92 |
+| LFO waveform | mode0 triangle (`\|ph\|>>9`) · mode1 256-entry sine LUT (+0x684) | triangle default · sine bool | VERIFICERET (matches) | @0x517d34:699-708 vs .cpp:88-89 |
+| Pan range | pos = min[+0x260] + lfo·(max[+0x264]−min) | leftP + lfo·(rightP−leftP) | VERIFICERET | @0x517d34:709 vs .cpp:90 |
+| Rate | inc[+0x27c] (map not extracted) | 0.1..20 Hz (f²) / sync | **PÅSTÅET** (VAZ rate map not pinned) | .cpp:76 |
+
+### FX-G — Decimator (`TFXDecimator`, render `FUN_0051dbcc` @0x51dbcc) — AUDITED · fixed-point
+
+| Part | Ghidra ref (VAZ) | Clone (VAZDecimator) | Deviation class | Status |
+|---|---|---|---|---|
+| Bit reduction | **truncation**: `held = (in & mask[+0x270]) + bias[+0x274]` | **rounding**: `round(x/q)·q`, q=2/(2^bits−1) | **FORKERT ALGORITME** (truncation+bias vs round → different grid/DC) | @0x51dbcc:748-753 vs .cpp:70 |
+| Post filter | SMOOTHING 1-pole after S&H (coef[+0x280], state[+0x284/+0x288]) | **none** (raw S&H output) | **MANGLENDE** (clone brighter/harsher) | @0x51dbcc:755-765 vs .cpp:66-72 |
+| SR reduction | 11-bit accumulator [+0x268] (>0x7ff → S&H), rate [+0x26c] | float `accum+=step` (effSR=100·(fs/100)^p) | TILNÆRMET (quantized vs continuous) | @0x51dbcc:745-747 vs .cpp:54-69 |
+| Params | 2: [+0x260]=0xff default, FUN_0051dd44(0x10) | 2: sample_rate, bit_depth | VERIFICERET (count) | ctor FUN_0051db34 |
+
+### FX still pending (out of the 7 for this request)
+| Effect | Core.dll | Clone | Status |
+|---|---|---|---|
+| Equalizer | `TFXEqualizer@0x51E0C0` (4 RBJ biquads) | VAZEqualizer | not audited (separate from the 7; TFXComp @0x519E9C also un-audited) |
+
+---
+
+## 11. PRIORITISED FX DEVIATIONS (all 7 audited — audibility × frequency)
+
+**Every VAZ FX core is INTEGER fixed-point (Q-format); every clone is float.** Where topology+constants are
+verified and float is a deliberate choice → *TILNÆRMET-BEVIDST* (Autopan pan-law, Flanger/Phaser topology); a
+later fixed-point port to bit-exactness is a separate prioritisation decision, not done here.
+
+**HØJESTE (wrong engine / audible on ~every preset):**
+1. **Reverb** — clone `juce::Reverb` is a *different reverb* from VAZ's 9-comb + weighted-sum pseudo-stereo +
+   global-damping Schroeder (allpass g=0.65). FORKERT TOPOLOGI — full reimpl, not a tweak.
+2. **Chorus waveform mode 1↔2 swap** — presets get trapezoid where VAZ gives triangle (& vice-versa).
+   Audible, **trivial fix** (swap the choice mapping). @0x518ad8 modes 1/2.
+3. **Decimator: truncation+bias vs rounding, and the missing post-S&H smoothing filter** — changes the crush
+   grain & brightness on every decimator preset. FORKERT ALGORITME + MANGLENDE.
+4. **Chorus topology** — VAZ mono-summed shared delay + 3 combined-LFO taps + tap-diff stereo, vs clone's
+   independent-L/R 6-tap. Different chorus character & stereo image.
+
+**MEDIUM (audible on some presets):**
+5. **Chorus base-delay curve** (clone 5..30 ms vs VAZ (v+1)/5.12 → 0.2..50 ms) — machine-flagged by VazOracle `fx_chorus_basedelay`.
+6. **Delay mode 2** — clone "Double" (series) ≠ VAZ mono. Only mode-2 presets.
+7. **Phaser coef** — 512-entry exp LUT vs `tan()` bilinear → notch frequencies/sweep shape drift.
+8. **Flanger BPM-sync** (PÅSTÅET) — clone beats-table vs VAZ `(sr·60·period)/(BPM·48)`; only synced presets.
+
+**LAV / bevidst / inaudible:**
+9. Autopan pan-law (257-LUT vs cos/sin) — mathematically the same equal-power law.
+10. Reverb comb 1188→1187 & allpass 0.5→0.65 — subsumed by #1.
+11. Q-format→float across all 7 — deliberate; only matters after topology matches.
+
+**PÅSTÅET (need more extraction before acting):** phaser stage default & feedback scale; autopan/delay/chorus
+rate ranges; flanger feedback 0.92; delay/autopan/decimator exact rate & time maps. VAZ setters not yet decoded.
+
+> **Scope:** all 7 requested effects audited (Flanger, Reverb, Chorus, Phaser, Delay, Autopan, Decimator).
+> Render loops for the 6 non-Flanger effects were force-decompiled from the virtual methods (`vaz_reverb_render.c`,
+> `vaz_fx_render4.c`, `vaz_delay_render.c`; `vaz_fx_all.c` for Chorus). Constants → `reference/vaz_fx_constants.h`.
+> Collection phase — **no DSP fixes applied.** EQ + TFXComp remain for a later pass.
