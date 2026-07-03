@@ -9,6 +9,7 @@
 #include "../reference/vaz_constants.h"
 #include "../reference/vaz_detune.h"     // clone's detune port (FUN_004e0618)
 #include "../reference/vaz_fx_constants.h" // FX raw constants (TFX* in Core.dll)
+#include "../../VAZReverb/Source/VazReverbEngine.h"  // the REAL clone reverb engine (tested below)
 #include <cstdint>
 #include <cstdio>
 #include <cmath>
@@ -40,6 +41,57 @@ struct RefEnv
             default: break;
         }
         return (double) L / (double) kEnvOne;
+    }
+};
+
+// ── Independent reference transcription of the reverb render FUN_005228a4 @0x5228a4 ─────────────────
+// Offset/iVar-style (mirrors the decompile's variable flow, NOT the engine's clean loops) so agreement
+// with VazReverbEngine is a real cross-check, not a copy. Same fixed-point ops.
+struct RefReverb
+{
+    int32_t comb[9][4096], ap[8][1024];
+    int32_t combLen[9] = {0}, combCoef[9] = {0}, apLen[8] = {0};
+    int32_t damp1 = 0, damp2 = 0, stateL = 0, stateR = 0, mixMul = 0;
+    uint32_t ctr = 0;
+    static constexpr int32_t G = 0x53333333;                 // 0.65 allpass gain
+    void clear () { std::memset (comb, 0, sizeof comb); std::memset (ap, 0, sizeof ap); stateL = stateR = 0; ctr = 0; }
+    static inline int32_t q (int32_t v, int32_t c) { return (int32_t) (((int64_t) ((int64_t) v * 2) * (int64_t) c) >> 32); }
+    static inline int32_t m4 (int32_t v) { return (int32_t) ((uint32_t) v << 2); }
+    static inline int32_t m2 (int32_t v) { return (int32_t) ((uint32_t) v << 1); }
+    void frame (int32_t& L, int32_t& R)
+    {
+        uint32_t u4 = ctr + 1, u5 = u4 & 0xfff; ctr = u5;
+        int32_t i1 = L, i2 = R, i3 = (i1 + i2) >> 6;
+        int32_t i7  = q (comb[0][u5], combCoef[0]); comb[0][(uint32_t)(combLen[0]+u5)&0xfff] = i7 + i3;
+        int32_t i8  = q (comb[1][u5], combCoef[1]); comb[1][(uint32_t)(combLen[1]+u5)&0xfff] = i8 + i3;
+        int32_t i9  = q (comb[2][u5], combCoef[2]); comb[2][(uint32_t)(combLen[2]+u5)&0xfff] = i9 + i3;
+        int32_t i10 = q (comb[3][u5], combCoef[3]); comb[3][(uint32_t)(combLen[3]+u5)&0xfff] = i10 + i3;
+        int32_t i11 = q (comb[4][u5], combCoef[4]); comb[4][(uint32_t)(combLen[4]+u5)&0xfff] = i11 + i3;
+        int32_t i12 = q (comb[5][u5], combCoef[5]); comb[5][(uint32_t)(combLen[5]+u5)&0xfff] = i12 + i3;
+        int32_t i13 = q (comb[6][u5], combCoef[6]); comb[6][(uint32_t)(combLen[6]+u5)&0xfff] = i13 + i3;
+        int32_t i14 = q (comb[7][u5], combCoef[7]);
+        i9 = i7*2 + i8 + i9*4 + i10*2 + i11*3 + i12*4 + i14*2;                 // LEFT sum
+        comb[7][(uint32_t)(combLen[7]+u5)&0xfff] = i14 + i3;
+        i12 = q (comb[8][u5], combCoef[8]);
+        i7 = i7*2 + i8*2 + i8 + i10*2 + i11 + i13*4 + i14*2 + i12*4;           // RIGHT sum
+        comb[8][(uint32_t)(combLen[8]+u5)&0xfff] = i12 + i3;
+        uint32_t a4 = u4 & 0x3ff;
+        i3 = ap[0][a4]; i8 = i3 - i9; ap[0][(uint32_t)(apLen[0]+a4)&0x3ff] = q(i3,G) + i9;
+        i9 = ap[1][a4]; i3 = i9 - i8; ap[1][(uint32_t)(apLen[1]+a4)&0x3ff] = q(i9,G) + i8;
+        i9 = ap[2][a4]; i8 = i9 - i3; ap[2][(uint32_t)(apLen[2]+a4)&0x3ff] = q(i9,G) + i3;
+        i9 = ap[3][a4];               ap[3][(uint32_t)(apLen[3]+a4)&0x3ff] = q(i9,G) + i8;   // LEFT out = i9 - i8
+        int32_t apL = i9 - i8;
+        i3 = ap[4][a4]; i10 = i3 - i7; ap[4][(uint32_t)(apLen[4]+a4)&0x3ff] = q(i3,G) + i7;
+        i7 = ap[5][a4]; i3 = i7 - i10; ap[5][(uint32_t)(apLen[5]+a4)&0x3ff] = q(i7,G) + i10;
+        i7 = ap[6][a4]; i10 = i7 - i3; ap[6][(uint32_t)(apLen[6]+a4)&0x3ff] = q(i7,G) + i3;
+        i7 = ap[7][a4];                ap[7][(uint32_t)(apLen[7]+a4)&0x3ff] = q(i7,G) + i10;  // RIGHT out = i7 - i10
+        int32_t apR = i7 - i10;
+        i3 = (int32_t)(((int64_t) m4(apL) * damp1) >> 32) + (int32_t)(((int64_t) m4(stateL) * damp2) >> 32);
+        stateL = i3;
+        i7 = (int32_t)(((int64_t) m4(apR) * damp1) >> 32) + (int32_t)(((int64_t) m4(stateR) * damp2) >> 32);
+        stateR = i7;
+        L = i1 + (int32_t)(((int64_t) m2(i3 - i1) * mixMul) >> 32);
+        R = i2 + (int32_t)(((int64_t) m2(i7 - i2) * mixMul) >> 32);
     }
 };
 
@@ -202,6 +254,61 @@ int main()
         const bool m1trap = std::abs (clone (0.35, 1) - tri (0.35)) > 1e-6;   // mode1 must be the trapezoid, NOT triangle(0.35)=0.7
         row ("fx_chorus_waveform_map", (d2 < 1e-12 && m1trap) ? "VERIFIED (1<->2 swap)" : "DEVIATION",
              "clone idx1->trapezoid @0x518BA4, idx2->triangle @0x518C1F (VAZ order); mode2==|ph|>>1 triangle bit-exact");
+    }
+
+    // ── FX 4. Reverb render — clone VazReverbEngine vs independent transcription of FUN_005228a4 ────────
+    {
+        VazReverbEngine eng; RefReverb ref;
+        eng.clearBuffers(); ref.clear();
+        // Identical lengths/coefs/damp/mix on both sides (tests the RENDER, independent of the 80-bit coef map).
+        for (int i = 0; i < 9; ++i)
+        {
+            const int32_t L = 53 + i * 41;                     // comb delays (< 4096)
+            const int32_t C = 0x30000000 + i * 0x01111111;     // Q31 feedback coefs (~0.375..0.9)
+            eng.combLen[i] = ref.combLen[i] = L;
+            eng.combCoef[i] = ref.combCoef[i] = C;
+        }
+        eng.combLen[9] = 1500; eng.combCoef[9] = 0x20000000;   // 10th comb (allocated, unused)
+        for (int i = 0; i < 8; ++i) { const int32_t A = 29 + (i % 4) * 61; eng.apLen[i] = ref.apLen[i] = A; }
+        eng.damp2 = ref.damp2 = 0x05000000; eng.damp1 = ref.damp1 = 0x10000000 - 0x05000000;
+        eng.mixMul = ref.mixMul = 200 << 23;
+        // Impulse then a long pseudo-random noise burst — several seconds so the feedback tail fully accumulates.
+        uint32_t rng = 0x9e3779b9u; long maxd = 0;
+        const int N = 300000;                                  // ~6.8 s @44.1k
+        for (int i = 0; i < N; ++i)
+        {
+            int32_t s = (i == 0) ? (1 << 21)
+                                 : (int32_t) ((rng = rng * 1664525u + 1013904223u) >> 9) - (1 << 21);
+            int32_t eL = s, eR = s, rL = s, rR = s;
+            eng.processFrame (eL, eR); ref.frame (rL, rR);
+            long d1 = (long) eL - (long) rL; if (d1 < 0) d1 = -d1;
+            long d2 = (long) eR - (long) rR; if (d2 < 0) d2 = -d2;
+            if (d1 > maxd) maxd = d1; if (d2 > maxd) maxd = d2;
+        }
+        row ("fx_reverb_render", maxd == 0 ? "BIT-EXACT" : "DEVIATION (max=" + std::to_string (maxd) + ")",
+             "clone VazReverbEngine vs independent transcription of FUN_005228a4 over 300k-smp impulse+noise (feedback accumulates)");
+    }
+
+    // ── FX 5. Reverb stability — real setParams() mapping produces a bounded, DECAYING tail (not silence/blow-up) ──
+    {
+        VazReverbEngine eng; eng.clearBuffers();
+        eng.setParams (44100.0, 153, 100, 255);            // rt≈0.6, some damping, full wet
+        double peakEarly = 0.0, peakLate = 0.0, peakMax = 0.0;
+        const int N = 132300;                              // 3 s @44.1k
+        for (int i = 0; i < N; ++i)
+        {
+            int32_t L = (i == 0) ? (1 << 21) : 0, R = L;   // single impulse, then decay
+            eng.processFrame (L, R);
+            const double a = std::abs ((double) L) / 8388608.0;   // back to ~[-1,1]
+            if (a > peakMax) peakMax = a;
+            if (i < 4410 && a > peakEarly) peakEarly = a;         // first 0.1 s
+            if (i > N - 4410 && a > peakLate) peakLate = a;       // last 0.1 s
+        }
+        const bool decays = peakEarly > 1e-6 && peakLate < peakEarly * 0.5;   // tail present AND decaying
+        const bool bounded = peakMax < 8.0 && std::isfinite (peakMax);        // no runaway / NaN
+        row ("fx_reverb_stable", (decays && bounded) ? "VERIFIED (bounded+decays)" : "DEVIATION",
+             "impulse→tail: early=" + std::to_string (peakEarly) + " late=" + std::to_string (peakLate)
+             + " peak=" + std::to_string (peakMax) + " (RT60 coef map; 80-bit VAZ curve substituted)");
     }
 
     std::printf ("\n  Constants sourced: cutoff-smooth DAT_006d45e4, detune DAT_0052b168/0x52b0ec, env-rate DAT_006db7e8, stage0 DAT_006dc0bc, flanger delay 0x52076c, chorus delay 0x518fbc.\n");

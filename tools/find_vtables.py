@@ -46,7 +46,7 @@ def find_string_offsets(s):
         idx = data.find(b, idx+1)
     return out
 
-for cls in ["TFXDelay", "TFXAutopan", "TFXDecimator", "TFXPhaser"]:
+for cls in ["TFXReverb"]:
     print("=== %s ===" % cls)
     soffs = find_string_offsets(cls)
     # VMT vmtClassName points at the length byte (off-1)

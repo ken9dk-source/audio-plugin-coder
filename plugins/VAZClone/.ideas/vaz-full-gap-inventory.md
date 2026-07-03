@@ -172,7 +172,9 @@ Core.dll) — NOT the clone's source; a distinct future RE target. Effects are p
 ### FX-B — Reverb (`TFXReverb@0x522530`, render `FUN_005228a4` @0x5228a4) — AUDITED · fixed-point (Q31/Q28)
 
 Full render loop force-decompiled (virtual method, not in prior corpus): `tools/vaz_reverb_render.c`. VAZ's reverb
-is a **custom integer Schroeder network**, NOT juce::Reverb/Freeverb. Clone `VAZReverb` = `juce::Reverb` (PluginProcessor.h:43).
+is a **custom integer Schroeder network**, NOT juce::Reverb/Freeverb. ✅ **FIXED (fix #1)** — clone now ships
+`VazReverbEngine` (fixed-point Q31/Q28 port; replaced juce::Reverb). Render bit-exact vs an independent transcription
+(VazOracle `fx_reverb_render` BIT-EXACT over 300k-smp impulse+noise) + `fx_reverb_stable` VERIFIED.
 
 | Param / part | Ghidra ref (VAZ) | Clone (VAZReverb / juce::Reverb) | Deviation class | Status |
 |---|---|---|---|---|
@@ -183,15 +185,19 @@ is a **custom integer Schroeder network**, NOT juce::Reverb/Freeverb. Clone `VAZ
 | Comb feedback coef | per size/decay: seed −1.35e-5 (DAT_0052314c) /((size·16+500)·sr) ·tuning[i], Q31 | roomSize·0.28+0.7 (JUCE) | TILNÆRMET ALGORITME (different decay control) | FUN_00522fcc @0x522fcc:6527 |
 | Pseudo-stereo | 2 asymmetric int weighted sums of the 9 combs (L={2,1,4,2,3,4,·,2,·} R={2,3,·,2,1,·,4,2,4}) | width param on independent L/R | **FORKERT TOPOLOGI** (different stereo image) | @0x5228a4:119,125 |
 | Allpass gain | g = **0.65** (DAT_0052ba54 = 0x53333333 Q31) | 0.5 (JUCE fixed) | **FORKERT KONSTANT** | DLL read @0x52ba54 |
-| Allpass lengths | 4/ch, buffers 1024 (mask 0x3ff), ctor-set (not extracted) | 556/441/341/225 (JUCE) | FORKERT KONSTANT (values differ regardless) | @0x5228a4:129-159; lengths=gap |
+| Allpass lengths | **{307,97,71,53}×2ch**, SR-scaled `round(SR·t/44100)`, buffers 1024 | 556/441/341/225 (JUCE) | ✅ now ported exactly | length-setter FUN_00522c60 (IMUL 0x133/0x61/0x47/0x35) |
 | Dry/wet | linear `dry+mix·(wet−dry)`, param +0x268 `<<23` | juce::Reverb wet/dry (equal-power-ish) | TILNÆRMET (mix law) | @0x5228a4:172-176 |
 | Sample data format | 100% integer Q31 (combs) / Q28 (damping) | float | TILNÆRMET (float choice; moot until topology matches) | @0x5228a4 all `>>0x20` |
 | Params | +0x260 size, +0x264 damp, +0x268 mix (3), version-gate <300 (FUN_005232a4) | roomSize/damping/wet/dry/width/freeze | MANGLENDE/EXTRA PARAM (clone has width+freeze; VAZ has 3) | FUN_005232a4 @0x5232a4 |
 
-**Verdict:** the clone is a *fundamentally different reverb*. The "faithful Freeverb match" comment in PluginProcessor.h:6-8
-is **FALSE** (recorded here, not patched — collection phase). This is the **highest-priority FX deviation**: not a
-constant tweak but a full re-implementation (9 plain combs + weighted-sum pseudo-stereo + global damping + 0.65 allpass).
-No oracle primitive added — VAZ and clone are different algorithms, so bit-exact comparison is N/A until reimplemented.
+**Verdict:** ✅ **FIXED** — `VazReverbEngine` (`plugins/VAZReverb/Source/VazReverbEngine.h`) is a fixed-point port of
+the exact topology: 9 plain combs (SR-scaled tunings) + weighted-sum pseudo-stereo + 4 series allpass/ch (g=0.65) +
+global Q28 damping + linear mix. The old "faithful Freeverb match" comment is gone.
+**Bit-exactness:** the integer RENDER + all delay lengths are bit-exact (VazOracle `fx_reverb_render` BIT-EXACT vs an
+independent transcription; `fx_reverb_stable` VERIFIED). **Residual (documented):** the size→coef and damp→coef curves
+use VAZ's 80-bit x87 float (FUN_00522fcc/FUN_00523194) which MSVC's 64-bit `long double` cannot reproduce — and a
+literal read degenerates to coef≈1 (infinite tail); substituted with an RT60 decay so `size` sets the tail length.
+Exact coef reproduction would need a runtime dump of the (heap) reverb object's computed coef ints.
 
 ### FX-C — Chorus (`TFXChorus`, per-sample `FUN_00518ad8` @0x518ad8) — AUDITED · fixed-point Q-format
 
@@ -270,8 +276,9 @@ verified and float is a deliberate choice → *TILNÆRMET-BEVIDST* (Autopan pan-
 later fixed-point port to bit-exactness is a separate prioritisation decision, not done here.
 
 **HØJESTE (wrong engine / audible on ~every preset):**
-1. **Reverb** — clone `juce::Reverb` is a *different reverb* from VAZ's 9-comb + weighted-sum pseudo-stereo +
-   global-damping Schroeder (allpass g=0.65). FORKERT TOPOLOGI — full reimpl, not a tweak.
+1. ✅ **FIXED — Reverb** — replaced `juce::Reverb` with `VazReverbEngine`, a fixed-point port of VAZ's exact
+   9-comb + weighted-sum pseudo-stereo + global-damping Schroeder (allpass g=0.65, SR-scaled tunings incl. allpass
+   {307,97,71,53}). Render BIT-EXACT (VazOracle `fx_reverb_render`) + stable. Residual: 80-bit coef curve → RT60 substitute.
 2. ✅ **FIXED — Chorus waveform mode 1↔2 swap** — now idx1=trapezoid, idx2=triangle (VAZ order).
    VazOracle `fx_chorus_waveform_map` VERIFIED; both suites green. @0x518ad8 modes 1/2.
    *NB:* clone trapezoid slope is still an approximation of VAZ's `clamp(2·tri−0.5,0,1)` — deferred to the chorus round.

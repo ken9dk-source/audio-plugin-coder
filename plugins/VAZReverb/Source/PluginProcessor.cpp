@@ -29,8 +29,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout VAZReverbAudioProcessor::cre
 
 void VAZReverbAudioProcessor::prepareToPlay (double sampleRate, int)
 {
-    reverb.setSampleRate (sampleRate);
-    reverb.reset();
+    sr = sampleRate > 0.0 ? sampleRate : 44100.0;
+    engine.clearBuffers();
+    engine.setLengths (sr);
 }
 
 bool VAZReverbAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -50,20 +51,24 @@ void VAZReverbAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
     const float tone = apvts.getRawParameterValue (ParameterIDs::tone)->load();
     const float mix  = apvts.getRawParameterValue (ParameterIDs::mix)->load();
 
-    juce::Reverb::Parameters p;
-    p.roomSize   = 0.40f + rt * 0.58f;     // Reverb Time → decay (~0.5s..2.5s)
-    p.damping    = 1.0f - tone;            // Tone: 0 Dark (max damping) … 1 Bright (none)
-    p.wetLevel   = mix;                    // Mix: Dry … Wet
-    p.dryLevel   = 1.0f - mix;
-    p.width      = 1.0f;
-    p.freezeMode = 0.0f;
-    reverb.setParameters (p);
+    // Map the 3 clone knobs onto VAZ's .v2p reverb fields (size/damp/mix, 0..255):
+    const int size = juce::jlimit (0, 255, (int) std::lround (rt * 255.0f));          // Reverb Time → size (+0x260)
+    const int damp = juce::jlimit (0, 255, (int) std::lround ((1.0f - tone) * 255.0f)); // Tone: bright → less damping (+0x264)
+    const int mixP = juce::jlimit (0, 255, (int) std::lround (mix * 255.0f));          // Mix (+0x268)
+    engine.setParams (sr, size, damp, mixP);
 
+    constexpr double kFS = 8388608.0;   // Q23 full-scale (VAZ clips samples at ±2^23, render @0x5228a4)
     const int n = buffer.getNumSamples();
-    if (buffer.getNumChannels() >= 2)
-        reverb.processStereo (buffer.getWritePointer (0), buffer.getWritePointer (1), n);
-    else if (buffer.getNumChannels() == 1)
-        reverb.processMono (buffer.getWritePointer (0), n);
+    float* L = buffer.getWritePointer (0);
+    float* R = buffer.getNumChannels() > 1 ? buffer.getWritePointer (1) : nullptr;
+    for (int i = 0; i < n; ++i)
+    {
+        int32_t li = (int32_t) std::llround ((double) L[i] * kFS);
+        int32_t ri = R ? (int32_t) std::llround ((double) R[i] * kFS) : li;
+        engine.processFrame (li, ri);
+        L[i] = (float) ((double) li / kFS);
+        if (R) R[i] = (float) ((double) ri / kFS);
+    }
 }
 
 void VAZReverbAudioProcessor::getStateInformation (juce::MemoryBlock& dest)

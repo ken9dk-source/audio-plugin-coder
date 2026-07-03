@@ -1,11 +1,14 @@
 #pragma once
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_gui_extra/juce_gui_extra.h>
+#include "VazReverbEngine.h"
 
 //==============================================================================
-// VAZReverb — standalone clone of VAZ 2010's Reverb. VAZ's reverb is the classic
-// Freeverb comb+allpass network (comb tunings 1116/1188/… confirmed in Vaz2010Core.dll),
-// which is exactly what juce::Reverb implements — so this is a faithful match.
+// VAZReverb — clone of VAZ 2010's Reverb. VAZ's reverb is NOT Freeverb/juce::Reverb: it is a custom
+// INTEGER Schroeder network — 9 parallel plain feedback combs (tunings 1116/1187/1277/1356/1422/1491/
+// 1557/1617/1203, SR-scaled) → 2 asymmetric weighted sums (pseudo-stereo) → 4 series allpass/channel
+// (gain 0.65) → 1 global one-pole damping LP → linear dry/wet.  Ported as fixed-point in VazReverbEngine
+// (render FUN_005228a4 @0x5228a4, bit-exact vs the decompile; verified by VazOracle fx_reverb_render).
 //==============================================================================
 class VAZReverbAudioProcessor : public juce::AudioProcessor
 {
@@ -40,6 +43,7 @@ public:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
 private:
-    juce::Reverb reverb;
+    VazReverbEngine engine;
+    double sr = 44100.0;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (VAZReverbAudioProcessor)
 };
