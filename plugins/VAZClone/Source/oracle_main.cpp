@@ -8,6 +8,7 @@
 #include "Synth.h"                       // clone VAZEnv + tables (VAZEnvTables.h)
 #include "../reference/vaz_constants.h"
 #include "../reference/vaz_detune.h"     // clone's detune port (FUN_004e0618)
+#include "../reference/vaz_fx_constants.h" // FX raw constants (TFX* in Core.dll)
 #include <cstdint>
 #include <cstdio>
 #include <cmath>
@@ -158,7 +159,20 @@ int main()
                             : ("ambiguous; rateVal=FUN_004a0a68(LFO1)->obj+4/FUN_004a073c whose callers set FIXED/field rates (0x78, obj-fields) not footage-exp -> chain entangled, step-5 report-only. survivors: " + (surv.empty() ? std::string("none") : surv)));
     }
 
-    std::printf ("\n  Constants sourced: cutoff-smooth DAT_006d45e4, detune DAT_0052b168/0x52b0ec, env-rate DAT_006db7e8, stage0 DAT_006dc0bc.\n");
+    // ── FX 1. Flanger delay-time mapping (value 0..255 → delay samples) ─────────────────────────────
+    {
+        const double sr = 44100.0; double maxd = 0.0;
+        for (int v = 0; v <= 255; ++v)
+        {
+            const double vaz   = (sr * vazfx::kFlangerDelayCoef) * (v + 1);   // FUN_0052076c @0x52076c
+            const double clone = ((v + 1) / 10.24) * 0.001 * sr;              // clone: baseMs=(v+1)/10.24 → samples
+            maxd = std::max (maxd, std::abs (vaz - clone));
+        }
+        row ("fx_flanger_delaytime", maxd < 1e-9 ? "BIT-EXACT" : "DEVIATION (max=" + std::to_string (maxd) + ")",
+             "clone (value+1)/10.24*sr/1000 vs VAZ (sr*25/256000)*(value+1) @0x52076c (25/256000==1/10240)");
+    }
+
+    std::printf ("\n  Constants sourced: cutoff-smooth DAT_006d45e4, detune DAT_0052b168/0x52b0ec, env-rate DAT_006db7e8, stage0 DAT_006dc0bc, flanger delay 0x52076c.\n");
     std::printf ("=== oracle complete ===\n");
     return 0;
 }

@@ -146,3 +146,41 @@ Classified 2026-06-23 (Step 4 — report only, no fixes):
 - **Missing (MANGLER) — Osc3 is a confirmed data-carrying gap:** Osc3 DSP + its footage fields (+0x94/+0xe0/ded84), microtuning, sample loader, arp completeness, sequencer, MIDI-map.
 
 **Prioritisation is yours** — this matrix only reports; no deviations were fixed in this session.
+
+---
+
+## 10. FX PARITY — 7 effects (collection phase, started 2026-07-02)
+
+**Source map (verified):** the FX DSP the clone was built from lives in **Core.dll** as Borland `TFX*` classes
+(`TFXFlanger@0x51FCD4 · TFXChorus@0x5184D8 · TFXPhaser@0x52107C · TFXEqualizer@0x51E0C0 · TFXDelay@0x51AF18 ·
+TFXReverb@0x522530`), decompiled in `tools/vaz_fx_all.c` (172 fns) + `.ideas` RE docs for Flanger/Chorus/Phaser.
+`VAZ2010Effect.dll` (89 KB) is a **separate self-contained VST2** (exports only `main`, no `TFX` RTTI, imports no
+Core.dll) — NOT the clone's source; a distinct future RE target. Effects are per-effect below.
+
+### FX-A — Flanger (`TFXFlanger`, per-sample @0x5204F4, setup @0x520418) — AUDITED
+
+| Param / part | Ghidra ref | Clone (VAZFlanger) | Status | Method |
+|---|---|---|---|---|
+| delay_time → base delay samples | `FUN_0052076c` = (sr·25/256000)·(v+1) | PluginProcessor.cpp:71 `(v+1)/10.24·sr/1000` | **VERIFICERET** | VazOracle fx_flanger_delaytime BIT-EXACT (25/256000==1/10240) |
+| Topology (delay line + triangle LFO + linear interp + feedback comb + linear dry/wet + L/R phase) | @0x5204F4-0x5205C2 | FlangerChannel (matches) | **TILNÆRMET** | topology-exact float port (VAZ is Q23 fixed-point → not bit-exact per-sample) |
+| Triangle LFO = abs(phase acc), NOT sine | @0x520531-34 | clone triangle | VERIFICERET | address citation |
+| Mix law = LINEAR `in+mix·(delayed−in)` | @0x5205B5 | clone linear | VERIFICERET | address citation |
+| Feedback max 0.92 (·sign on Phase) | feedback[+0x264] (scale not decoded) | :77 `fFb·0.92·sign` | **PÅSTÅET** | 0.92 is a clone guess; VAZ feedback scaling not extracted |
+| BPM sync rate | cycleSamples=(sr·60·period[+0x274])/(BPM·48), inc=round(2^31/cyc) @0x520418 | :83-99 `periodBeats[24]`, `(bpm/60)/beats` | **PÅSTÅET** | clone uses a beats table; VAZ's ·48 period-unit formula NOT cross-checked → verify next |
+| Params present (delay/fb/rate/depth/lr_phase/mix/gain/fb_phase/sync/period) | TFXFlanger fields +0x264…+0x2b0 | createParameterLayout:24-35 | VERIFICERET | field set matches RE |
+
+### FX-B…G — pending extraction (this pass mapped the source + did Flanger as the template)
+
+| Effect | Core.dll | RE doc | Clone | Status |
+|---|---|---|---|---|
+| Chorus | `TFXChorus@0x5184D8`, DSP @0x518AD8 | chorus-ghidra-re.md (dual-LFO, 3 taps 0/±120°) | VAZChorus (133 ln) | PÅSTÅET — topology RE'd, params+constants+cross-check PENDING |
+| Phaser | `TFXPhaser@0x52107C`, DSP @0x5218D8 | phaser-ghidra-re.md (N-allpass, triangle LFO, coef LUT) | VAZPhaser (151 ln) | PÅSTÅET — LUT constants + cross-check PENDING |
+| Reverb | `TFXReverb@0x522530` | none (prior "Freeverb" claim NOT confirmed — comb lengths absent from vaz_fx_all.c) | VAZReverb (91 ln) | PÅSTÅET — topology + comb/allpass lengths PENDING (highest constant density) |
+| Delay | `TFXDelay@0x51AF18` | none | VAZDelay (219 ln) | PÅSTÅET — sync/interp/feedback-filter PENDING |
+| Autopan | Core.dll (Decimator/Autopan classes) | none | VAZAutopan (125 ln) | PÅSTÅET — LFO/pan-law/sync PENDING |
+| Decimator | Core.dll | none | VAZDecimator (98 ln) | PÅSTÅET — bitcrush/downsample math PENDING |
+| Equalizer | `TFXEqualizer@0x51E0C0` (4 RBJ biquads) | (was mis-ID'd as flanger) | VAZEqualizer | PÅSTÅET — RBJ coef formulas + band freqs PENDING |
+
+> **Honest scope:** this pass = source map + Flanger (1/7). The other 6 need the same treatment (param schema
+> incl. global/sync fields, topology, RAW constants → vaz_fx_constants.h, fil:linje cross-check, oracle primitive).
+> Reverb is the richest constant target (comb/allpass lengths) and the least RE'd — do it next.
