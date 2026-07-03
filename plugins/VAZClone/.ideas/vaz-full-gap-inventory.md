@@ -193,11 +193,32 @@ is **FALSE** (recorded here, not patched — collection phase). This is the **hi
 constant tweak but a full re-implementation (9 plain combs + weighted-sum pseudo-stereo + global damping + 0.65 allpass).
 No oracle primitive added — VAZ and clone are different algorithms, so bit-exact comparison is N/A until reimplemented.
 
-### FX-C…G — pending extraction
+### FX-C — Chorus (`TFXChorus`, per-sample `FUN_00518ad8` @0x518ad8) — AUDITED · fixed-point Q-format
+
+DSP was in-corpus (direct-called). Full function read incl. the audio-delay half (`vaz_fx_all.c`:3641-3679).
+RE-doc `chorus-ghidra-re.md` confirmed on the LFO/mode structure; **corrected** on tap-count & stereo.
+
+| Param / part | Ghidra ref (VAZ) | Clone (VAZChorus) | Deviation class | Status |
+|---|---|---|---|---|
+| Delay line | ONE shared circular buf (+0x2a4), input = **(L+R)>>1 mono**; stereo via tap-diff (tapB−tapC)·lrPhase[+0x27c] | TWO independent L/R bufs (chL/chR), fed L & R separately (PluginProcessor.h:101, .cpp:101-105) | **FORKERT TOPOLOGI** (stereo image) | @0x518ad8:3670,3666 |
+| Tap count | **3 audio taps**, each offset = base + (LFO1_k+LFO2_k)>>16 (2 LFOs summed per tap) | **6 reads** (2 LFOs × 3 taps, each a separate readInterp) | **FORKERT TOPOLOGI** (3 combined vs 6 independent) | @0x518ad8:3644-3660 vs .h:59-64 |
+| Base delay | (sr·50/256000)·(delay+1) = (delay+1)/5.12 ms → 0.2..50 ms | 5 + f·25 ms → 5..30 ms | **FORKERT KONSTANT** (formula+range) | VazOracle fx_chorus_basedelay DEVIATION; FUN_00518fbc @0x518fbc:3700 |
+| Waveform modes | 0 sine-LUT · **1 TRAPEZOID** (clamp\|ph\|−2^29,0,2^30) · **2 TRIANGLE** (\|ph\|>>1) | 0 sine · **1 Triangle** · **2 Trapezoid** (createParameterLayout:30-31; waveshape .h:45-48) | **FORKERT KONSTANT** (modes 1↔2 **SWAPPED** — presets pick wrong shape) | @0x518ad8:3489/3518/3546 |
+| 3 tap phases 0/120/240° | LUT step 0x55 (85/256); phase ±0x55555554 (±120° of 2^32) | 0°/±120° via k·⅓ (.h:60-62) | VERIFICERET (matches) | @0x518ad8:3499,3527 |
+| 2 LFOs | inc1[+0x288], inc2[+0x290] **independent** (setters not yet read) | lfo2Inc = lfo1Inc·**1.27** hardcoded (.cpp:91) | **PÅSTÅET** (1.27 is a clone guess; VAZ inc2 source not extracted) | @0x518ad8:3485-3487 |
+| Mix law | linear, mix[+0x280] | linear `in·(1−mix)+wet·mix` (.h:67) | VERIFICERET (both linear) | @0x518ad8:3671-3676 |
+| Depth scaling | iVar5 = depth[+0x26c]·level[+0x298]; pos = base+(mod>>16) | depthMs = f·8 → 0..8 ms (.cpp:70) | **PÅSTÅET** (VAZ depth→samples range not pinned) | @0x518ad8:3488 |
+| Sample format | integer Q-format (all `>>0x20`) | float | TILNÆRMET | @0x518ad8 |
+| Params | delay/rate/depth/lr_phase/mix/gain + 2 mode fields (+0x264,+0x270) + base(+0x260) | delay/rate/depth/lr_phase/mix/gain/waveform/sync/period | VERIFICERET (superset; clone adds sync — VAZ sync TBD) | createParameterLayout:24-35 |
+
+**Headline:** the **waveform mode 1↔2 swap** is an audible, cheap-to-fix bug (a preset selecting "mode 1" gets
+trapezoid in VAZ but triangle in the clone). The **mono-shared-line + 3-combined-tap** topology and the base-delay
+curve are the deeper deviations. `fx_chorus_basedelay` now machine-flags the delay mismatch in VazOracle.
+
+### FX-D…G — pending extraction
 
 | Effect | Core.dll | RE doc | Clone | Status |
 |---|---|---|---|---|
-| Chorus | `TFXChorus@0x5184D8`, DSP @0x518AD8 | chorus-ghidra-re.md (dual-LFO, 3 taps 0/±120°) | VAZChorus (133 ln) | PÅSTÅET — topology RE'd, params+constants+cross-check PENDING |
 | Phaser | `TFXPhaser@0x52107C`, DSP @0x5218D8 | phaser-ghidra-re.md (N-allpass, triangle LFO, coef LUT) | VAZPhaser (151 ln) | PÅSTÅET — LUT constants + cross-check PENDING |
 | Delay | `TFXDelay@0x51AF18` | none | VAZDelay (219 ln) | PÅSTÅET — sync/interp/feedback-filter PENDING |
 | Autopan | Core.dll (Decimator/Autopan classes) | none | VAZAutopan (125 ln) | PÅSTÅET — LFO/pan-law/sync PENDING |

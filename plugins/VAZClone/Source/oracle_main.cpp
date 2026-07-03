@@ -172,7 +172,23 @@ int main()
              "clone (value+1)/10.24*sr/1000 vs VAZ (sr*25/256000)*(value+1) @0x52076c (25/256000==1/10240)");
     }
 
-    std::printf ("\n  Constants sourced: cutoff-smooth DAT_006d45e4, detune DAT_0052b168/0x52b0ec, env-rate DAT_006db7e8, stage0 DAT_006dc0bc, flanger delay 0x52076c.\n");
+    // ── FX 2. Chorus base-delay mapping (documents a FORKERT KONSTANT — clone uses a different curve) ──
+    {
+        const double sr = 44100.0; double maxdMs = 0.0;
+        for (int v = 0; v <= 255; ++v)
+        {
+            const double vazMs   = (double) (int) (sr * vazfx::kChorusDelayCoef) * (v + 1) / sr * 1000.0; // (sr*50/256000 floored)*(v+1)
+            const double vazMsF  = (sr * vazfx::kChorusDelayCoef) * (v + 1) / sr * 1000.0;                // (v+1)/5.12 ms (unfloored)
+            (void) vazMs;
+            const double f       = v / 255.0;
+            const double cloneMs = 5.0 + f * 25.0;                                                        // clone: 5..30 ms linear
+            maxdMs = std::max (maxdMs, std::abs (vazMsF - cloneMs));
+        }
+        row ("fx_chorus_basedelay", "DEVIATION (max=" + std::to_string (maxdMs) + " ms)",
+             "clone 5+25*f (5..30ms) vs VAZ (delay+1)/5.12 (0.2..50ms) @0x518fbc — FORKERT KONSTANT (formula+range)");
+    }
+
+    std::printf ("\n  Constants sourced: cutoff-smooth DAT_006d45e4, detune DAT_0052b168/0x52b0ec, env-rate DAT_006db7e8, stage0 DAT_006dc0bc, flanger delay 0x52076c, chorus delay 0x518fbc.\n");
     std::printf ("=== oracle complete ===\n");
     return 0;
 }

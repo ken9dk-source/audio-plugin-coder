@@ -46,7 +46,24 @@ namespace vazfx
     // NOTE: allpass delay LENGTHS (+0x282c0 etc.) are constructor-set object fields — not yet extracted (BSS/runtime).
     //   Whatever they are, they differ from JUCE's 556/441/341/225 and the whole topology already deviates.
 
-    // ── (constants for CHORUS / PHASER / DELAY / AUTOPAN / DECIMATOR / EQ — pending extraction) ──
+    // ── CHORUS (TFXChorus@0x5184D8, per-sample FUN_00518ad8 @0x518ad8) — fixed-point Q-format ──────────────
+    //   Topology: ONE shared circular delay line (+0x2a4, pow2, mask +0x2a0), input = (L+R)>>1 (MONO summed).
+    //   3 audio taps read with linear interp; each tap's offset = base + (mod_k>>16), where mod_k =
+    //   LFO1(phase+k·120°) + LFO2(phase2+k·120°) summed into ONE accumulator (2 LFOs → 3 combined taps, not 6).
+    //   Stereo via tap difference (tapB−tapC)·lrPhase[+0x27c] (NOT independent L/R). Linear dry/wet mix[+0x280].
+    //   Base delay (FUN_00518fbc @0x518fbc): baseSamp = (sr·50/256000)·(delay_param+1) = (delay+1)/5.12 ms.
+    inline constexpr double kChorusDelayCoef = 50.0 / 256000.0;     // = 1/5120  (2× the flanger's 25/256000)
+    //   3 taps at 0°/120°/240°: LUT index step 0x55 (=85/256≈⅓) @0x518B?? ; phase step 0x55555554 (120° of 2^32).
+    inline constexpr uint32_t kChorusTapPhase120 = 0x55555554u;     // +120° in 32-bit phase (±0x55555554 = ±120°)
+    inline constexpr int      kChorusLutTapStep  = 0x55;            // 85/256 sine-LUT tap step (mode 0)
+    //   Waveform mode ([+0x264] LFO1, [+0x270] LFO2) — NOTE order vs clone:
+    //     mode 0 = sine LUT read (+0x2a8, 256-entry, interp)           @0x518B29
+    //     mode 1 = TRAPEZOID  clamp(|phase|−2^29, 0, 2^30)·depth        @0x518BA4   ← clone maps 1→Triangle (SWAPPED)
+    //     mode 2 = TRIANGLE   (|phase|>>1)·depth                        @0x518C1F   ← clone maps 2→Trapezoid (SWAPPED)
+    inline constexpr int kChorusTrapClampBias = 0x20000000;         // 2^29 (trapezoid |ph|−2^29)
+    inline constexpr int kChorusTrapClampMax  = 0x40000000;         // 2^30 (trapezoid upper clamp)
+
+    // ── (constants for PHASER / DELAY / AUTOPAN / DECIMATOR / EQ — pending extraction) ──
     // Shared FX float-pool note: f32 = -0.241 recurs at 0x519054/0x51c11c/0x51e954/0x51f098/0x52089c (Chorus/
     // EQ/Flanger/Phaser) — role UNVERIFIED (needs per-site decode; do NOT assume it's a coefficient yet).
 }
