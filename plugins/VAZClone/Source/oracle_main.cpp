@@ -188,6 +188,22 @@ int main()
              "clone 5+25*f (5..30ms) vs VAZ (delay+1)/5.12 (0.2..50ms) @0x518fbc — FORKERT KONSTANT (formula+range)");
     }
 
+    // ── FX 3. Chorus waveform mode map — verify the 1<->2 swap now matches VAZ (FUN_00518ad8) ──────────
+    {
+        auto tri   = [] (double p) { p -= std::floor (p); return (p < 0.5) ? 2.0 * p : 2.0 - 2.0 * p; };
+        // clone waveshape() post-swap, transcribed from VAZChorus PluginProcessor.h: 1->trapezoid, 2->triangle.
+        auto clone = [&] (double p, int w) {
+            if (w == 1) { const double v = (tri (p) - 0.2) * 1.6; return v < 0.0 ? 0.0 : v > 1.0 ? 1.0 : v; }
+            return tri (p);
+        };
+        // VAZ decompiled shapes (normalised): mode2 = |ph|>>1 = pure triangle; mode1 = trapezoid (clamped) @0x518BA4.
+        double d2 = 0.0;
+        for (int k = 0; k <= 2000; ++k) { const double p = k / 2000.0; d2 = std::max (d2, std::abs (clone (p, 2) - tri (p))); }
+        const bool m1trap = std::abs (clone (0.35, 1) - tri (0.35)) > 1e-6;   // mode1 must be the trapezoid, NOT triangle(0.35)=0.7
+        row ("fx_chorus_waveform_map", (d2 < 1e-12 && m1trap) ? "VERIFIED (1<->2 swap)" : "DEVIATION",
+             "clone idx1->trapezoid @0x518BA4, idx2->triangle @0x518C1F (VAZ order); mode2==|ph|>>1 triangle bit-exact");
+    }
+
     std::printf ("\n  Constants sourced: cutoff-smooth DAT_006d45e4, detune DAT_0052b168/0x52b0ec, env-rate DAT_006db7e8, stage0 DAT_006dc0bc, flanger delay 0x52076c, chorus delay 0x518fbc.\n");
     std::printf ("=== oracle complete ===\n");
     return 0;

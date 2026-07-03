@@ -39,13 +39,15 @@ struct ChorusChannel
     }
 
     // unipolar LFO shape 0..1 (real: |phase|-based, so the delay always sweeps up from the base).
+    // VAZ TFXChorus mode map (FUN_00518ad8): 0 = sine LUT @0x518B29 · 1 = TRAPEZOID clamp(|ph|−2^29,0,2^30) @0x518BA4
+    //  · 2 = TRIANGLE |ph|>>1 @0x518C1F.  (Modes 1↔2 were swapped vs VAZ; fixed so the param value picks the VAZ shape.)
     static inline double waveshape (double p, int waveform) noexcept
     {
         p -= std::floor (p);                                  // wrap to [0,1)
-        if (waveform == 0) return 0.5 - 0.5 * std::cos (2.0 * juce::MathConstants<double>::pi * p);   // sine
-        const double tri = (p < 0.5) ? 2.0 * p : 2.0 - 2.0 * p;                                       // triangle
-        if (waveform == 1) return tri;
-        return juce::jlimit (0.0, 1.0, (tri - 0.2) * 1.6);     // trapezoid (clamped triangle, real mode 1)
+        if (waveform == 0) return 0.5 - 0.5 * std::cos (2.0 * juce::MathConstants<double>::pi * p);   // 0 = sine (VAZ mode 0)
+        const double tri = (p < 0.5) ? 2.0 * p : 2.0 - 2.0 * p;
+        if (waveform == 1) return juce::jlimit (0.0, 1.0, (tri - 0.2) * 1.6);   // 1 = trapezoid (VAZ mode 1 @0x518BA4)
+        return tri;                                                             // 2 = triangle (VAZ mode 2 @0x518C1F)
     }
 
     // 2 LFOs (ph1, ph2) × 3 taps at 0°/±120° → 6-tap modulated-delay ensemble, summed.

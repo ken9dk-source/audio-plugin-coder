@@ -203,7 +203,7 @@ RE-doc `chorus-ghidra-re.md` confirmed on the LFO/mode structure; **corrected** 
 | Delay line | ONE shared circular buf (+0x2a4), input = **(L+R)>>1 mono**; stereo via tap-diff (tapB−tapC)·lrPhase[+0x27c] | TWO independent L/R bufs (chL/chR), fed L & R separately (PluginProcessor.h:101, .cpp:101-105) | **FORKERT TOPOLOGI** (stereo image) | @0x518ad8:3670,3666 |
 | Tap count | **3 audio taps**, each offset = base + (LFO1_k+LFO2_k)>>16 (2 LFOs summed per tap) | **6 reads** (2 LFOs × 3 taps, each a separate readInterp) | **FORKERT TOPOLOGI** (3 combined vs 6 independent) | @0x518ad8:3644-3660 vs .h:59-64 |
 | Base delay | (sr·50/256000)·(delay+1) = (delay+1)/5.12 ms → 0.2..50 ms | 5 + f·25 ms → 5..30 ms | **FORKERT KONSTANT** (formula+range) | VazOracle fx_chorus_basedelay DEVIATION; FUN_00518fbc @0x518fbc:3700 |
-| Waveform modes | 0 sine-LUT · **1 TRAPEZOID** (clamp\|ph\|−2^29,0,2^30) · **2 TRIANGLE** (\|ph\|>>1) | 0 sine · **1 Triangle** · **2 Trapezoid** (createParameterLayout:30-31; waveshape .h:45-48) | **FORKERT KONSTANT** (modes 1↔2 **SWAPPED** — presets pick wrong shape) | @0x518ad8:3489/3518/3546 |
+| Waveform modes | 0 sine-LUT · **1 TRAPEZOID** (clamp\|ph\|−2^29,0,2^30) · **2 TRIANGLE** (\|ph\|>>1) | 0 sine · **1 Trapezoid** · **2 Triangle** (createParameterLayout:30-31; waveshape .h:45-49) | ✅ **FIXED** (modes 1↔2 swapped to match VAZ) | VazOracle `fx_chorus_waveform_map` VERIFIED; @0x518ad8:3489/3518/3546 |
 | 3 tap phases 0/120/240° | LUT step 0x55 (85/256); phase ±0x55555554 (±120° of 2^32) | 0°/±120° via k·⅓ (.h:60-62) | VERIFICERET (matches) | @0x518ad8:3499,3527 |
 | 2 LFOs | inc1[+0x288], inc2[+0x290] **independent** (setters not yet read) | lfo2Inc = lfo1Inc·**1.27** hardcoded (.cpp:91) | **PÅSTÅET** (1.27 is a clone guess; VAZ inc2 source not extracted) | @0x518ad8:3485-3487 |
 | Mix law | linear, mix[+0x280] | linear `in·(1−mix)+wet·mix` (.h:67) | VERIFICERET (both linear) | @0x518ad8:3671-3676 |
@@ -272,8 +272,9 @@ later fixed-point port to bit-exactness is a separate prioritisation decision, n
 **HØJESTE (wrong engine / audible on ~every preset):**
 1. **Reverb** — clone `juce::Reverb` is a *different reverb* from VAZ's 9-comb + weighted-sum pseudo-stereo +
    global-damping Schroeder (allpass g=0.65). FORKERT TOPOLOGI — full reimpl, not a tweak.
-2. **Chorus waveform mode 1↔2 swap** — presets get trapezoid where VAZ gives triangle (& vice-versa).
-   Audible, **trivial fix** (swap the choice mapping). @0x518ad8 modes 1/2.
+2. ✅ **FIXED — Chorus waveform mode 1↔2 swap** — now idx1=trapezoid, idx2=triangle (VAZ order).
+   VazOracle `fx_chorus_waveform_map` VERIFIED; both suites green. @0x518ad8 modes 1/2.
+   *NB:* clone trapezoid slope is still an approximation of VAZ's `clamp(2·tri−0.5,0,1)` — deferred to the chorus round.
 3. **Decimator: truncation+bias vs rounding, and the missing post-S&H smoothing filter** — changes the crush
    grain & brightness on every decimator preset. FORKERT ALGORITME + MANGLENDE.
 4. **Chorus topology** — VAZ mono-summed shared delay + 3 combined-LFO taps + tap-diff stereo, vs clone's

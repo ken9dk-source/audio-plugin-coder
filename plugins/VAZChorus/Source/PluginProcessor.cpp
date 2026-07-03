@@ -28,7 +28,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout VAZChorusAudioProcessor::cre
     layout.add (pct (ParameterIDs::mix,       "Mix",       0.5f));
     layout.add (pct (ParameterIDs::gain,      "Gain",      0.85f));   // ≈ −1.4 dB
     layout.add (std::make_unique<AudioParameterChoice> (ParameterID { ParameterIDs::waveform, 1 }, "Waveform",
-        juce::StringArray { "Sine", "Triangle", "Trapezoid" }, 0));
+        juce::StringArray { "Sine", "Trapezoid", "Triangle" }, 0));   // order = VAZ modes 0/1/2 (FUN_00518ad8: 1=trap, 2=tri)
     layout.add (std::make_unique<AudioParameterBool> (ParameterID { ParameterIDs::mod_sync, 1 }, "Sync", false));
     const StringArray modPeriods { "1/32T","1/32","1/16T","1/16","1/8T","1/8","1/4T","1/4",
         "2b","3b","4b","5b","6b","8b","12b","16b","24b","32b","48b","64b","96b","128b","192b","256b" };
