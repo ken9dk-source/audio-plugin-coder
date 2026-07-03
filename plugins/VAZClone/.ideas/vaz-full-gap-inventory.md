@@ -169,13 +169,36 @@ Core.dll) — NOT the clone's source; a distinct future RE target. Effects are p
 | BPM sync rate | cycleSamples=(sr·60·period[+0x274])/(BPM·48), inc=round(2^31/cyc) @0x520418 | :83-99 `periodBeats[24]`, `(bpm/60)/beats` | **PÅSTÅET** | clone uses a beats table; VAZ's ·48 period-unit formula NOT cross-checked → verify next |
 | Params present (delay/fb/rate/depth/lr_phase/mix/gain/fb_phase/sync/period) | TFXFlanger fields +0x264…+0x2b0 | createParameterLayout:24-35 | VERIFICERET | field set matches RE |
 
-### FX-B…G — pending extraction (this pass mapped the source + did Flanger as the template)
+### FX-B — Reverb (`TFXReverb@0x522530`, render `FUN_005228a4` @0x5228a4) — AUDITED · fixed-point (Q31/Q28)
+
+Full render loop force-decompiled (virtual method, not in prior corpus): `tools/vaz_reverb_render.c`. VAZ's reverb
+is a **custom integer Schroeder network**, NOT juce::Reverb/Freeverb. Clone `VAZReverb` = `juce::Reverb` (PluginProcessor.h:43).
+
+| Param / part | Ghidra ref (VAZ) | Clone (VAZReverb / juce::Reverb) | Deviation class | Status |
+|---|---|---|---|---|
+| Engine | 9 parallel PLAIN Schroeder combs + 4 series allpass/ch + 1 global damping LP; integer Q31/Q28 | Freeverb: 8 **lowpass**-combs ×2ch + 4 allpass/ch; float | **FORKERT TOPOLOGI** (høj) | render @0x5228a4 line-by-line |
+| Comb count / feed | 9 combs (10 coefs alloc'd @+0x274…+0x242bc, render sums 9), mono feed `(L+R)>>6` | 8 combs, independent L/R banks | **FORKERT TOPOLOGI** (høj) | @0x5228a4:82-127 |
+| Comb type / damping placement | plain `buf[w]=coef·buf[r]+in`; ONE global one-pole LP *after* allpasses | Freeverb damps *inside* each comb | **FORKERT TOPOLOGI** (høj — changes decay spectrum) | @0x5228a4 (no per-comb LP) vs FUN_00523194 |
+| Comb tunings (lengths) | {1116,**1187**,1277,1356,1422,1491,1557,1617, +1203,1527} @0x523158-88 | 1116,**1188**,1277,1356,1422,1491,1557,1617 (JUCE) | **FORKERT KONSTANT** + 2 extra combs | constant pool 0x523158-88 |
+| Comb feedback coef | per size/decay: seed −1.35e-5 (DAT_0052314c) /((size·16+500)·sr) ·tuning[i], Q31 | roomSize·0.28+0.7 (JUCE) | TILNÆRMET ALGORITME (different decay control) | FUN_00522fcc @0x522fcc:6527 |
+| Pseudo-stereo | 2 asymmetric int weighted sums of the 9 combs (L={2,1,4,2,3,4,·,2,·} R={2,3,·,2,1,·,4,2,4}) | width param on independent L/R | **FORKERT TOPOLOGI** (different stereo image) | @0x5228a4:119,125 |
+| Allpass gain | g = **0.65** (DAT_0052ba54 = 0x53333333 Q31) | 0.5 (JUCE fixed) | **FORKERT KONSTANT** | DLL read @0x52ba54 |
+| Allpass lengths | 4/ch, buffers 1024 (mask 0x3ff), ctor-set (not extracted) | 556/441/341/225 (JUCE) | FORKERT KONSTANT (values differ regardless) | @0x5228a4:129-159; lengths=gap |
+| Dry/wet | linear `dry+mix·(wet−dry)`, param +0x268 `<<23` | juce::Reverb wet/dry (equal-power-ish) | TILNÆRMET (mix law) | @0x5228a4:172-176 |
+| Sample data format | 100% integer Q31 (combs) / Q28 (damping) | float | TILNÆRMET (float choice; moot until topology matches) | @0x5228a4 all `>>0x20` |
+| Params | +0x260 size, +0x264 damp, +0x268 mix (3), version-gate <300 (FUN_005232a4) | roomSize/damping/wet/dry/width/freeze | MANGLENDE/EXTRA PARAM (clone has width+freeze; VAZ has 3) | FUN_005232a4 @0x5232a4 |
+
+**Verdict:** the clone is a *fundamentally different reverb*. The "faithful Freeverb match" comment in PluginProcessor.h:6-8
+is **FALSE** (recorded here, not patched — collection phase). This is the **highest-priority FX deviation**: not a
+constant tweak but a full re-implementation (9 plain combs + weighted-sum pseudo-stereo + global damping + 0.65 allpass).
+No oracle primitive added — VAZ and clone are different algorithms, so bit-exact comparison is N/A until reimplemented.
+
+### FX-C…G — pending extraction
 
 | Effect | Core.dll | RE doc | Clone | Status |
 |---|---|---|---|---|
 | Chorus | `TFXChorus@0x5184D8`, DSP @0x518AD8 | chorus-ghidra-re.md (dual-LFO, 3 taps 0/±120°) | VAZChorus (133 ln) | PÅSTÅET — topology RE'd, params+constants+cross-check PENDING |
 | Phaser | `TFXPhaser@0x52107C`, DSP @0x5218D8 | phaser-ghidra-re.md (N-allpass, triangle LFO, coef LUT) | VAZPhaser (151 ln) | PÅSTÅET — LUT constants + cross-check PENDING |
-| Reverb | `TFXReverb@0x522530` | none (prior "Freeverb" claim NOT confirmed — comb lengths absent from vaz_fx_all.c) | VAZReverb (91 ln) | PÅSTÅET — topology + comb/allpass lengths PENDING (highest constant density) |
 | Delay | `TFXDelay@0x51AF18` | none | VAZDelay (219 ln) | PÅSTÅET — sync/interp/feedback-filter PENDING |
 | Autopan | Core.dll (Decimator/Autopan classes) | none | VAZAutopan (125 ln) | PÅSTÅET — LFO/pan-law/sync PENDING |
 | Decimator | Core.dll | none | VAZDecimator (98 ln) | PÅSTÅET — bitcrush/downsample math PENDING |
