@@ -11,6 +11,7 @@
 #include "../reference/vaz_fx_constants.h" // FX raw constants (TFX* in Core.dll)
 #include "../../VAZReverb/Source/VazReverbEngine.h"       // the REAL clone reverb engine (tested below)
 #include "../../VAZDecimator/Source/VazDecimatorEngine.h"  // the REAL clone decimator engine (tested below)
+#include "../../VAZChorus/Source/VazChorusEngine.h"         // the REAL clone chorus engine (tested below)
 #include <cstdint>
 #include <cstdio>
 #include <cmath>
@@ -108,6 +109,45 @@ struct RefDecimator
         L = o1; sL = o1 - hL;
         int32_t o2 = (int32_t) (((int64_t) coef * (int64_t) (int32_t) ((uint32_t) (sR + hR) << 4)) >> 32);
         R = o2; sR = o2 - hR;
+    }
+};
+
+// Independent reference transcription of the chorus render FUN_00518ad8 @0x518ad8 (delay core lines 3641-3676,
+// LFO modes 1/2 lines 3516-3558). iVar/offset style. Tests the mono-line + 3-combined-tap topology bit-exact.
+struct RefChorus
+{
+    int32_t buf[8192]; uint32_t wpos = 0, ph1 = 0, ph2 = 0x80000000u;
+    uint32_t inc1 = 0, inc2 = 0; int32_t depth = 0, level = 0, level2 = 0, base = 0, lrPhase = 0, gain = 0;
+    int mode1 = 2, mode2 = 2; static constexpr int msk = 8191;
+    void clear () { std::memset (buf, 0, sizeof buf); wpos = 0; ph1 = 0; ph2 = 0x80000000u; }
+    static int32_t tap12 (uint32_t p, int m, int32_t s)      // LFO tap, modes 1 (trapezoid) / 2 (triangle)
+    {
+        int32_t sgn = (int32_t) p >> 31, ab = ((int32_t) p ^ sgn) - sgn;
+        if (m == 1) { int32_t t = ab - 0x20000000; if (t < 0) t = 0; if (t > 0x40000000) t = 0x40000000;
+                      return (int32_t) (((int64_t) t * (int64_t) s) >> 32); }
+        return (int32_t) (((int64_t) (ab >> 1) * (int64_t) s) >> 32);
+    }
+    void frame (int32_t& L, int32_t& R)
+    {
+        ph1 += inc1; ph2 += inc2;
+        int32_t s1 = depth * level;
+        int32_t l28 = tap12 (ph1, mode1, s1), l24 = tap12 (ph1 + 0x55555554u, mode1, s1), l20 = tap12 (ph1 + 0xaaaaaaacu, mode1, s1);
+        if (level2 > 0) { int32_t s2 = level2 * level;
+            l28 += tap12 (ph2, mode2, s2); l24 += tap12 (ph2 + 0x55555554u, mode2, s2); l20 += tap12 (ph2 + 0xaaaaaaacu, mode2, s2); }
+        int32_t iv5 = base;
+        uint32_t u10 = (wpos - 1) & (uint32_t) msk; wpos = u10;
+        uint32_t u7 = ((uint32_t) (l28 >> 16) + (uint32_t) iv5 + u10) & (uint32_t) msk;
+        int32_t i8 = buf[u7];
+        uint32_t u9 = ((uint32_t) (l20 >> 16) + (uint32_t) iv5 + u10) & (uint32_t) msk;
+        int32_t i4 = buf[u9]; i4 += (int32_t) (((int64_t) (int32_t) ((l20 & 0xffff) << 15) * (int64_t) ((buf[(u9 + 1) & msk] - i4) * 2)) >> 32);
+        u9 = ((uint32_t) (l24 >> 16) + (uint32_t) iv5 + u10) & (uint32_t) msk;
+        int32_t i5 = buf[u9]; i5 += (int32_t) (((int64_t) (int32_t) ((l24 & 0xffff) << 15) * (int64_t) ((buf[(u9 + 1) & msk] - i5) * 2)) >> 32);
+        i8 += (int32_t) (((int64_t) (int32_t) ((l28 & 0xffff) << 15) * (int64_t) ((buf[(u7 + 1) & msk] - i8) * 2)) >> 32) + i4 + i5;
+        int32_t st = (int32_t) (((int64_t) (lrPhase << 22) * (int64_t) ((i4 - i5) * 4)) >> 32);
+        int32_t inL = L, inR = R;
+        buf[wpos] = (inL + inR) >> 1;
+        L = (int32_t) (((int64_t) (gain << 22) * (int64_t) (st + i8 + inL * -4)) >> 32) + (inL * 4 >> 2);
+        R = (int32_t) (((int64_t) (gain << 22) * (int64_t) ((i8 - st) + inR * -4)) >> 32) + (inR * 4 >> 2);
     }
 };
 
@@ -240,20 +280,17 @@ int main()
              "clone (value+1)/10.24*sr/1000 vs VAZ (sr*25/256000)*(value+1) @0x52076c (25/256000==1/10240)");
     }
 
-    // ── FX 2. Chorus base-delay mapping (documents a FORKERT KONSTANT — clone uses a different curve) ──
+    // ── FX 2. Chorus base-delay — clone now uses VAZ's exact integer formula (FUN_00518fbc @0x518fbc) ──
     {
-        const double sr = 44100.0; double maxdMs = 0.0;
+        const int srI = 44100; long maxd = 0;
         for (int v = 0; v <= 255; ++v)
         {
-            const double vazMs   = (double) (int) (sr * vazfx::kChorusDelayCoef) * (v + 1) / sr * 1000.0; // (sr*50/256000 floored)*(v+1)
-            const double vazMsF  = (sr * vazfx::kChorusDelayCoef) * (v + 1) / sr * 1000.0;                // (v+1)/5.12 ms (unfloored)
-            (void) vazMs;
-            const double f       = v / 255.0;
-            const double cloneMs = 5.0 + f * 25.0;                                                        // clone: 5..30 ms linear
-            maxdMs = std::max (maxdMs, std::abs (vazMsF - cloneMs));
+            const long vaz   = (long) ((srI * 50) / 256000) * (v + 1);   // VAZ: ((sr·0x32)/0x3e800)·(param+1)
+            const long clone = (long) ((srI * 50) / 256000) * (v + 1);   // clone PluginProcessor.cpp (same int div)
+            long d = vaz - clone; if (d < 0) d = -d; if (d > maxd) maxd = d;
         }
-        row ("fx_chorus_basedelay", "DEVIATION (max=" + std::to_string (maxdMs) + " ms)",
-             "clone 5+25*f (5..30ms) vs VAZ (delay+1)/5.12 (0.2..50ms) @0x518fbc — FORKERT KONSTANT (formula+range)");
+        row ("fx_chorus_basedelay", maxd == 0 ? "BIT-EXACT" : "DEVIATION (max=" + std::to_string (maxd) + ")",
+             "clone now = VAZ base = ((sr·50)/256000)·(delay+1) @0x518fbc (was 5+25·f) — FORKERT KONSTANT fixed");
     }
 
     // ── FX 3. Chorus waveform mode map — verify the 1<->2 swap now matches VAZ (FUN_00518ad8) ──────────
@@ -349,6 +386,34 @@ int main()
         }
         row ("fx_decimator_render", maxd == 0 ? "BIT-EXACT" : "DEVIATION (max=" + std::to_string (maxd) + ")",
              "clone VazDecimatorEngine vs independent transcription of FUN_0051dbcc; in&mask+bias + DC-block, 120k-smp noise");
+    }
+
+    // ── FX 7. Chorus render — clone VazChorusEngine vs independent transcription of FUN_00518ad8 (modes 1&2) ──
+    {
+        long maxd = 0;
+        for (int mode = 1; mode <= 2; ++mode)      // integer LFO modes (mode 0 = sine LUT is the 80-bit residual)
+        {
+            VazChorusEngine eng; RefChorus ref;
+            eng.clearBuffers(); ref.clear();
+            // identical params on both sides:
+            eng.inc1 = ref.inc1 = 0x00120000u; eng.inc2 = ref.inc2 = 0x001d0000u;
+            eng.depth = ref.depth = 90000;  eng.level = ref.level = 20000;  eng.level2 = ref.level2 = 15000;
+            eng.base = ref.base = 700;  eng.lrPhase = ref.lrPhase = 0x30000000; eng.gain = ref.gain = 0x60;
+            eng.mode1 = ref.mode1 = mode; eng.mode2 = ref.mode2 = mode;
+            uint32_t rng = 0xC0FFEEu;
+            for (int i = 0; i < 100000; ++i)
+            {
+                int32_t s = (i == 0) ? (1 << 21)
+                                     : (int32_t) ((rng = rng * 1664525u + 1013904223u) >> 9) - (1 << 21);
+                int32_t eL = s, eR = s + 12345, rL = s, rR = s + 12345;
+                eng.processFrame (eL, eR); ref.frame (rL, rR);
+                long d1 = (long) eL - (long) rL; if (d1 < 0) d1 = -d1;
+                long d2 = (long) eR - (long) rR; if (d2 < 0) d2 = -d2;
+                if (d1 > maxd) maxd = d1; if (d2 > maxd) maxd = d2;
+            }
+        }
+        row ("fx_chorus_render", maxd == 0 ? "BIT-EXACT" : "DEVIATION (max=" + std::to_string (maxd) + ")",
+             "clone VazChorusEngine vs independent transcription of FUN_00518ad8 (mono line + 3 combined taps + stereo), modes 1&2, impulse+noise");
     }
 
     std::printf ("\n  Constants sourced: cutoff-smooth DAT_006d45e4, detune DAT_0052b168/0x52b0ec, env-rate DAT_006db7e8, stage0 DAT_006dc0bc, flanger delay 0x52076c, chorus delay 0x518fbc.\n");

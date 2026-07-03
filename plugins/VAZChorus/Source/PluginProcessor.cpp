@@ -38,9 +38,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout VAZChorusAudioProcessor::cre
 
 void VAZChorusAudioProcessor::prepareToPlay (double sampleRate, int)
 {
-    sr = sampleRate;
-    chL.prepare (sampleRate); chR.prepare (sampleRate);
-    lfo1Phase = 0.0; lfo2Phase = 0.5;          // start the two LFOs half a cycle apart → immediate ensemble
+    sr = sampleRate > 0.0 ? sampleRate : 44100.0;
+    engine.clearBuffers();
+    engine.buildSineLut();
 }
 
 bool VAZChorusAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -64,15 +64,13 @@ void VAZChorusAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
     const float fGain   = apvts.getRawParameterValue (ParameterIDs::gain)->load();
     const int   waveform = (int) apvts.getRawParameterValue (ParameterIDs::waveform)->load();
 
-    // Real Chorus (RE'd from Core.dll TFXChorus @0x518AD8): dual-LFO 6-tap ensemble.
-    // Delay = base centre delay; each LFO sweeps 'depth' samples; 3 taps at 0°/±120° per LFO.
-    const double baseMs    = 5.0 + (double) fDelay * 25.0;          // centre delay 5..30 ms
-    const double depthMs   = (double) fDepth * 8.0;                 // modulation depth 0..8 ms
-    const double baseSamp  = baseMs  * 0.001 * sr;
-    const double depthSamp = depthMs * 0.001 * sr;
-    const double mix       = (double) fMix;
-    const double gain      = (double) fGain;
-    // Modulation rate: free (Rate²·6 → 0..6 Hz, chorus is slow) or tempo-synced (host BPM).
+    // Base delay (EXACT, FUN_00518fbc @0x518fbc): base = (sr·50/256000 int-div)·(delayParam+1) → (v+1)/5.12 ms.
+    const int srI        = (int) std::llround (sr);
+    const int delayParam = juce::jlimit (0, 255, (int) std::lround (fDelay * 255.0f));
+    engine.base = ((srI * 50) / 256000) * (delayParam + 1);
+    // Waveform mode: 0 sine · 1 trapezoid · 2 triangle (VAZ order) — the engine selects the shape directly.
+    engine.mode1 = engine.mode2 = juce::jlimit (0, 2, waveform);
+    // Modulation rate → 32-bit phase increments.  ⚠ APPROX (rate/depth/lr/gain scalings pending exact setters, step #3):
     static constexpr double periodBeats[24] = { 1.0/12, 1.0/8, 1.0/6, 1.0/4, 1.0/3, 1.0/2, 2.0/3, 1.0,
         2.0, 3.0, 4.0, 5.0, 6.0, 8.0, 12.0, 16.0, 24.0, 32.0, 48.0, 64.0, 96.0, 128.0, 192.0, 256.0 };
     double rateHz;
@@ -83,14 +81,20 @@ void VAZChorusAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
             if (auto pos = ph->getPosition())
                 if (auto b = pos->getBpm()) bpm = *b;
         const int p = juce::jlimit (0, 23, (int) apvts.getRawParameterValue (ParameterIDs::mod_period)->load());
-        rateHz = (bpm / 60.0) / periodBeats[p];               // tempo-synced Hz
+        rateHz = (bpm / 60.0) / periodBeats[p];
     }
     else
-        rateHz = (double) fRate * (double) fRate * 6.0;       // free: 0..6 Hz
-    const double lfo1Inc  = rateHz / sr;
-    const double lfo2Inc  = lfo1Inc * 1.27;                // 2nd LFO detuned → ensemble beating (real has 2 LFOs)
-    const double lrOffset = (double) fLrPh * 0.5;          // up to half-cycle between channels
+        rateHz = (double) fRate * (double) fRate * 6.0;       // free: 0..6 Hz (chorus is slow)
+    engine.inc1  = (uint32_t) (int64_t) (rateHz / sr * 4294967296.0);
+    engine.inc2  = (uint32_t) (int64_t) (rateHz * 1.27 / sr * 4294967296.0);   // 2nd LFO detuned (approx)
+    engine.level = 0x8000;                                                     // common scale (approx)
+    const int32_t modDepth = (int32_t) std::llround ((double) fDepth * 0.04 * sr);
+    engine.depth = engine.level2 = modDepth;                                   // both LFO depths = fDepth (approx)
+    engine.lrPhase = (int32_t) std::llround ((double) fLrPh * 1073741824.0);   // stereo spread (approx)
+    engine.gain    = juce::jlimit (0, 255, (int) std::lround (fMix * 255.0f)); // wet amount (approx)
+    const double outGain = (double) fGain;
 
+    constexpr double kFS = 8388608.0;   // Q23 full-scale
     const int n = buffer.getNumSamples();
     const int numCh = buffer.getNumChannels();
     float* L = buffer.getWritePointer (0);
@@ -98,14 +102,11 @@ void VAZChorusAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
 
     for (int i = 0; i < n; ++i)
     {
-        L[i] = (float) chL.process ((double) L[i], baseSamp, depthSamp, lfo1Phase, lfo2Phase, waveform, mix, gain);
-
-        if (R != nullptr)
-            R[i] = (float) chR.process ((double) R[i], baseSamp, depthSamp,
-                                        lfo1Phase + lrOffset, lfo2Phase + lrOffset, waveform, mix, gain);
-
-        lfo1Phase += lfo1Inc; if (lfo1Phase >= 1.0) lfo1Phase -= 1.0;
-        lfo2Phase += lfo2Inc; if (lfo2Phase >= 1.0) lfo2Phase -= 1.0;
+        int32_t li = (int32_t) std::llround ((double) L[i] * kFS);
+        int32_t ri = R ? (int32_t) std::llround ((double) R[i] * kFS) : li;
+        engine.processFrame (li, ri);
+        L[i] = (float) ((double) li / kFS * outGain);
+        if (R) R[i] = (float) ((double) ri / kFS * outGain);
     }
 }
 

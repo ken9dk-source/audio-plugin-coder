@@ -199,27 +199,28 @@ use VAZ's 80-bit x87 float (FUN_00522fcc/FUN_00523194) which MSVC's 64-bit `long
 literal read degenerates to coef≈1 (infinite tail); substituted with an RT60 decay so `size` sets the tail length.
 Exact coef reproduction would need a runtime dump of the (heap) reverb object's computed coef ints.
 
-### FX-C — Chorus (`TFXChorus`, per-sample `FUN_00518ad8` @0x518ad8) — AUDITED · fixed-point Q-format
+### FX-C — Chorus (`TFXChorus`, `FUN_00518ad8` @0x518ad8) — ✅ **FIXED (#4 topology + #5 base + #2 waveform)** · fixed-point
 
-DSP was in-corpus (direct-called). Full function read incl. the audio-delay half (`vaz_fx_all.c`:3641-3679).
-RE-doc `chorus-ghidra-re.md` confirmed on the LFO/mode structure; **corrected** on tap-count & stereo.
+Clone now ships `VazChorusEngine` (fixed-point port; render bit-exact vs an independent transcription:
+VazOracle `fx_chorus_render` BIT-EXACT over impulse+noise, modes 1&2).
 
-| Param / part | Ghidra ref (VAZ) | Clone (VAZChorus) | Deviation class | Status |
-|---|---|---|---|---|
-| Delay line | ONE shared circular buf (+0x2a4), input = **(L+R)>>1 mono**; stereo via tap-diff (tapB−tapC)·lrPhase[+0x27c] | TWO independent L/R bufs (chL/chR), fed L & R separately (PluginProcessor.h:101, .cpp:101-105) | **FORKERT TOPOLOGI** (stereo image) | @0x518ad8:3670,3666 |
-| Tap count | **3 audio taps**, each offset = base + (LFO1_k+LFO2_k)>>16 (2 LFOs summed per tap) | **6 reads** (2 LFOs × 3 taps, each a separate readInterp) | **FORKERT TOPOLOGI** (3 combined vs 6 independent) | @0x518ad8:3644-3660 vs .h:59-64 |
-| Base delay | (sr·50/256000)·(delay+1) = (delay+1)/5.12 ms → 0.2..50 ms | 5 + f·25 ms → 5..30 ms | **FORKERT KONSTANT** (formula+range) | VazOracle fx_chorus_basedelay DEVIATION; FUN_00518fbc @0x518fbc:3700 |
-| Waveform modes | 0 sine-LUT · **1 TRAPEZOID** (clamp\|ph\|−2^29,0,2^30) · **2 TRIANGLE** (\|ph\|>>1) | 0 sine · **1 Trapezoid** · **2 Triangle** (createParameterLayout:30-31; waveshape .h:45-49) | ✅ **FIXED** (modes 1↔2 swapped to match VAZ) | VazOracle `fx_chorus_waveform_map` VERIFIED; @0x518ad8:3489/3518/3546 |
-| 3 tap phases 0/120/240° | LUT step 0x55 (85/256); phase ±0x55555554 (±120° of 2^32) | 0°/±120° via k·⅓ (.h:60-62) | VERIFICERET (matches) | @0x518ad8:3499,3527 |
-| 2 LFOs | inc1[+0x288], inc2[+0x290] **independent** (setters not yet read) | lfo2Inc = lfo1Inc·**1.27** hardcoded (.cpp:91) | **PÅSTÅET** (1.27 is a clone guess; VAZ inc2 source not extracted) | @0x518ad8:3485-3487 |
-| Mix law | linear, mix[+0x280] | linear `in·(1−mix)+wet·mix` (.h:67) | VERIFICERET (both linear) | @0x518ad8:3671-3676 |
-| Depth scaling | iVar5 = depth[+0x26c]·level[+0x298]; pos = base+(mod>>16) | depthMs = f·8 → 0..8 ms (.cpp:70) | **PÅSTÅET** (VAZ depth→samples range not pinned) | @0x518ad8:3488 |
+| Part | Ghidra ref (VAZ) | Clone (VazChorusEngine) | Status |
+|---|---|---|---|
+| Delay line | ONE shared circular buf, input **(L+R)>>1 mono**; stereo via tap-diff `lrPhase·(tapC−tapB)` | now identical (mono line + tap-diff stereo) | ✅ FIXED (was 2 independent L/R bufs) |
+| Tap count | **3 combined taps**, offset = base+(LFO1_k+LFO2_k)>>16 (2 LFOs summed) + linear interp | now identical (3 combined taps) | ✅ FIXED (was 6 independent reads) |
+| Base delay | `((sr·50)/256000)·(delay+1)` int-div (FUN_00518fbc) | now identical | ✅ FIXED (#5) — VazOracle `fx_chorus_basedelay` BIT-EXACT (was 5+25·f) |
+| Waveform modes | 0 sine-LUT · 1 trapezoid @0x518BA4 · 2 triangle @0x518C1F | now identical (engine mode = param idx) | ✅ FIXED (#2) — `fx_chorus_waveform_map` VERIFIED |
+| 3 tap phases 0/120/240° | LUT step 0x55; phase ±0x55555554 | now identical | ✅ ported exactly |
+| Mix / stereo law | linear, gain[+0x280]; stereo via lrPhase[+0x27c] | now identical (output filter transcribed) | ✅ ported exactly |
+| **2-LFO rate / depth / lr / gain scalings** | inc1[+0x288]/inc2[+0x290], depth[+0x26c]·level[+0x298], lrPhase, gain | **APPROX** (rate≈fRate²·6, inc2≈inc1·1.27, depth≈f·0.04·sr) | **PÅSTÅET** — pending exact setters (step #3) |
+| Sine LUT (mode 0) | +0x2a8 256-entry, 80-bit-built | `sin()` double LUT | TILNÆRMET (80-bit residual; modes 1/2 bit-exact) |
 | Sample format | integer Q-format (all `>>0x20`) | float | TILNÆRMET | @0x518ad8 |
 | Params | delay/rate/depth/lr_phase/mix/gain + 2 mode fields (+0x264,+0x270) + base(+0x260) | delay/rate/depth/lr_phase/mix/gain/waveform/sync/period | VERIFICERET (superset; clone adds sync — VAZ sync TBD) | createParameterLayout:24-35 |
 
-**Headline:** the **waveform mode 1↔2 swap** is an audible, cheap-to-fix bug (a preset selecting "mode 1" gets
-trapezoid in VAZ but triangle in the clone). The **mono-shared-line + 3-combined-tap** topology and the base-delay
-curve are the deeper deviations. `fx_chorus_basedelay` now machine-flags the delay mismatch in VazOracle.
+**Status:** the topology (mono line + 3 combined taps + tap-diff stereo), base delay, and waveform selection are
+now VAZ-exact (`VazChorusEngine`, `fx_chorus_render`/`fx_chorus_basedelay`/`fx_chorus_waveform_map` all green).
+**Remaining PÅSTÅET:** the rate/depth/lr/gain param→field scalings are still approximate (2-LFO inc, depth·level,
+lrPhase, gain) — pending the exact setters (step #3). Mode-0 sine LUT is an 80-bit residual (modes 1/2 bit-exact).
 
 ### FX-D — Phaser (`TFXPhaser`, render `FUN_005218d8` @0x5218d8) — AUDITED · fixed-point (Q30)
 
@@ -291,11 +292,12 @@ later fixed-point port to bit-exactness is a separate prioritisation decision, n
 3. ✅ **FIXED — Decimator** — replaced round-to-level with VAZ's `(in & mask)+bias` truncation + the post-S&H
    DC-blocker + VAZ's 11-bit rate accumulator (`VazDecimatorEngine`). Render BIT-EXACT (VazOracle `fx_decimator_render`).
    Residual: smoothing coef (80-bit) → DC-blocker substitute.
-4. **Chorus topology** — VAZ mono-summed shared delay + 3 combined-LFO taps + tap-diff stereo, vs clone's
-   independent-L/R 6-tap. Different chorus character & stereo image.
+4. ✅ **FIXED — Chorus topology** — `VazChorusEngine`: mono-summed shared delay + 3 combined-LFO taps + tap-diff
+   stereo (replaced the independent-L/R 6-tap). Render BIT-EXACT (VazOracle `fx_chorus_render`, modes 1/2).
 
 **MEDIUM (audible on some presets):**
-5. **Chorus base-delay curve** (clone 5..30 ms vs VAZ (v+1)/5.12 → 0.2..50 ms) — machine-flagged by VazOracle `fx_chorus_basedelay`.
+5. ✅ **FIXED — Chorus base-delay** — clone now uses VAZ's exact `((sr·50)/256000)·(delay+1)` (FUN_00518fbc);
+   VazOracle `fx_chorus_basedelay` BIT-EXACT.
 6. **Delay mode 2** — clone "Double" (series) ≠ VAZ mono. Only mode-2 presets.
 7. **Phaser coef** — 512-entry exp LUT vs `tan()` bilinear → notch frequencies/sweep shape drift.
 8. **Flanger BPM-sync** (PÅSTÅET) — clone beats-table vs VAZ `(sr·60·period)/(BPM·48)`; only synced presets.
