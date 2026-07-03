@@ -9,7 +9,8 @@
 #include "../reference/vaz_constants.h"
 #include "../reference/vaz_detune.h"     // clone's detune port (FUN_004e0618)
 #include "../reference/vaz_fx_constants.h" // FX raw constants (TFX* in Core.dll)
-#include "../../VAZReverb/Source/VazReverbEngine.h"  // the REAL clone reverb engine (tested below)
+#include "../../VAZReverb/Source/VazReverbEngine.h"       // the REAL clone reverb engine (tested below)
+#include "../../VAZDecimator/Source/VazDecimatorEngine.h"  // the REAL clone decimator engine (tested below)
 #include <cstdint>
 #include <cstdio>
 #include <cmath>
@@ -92,6 +93,21 @@ struct RefReverb
         stateR = i7;
         L = i1 + (int32_t)(((int64_t) m2(i3 - i1) * mixMul) >> 32);
         R = i2 + (int32_t)(((int64_t) m2(i7 - i2) * mixMul) >> 32);
+    }
+};
+
+// Independent reference transcription of the decimator render FUN_0051dbcc @0x51dbcc (exact decompile expressions).
+struct RefDecimator
+{
+    int32_t rate = 2048, mask = -1, bias = 0, coef = 0, acc = 0, hL = 0, hR = 0, sL = 0, sR = 0;
+    void frame (int32_t& L, int32_t& R)
+    {
+        int32_t a = (acc & 0x7ff) + rate; acc = a;                                  // (acc & 0x7ff)+rate
+        if (0x7ff < a) { hL = (L & mask) + bias; hR = (R & mask) + bias; }           // S&H + (in & mask)+bias
+        int32_t o1 = (int32_t) (((int64_t) coef * (int64_t) (int32_t) ((uint32_t) (sL + hL) << 4)) >> 32);
+        L = o1; sL = o1 - hL;
+        int32_t o2 = (int32_t) (((int64_t) coef * (int64_t) (int32_t) ((uint32_t) (sR + hR) << 4)) >> 32);
+        R = o2; sR = o2 - hR;
     }
 };
 
@@ -309,6 +325,30 @@ int main()
         row ("fx_reverb_stable", (decays && bounded) ? "VERIFIED (bounded+decays)" : "DEVIATION",
              "impulse→tail: early=" + std::to_string (peakEarly) + " late=" + std::to_string (peakLate)
              + " peak=" + std::to_string (peakMax) + " (RT60 coef map; 80-bit VAZ curve substituted)");
+    }
+
+    // ── FX 6. Decimator render — clone VazDecimatorEngine vs independent transcription of FUN_0051dbcc ──
+    {
+        VazDecimatorEngine eng; RefDecimator ref;
+        eng.reset();
+        // Identical rate/mask/bias/coef on both sides (tests the render: S&H + truncation-crush + DC-block).
+        eng.rate = ref.rate = 517;                                   // partial SR reduction (S&H fires ~1/4 samples)
+        const int shift = 24 - 10;                                   // 10-bit crush
+        eng.mask = ref.mask = (int32_t) ((0xFFFFFFFFu >> shift) << shift);
+        eng.bias = ref.bias = (int32_t) (((1u << shift) - 1u) >> 1);
+        eng.coef = ref.coef = 0x0FFC0000;                            // DC-blocker coef (< 2^28)
+        uint32_t rng = 0x1234abcdu; long maxd = 0;
+        for (int i = 0; i < 120000; ++i)
+        {
+            int32_t s = (int32_t) ((rng = rng * 1664525u + 1013904223u) >> 8) - (1 << 23);   // full-scale noise
+            int32_t eL = s, eR = s ^ 0x5a5a, rL = s, rR = s ^ 0x5a5a;
+            eng.processFrame (eL, eR); ref.frame (rL, rR);
+            long d1 = (long) eL - (long) rL; if (d1 < 0) d1 = -d1;
+            long d2 = (long) eR - (long) rR; if (d2 < 0) d2 = -d2;
+            if (d1 > maxd) maxd = d1; if (d2 > maxd) maxd = d2;
+        }
+        row ("fx_decimator_render", maxd == 0 ? "BIT-EXACT" : "DEVIATION (max=" + std::to_string (maxd) + ")",
+             "clone VazDecimatorEngine vs independent transcription of FUN_0051dbcc; in&mask+bias + DC-block, 120k-smp noise");
     }
 
     std::printf ("\n  Constants sourced: cutoff-smooth DAT_006d45e4, detune DAT_0052b168/0x52b0ec, env-rate DAT_006db7e8, stage0 DAT_006dc0bc, flanger delay 0x52076c, chorus delay 0x518fbc.\n");

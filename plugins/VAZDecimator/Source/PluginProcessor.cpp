@@ -30,8 +30,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout VAZDecimatorAudioProcessor::
 void VAZDecimatorAudioProcessor::prepareToPlay (double sampleRate, int)
 {
     curSR = sampleRate > 0.0 ? sampleRate : 44100.0;
-    held[0] = held[1] = 0.0f;
-    accum[0] = accum[1] = 1.0;
+    engine.reset();
 }
 
 bool VAZDecimatorAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -50,26 +49,23 @@ void VAZDecimatorAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     const float srP  = apvts.getRawParameterValue (ParameterIDs::sample_rate)->load();
     const float bitP = apvts.getRawParameterValue (ParameterIDs::bit_depth)->load();
 
-    // Sample-rate reduction (sample & hold): effective SR = 100 Hz .. fs (log), step = effSR/fs (<=1)
-    const double effSR = 100.0 * std::pow (curSR / 100.0, (double) srP);
-    const double step  = juce::jlimit (0.0001, 1.0, effSR / curSR);
-    // Bit reduction: 1..16 bits → quantise step q over full-scale [-1,1]
-    const double bits   = juce::jmap ((double) bitP, 1.0, 16.0);
-    const double levels = std::pow (2.0, bits);
-    const double q      = 2.0 / juce::jmax (1.0, levels - 1.0);
+    // Map the two knobs onto VAZ's .v2p decimator fields:
+    const int srParam = juce::jlimit (0, 255, (int) std::lround (srP * 255.0f));   // SR-reduction (+0x260) → rate
+    const int bits    = juce::jlimit (1, 16,  (int) std::lround (1.0f + bitP * 15.0f)); // bit depth (+0x264), 1..16 (VAZ dflt 16)
+    engine.setParams (curSR, srParam, bits);
 
+    constexpr double kFS = 8388608.0;   // Q23 full-scale (VAZ samples are ±2^23)
     const int nCh = juce::jmin (buffer.getNumChannels(), 2);
     const int n   = buffer.getNumSamples();
-    for (int ch = 0; ch < nCh; ++ch)
+    float* L = buffer.getWritePointer (0);
+    float* R = nCh > 1 ? buffer.getWritePointer (1) : nullptr;
+    for (int i = 0; i < n; ++i)
     {
-        float* d = buffer.getWritePointer (ch);
-        for (int i = 0; i < n; ++i)
-        {
-            accum[ch] += step;
-            if (accum[ch] >= 1.0) { accum[ch] -= 1.0; held[ch] = d[i]; }   // latch a new input sample
-            double y = std::round ((double) held[ch] / q) * q;             // quantise the held value
-            d[i] = (float) juce::jlimit (-1.0, 1.0, y);
-        }
+        int32_t li = (int32_t) std::llround ((double) L[i] * kFS);
+        int32_t ri = R ? (int32_t) std::llround ((double) R[i] * kFS) : li;
+        engine.processFrame (li, ri);
+        L[i] = (float) ((double) li / kFS);
+        if (R) R[i] = (float) ((double) ri / kFS);
     }
 }
 

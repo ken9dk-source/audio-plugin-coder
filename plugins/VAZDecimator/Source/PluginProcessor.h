@@ -1,11 +1,13 @@
 #pragma once
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_gui_extra/juce_gui_extra.h>
+#include "VazDecimatorEngine.h"
 
 //==============================================================================
-// VAZDecimator — standalone clone of VAZ 2010's Decimator. Two controls (Core.dll
-// FUN_005149d8): Sample Rate (sample-and-hold downsampling → aliasing) + Bit Depth
-// (quantisation; VAZ's heaviest step = 1/128). Stereo in/out.
+// VAZDecimator — clone of VAZ 2010's Decimator (TFXDecimator, render FUN_0051dbcc @0x51dbcc).
+// Two controls: Sample Rate (11-bit rate accumulator S&H) + Bit Depth (TRUNCATION `in & mask` +
+// half-LSB bias, not round-to-level) + a post DC-blocker. Ported as fixed-point in VazDecimatorEngine
+// (render bit-exact vs the decompile; VazOracle fx_decimator_render). Stereo in/out.
 //==============================================================================
 class VAZDecimatorAudioProcessor : public juce::AudioProcessor
 {
@@ -41,8 +43,7 @@ public:
 
 private:
     double curSR = 44100.0;
-    float  held[2]  = { 0.0f, 0.0f };   // per-channel sample-and-hold value
-    double accum[2] = { 1.0, 1.0 };     // per-channel S&H phase (start at 1 → latch first sample)
+    VazDecimatorEngine engine;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (VAZDecimatorAudioProcessor)
 };

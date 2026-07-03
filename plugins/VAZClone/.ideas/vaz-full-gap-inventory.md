@@ -253,14 +253,20 @@ Virtual render force-decompiled (`tools/vaz_fx_render4.c`). Clone `VAZPhaser` = 
 | Pan range | pos = min[+0x260] + lfo·(max[+0x264]−min) | leftP + lfo·(rightP−leftP) | VERIFICERET | @0x517d34:709 vs .cpp:90 |
 | Rate | inc[+0x27c] (map not extracted) | 0.1..20 Hz (f²) / sync | **PÅSTÅET** (VAZ rate map not pinned) | .cpp:76 |
 
-### FX-G — Decimator (`TFXDecimator`, render `FUN_0051dbcc` @0x51dbcc) — AUDITED · fixed-point
+### FX-G — Decimator (`TFXDecimator`, render `FUN_0051dbcc` @0x51dbcc) — ✅ **FIXED (fix #3)** · fixed-point
 
-| Part | Ghidra ref (VAZ) | Clone (VAZDecimator) | Deviation class | Status |
-|---|---|---|---|---|
-| Bit reduction | **truncation**: `held = (in & mask[+0x270]) + bias[+0x274]` | **rounding**: `round(x/q)·q`, q=2/(2^bits−1) | **FORKERT ALGORITME** (truncation+bias vs round → different grid/DC) | @0x51dbcc:748-753 vs .cpp:70 |
-| Post filter | SMOOTHING 1-pole after S&H (coef[+0x280], state[+0x284/+0x288]) | **none** (raw S&H output) | **MANGLENDE** (clone brighter/harsher) | @0x51dbcc:755-765 vs .cpp:66-72 |
-| SR reduction | 11-bit accumulator [+0x268] (>0x7ff → S&H), rate [+0x26c] | float `accum+=step` (effSR=100·(fs/100)^p) | TILNÆRMET (quantized vs continuous) | @0x51dbcc:745-747 vs .cpp:54-69 |
-| Params | 2: [+0x260]=0xff default, FUN_0051dd44(0x10) | 2: sample_rate, bit_depth | VERIFICERET (count) | ctor FUN_0051db34 |
+Clone now ships `VazDecimatorEngine` (render bit-exact vs an independent transcription: VazOracle `fx_decimator_render`).
+
+| Part | Ghidra ref (VAZ) | Clone (VazDecimatorEngine) | Status |
+|---|---|---|---|
+| Bit reduction | **truncation** `held=(in & mask)+bias`; mask=`(0xFFFFFFFF>>s)<<s`, bias=`((1<<s)−1)>>1`, s=24−bits (FUN_0051dd44) | now identical (truncation + half-LSB bias) | ✅ FIXED (was round-to-level) |
+| Post filter | DC-blocker after S&H: `out=(coef·(state+held)·16)>>32; state=out−held` (coef +0x280) | now ported (DC-blocker; coef from SR — 80-bit residual) | ✅ FIXED (was missing) |
+| SR reduction | 11-bit acc [+0x268]>0x7ff → S&H; rate=(srP+1)·192000/SR (FUN_0051dd14) | now identical (VAZ rate formula + accumulator) | ✅ FIXED (was float accum) |
+| Params | 2: SR-reduction (+0x260, dflt 0xff) + bits (+0x264, dflt 16 via 0x10) | sample_rate→srParam(0..255), bit_depth→bits(1..16) | VERIFICERET |
+
+**Residual:** the smoothing-filter coef is VAZ's 80-bit x87 (FUN_0051dc7c) — not MSVC-reproducible; substituted with a
+DC-blocker coef from SR (the render algebra fixes DC-gain=0 for any coef<2^28, so it IS a DC-blocker). Render + mask +
+bias + rate are all bit-exact.
 
 ### FX still pending (out of the 7 for this request)
 | Effect | Core.dll | Clone | Status |
@@ -282,8 +288,9 @@ later fixed-point port to bit-exactness is a separate prioritisation decision, n
 2. ✅ **FIXED — Chorus waveform mode 1↔2 swap** — now idx1=trapezoid, idx2=triangle (VAZ order).
    VazOracle `fx_chorus_waveform_map` VERIFIED; both suites green. @0x518ad8 modes 1/2.
    *NB:* clone trapezoid slope is still an approximation of VAZ's `clamp(2·tri−0.5,0,1)` — deferred to the chorus round.
-3. **Decimator: truncation+bias vs rounding, and the missing post-S&H smoothing filter** — changes the crush
-   grain & brightness on every decimator preset. FORKERT ALGORITME + MANGLENDE.
+3. ✅ **FIXED — Decimator** — replaced round-to-level with VAZ's `(in & mask)+bias` truncation + the post-S&H
+   DC-blocker + VAZ's 11-bit rate accumulator (`VazDecimatorEngine`). Render BIT-EXACT (VazOracle `fx_decimator_render`).
+   Residual: smoothing coef (80-bit) → DC-blocker substitute.
 4. **Chorus topology** — VAZ mono-summed shared delay + 3 combined-LFO taps + tap-diff stereo, vs clone's
    independent-L/R 6-tap. Different chorus character & stereo image.
 
