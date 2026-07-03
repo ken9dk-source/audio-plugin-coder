@@ -74,7 +74,8 @@ void VAZFlangerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     const double depthSamp = depthMs * 0.001 * sr;
     const double maxDelay  = (double) chL.length() - 2.0;              // clamp reads inside the delay line
     const double fbSign    = fbPhase > 0.5f ? -1.0 : 1.0;            // Feedback Phase: − inverts the feedback
-    const double feedback  = (double) fFb * 0.92 * fbSign;          // feedback comb gain (real [+0x264])
+    // VAZ feedback coef = [+0x264]<<23 (render @0x52059c); param 0..255 → max 255/256 (was a 0.92 guess).
+    const double feedback  = (double) fFb * (255.0 / 256.0) * fbSign;
     const double mix       = (double) fMix;
     const double gain      = (double) fGain;
     const double inGain    = 1.0;                                    // real [+0x294] (input into the delay line)

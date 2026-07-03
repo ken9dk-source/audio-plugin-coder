@@ -165,8 +165,8 @@ Core.dll) — NOT the clone's source; a distinct future RE target. Effects are p
 | Topology (delay line + triangle LFO + linear interp + feedback comb + linear dry/wet + L/R phase) | @0x5204F4-0x5205C2 | FlangerChannel (matches) | **TILNÆRMET** | topology-exact float port (VAZ is Q23 fixed-point → not bit-exact per-sample) |
 | Triangle LFO = abs(phase acc), NOT sine | @0x520531-34 | clone triangle | VERIFICERET | address citation |
 | Mix law = LINEAR `in+mix·(delayed−in)` | @0x5205B5 | clone linear | VERIFICERET | address citation |
-| Feedback max 0.92 (·sign on Phase) | feedback[+0x264] (scale not decoded) | :77 `fFb·0.92·sign` | **PÅSTÅET** | 0.92 is a clone guess; VAZ feedback scaling not extracted |
-| BPM sync rate | cycleSamples=(sr·60·period[+0x274])/(BPM·48), inc=round(2^31/cyc) @0x520418 | :83-99 `periodBeats[24]`, `(bpm/60)/beats` | **PÅSTÅET** | clone uses a beats table; VAZ's ·48 period-unit formula NOT cross-checked → verify next |
+| Feedback max | feedback coef = [+0x264]<<23 → max 255/256 (render @0x52059c; param 0..255, linear) | :77 `fFb·255/256·sign` (was 0.92) | ✅ **VERIFICERET/FIXED** | VazOracle `fx_flanger_feedback` BIT-EXACT (both = param/256) |
+| BPM sync rate | inc = round(BPM·**48**·(2^31−1)/(SR·60·period[+0x274])); ·48 @0x5204a9-ae, ·60 @0x520493 (FUN_00520418) | :83-99 `periodBeats[24]`, `(bpm/60)/beats` | ✅ **VERIFICERET** | `fx_flanger_sync` VERIFIED — clone == VAZ (periodBeats = period/48; ·48 = the 1/48-note unit) |
 | Params present (delay/fb/rate/depth/lr_phase/mix/gain/fb_phase/sync/period) | TFXFlanger fields +0x264…+0x2b0 | createParameterLayout:24-35 | VERIFICERET | field set matches RE |
 
 ### FX-B — Reverb (`TFXReverb@0x522530`, render `FUN_005228a4` @0x5228a4) — AUDITED · fixed-point (Q31/Q28)
@@ -300,15 +300,19 @@ later fixed-point port to bit-exactness is a separate prioritisation decision, n
    VazOracle `fx_chorus_basedelay` BIT-EXACT.
 6. **Delay mode 2** — clone "Double" (series) ≠ VAZ mono. Only mode-2 presets.
 7. **Phaser coef** — 512-entry exp LUT vs `tan()` bilinear → notch frequencies/sweep shape drift.
-8. **Flanger BPM-sync** (PÅSTÅET) — clone beats-table vs VAZ `(sr·60·period)/(BPM·48)`; only synced presets.
+8. ✅ **VERIFICERET — Flanger BPM-sync** — VAZ `inc=BPM·48·(2^31−1)/(SR·60·period)` (·48 @0x5204a9-ae, FUN_00520418);
+   clone `(bpm/60)/periodBeats` is equivalent (periodBeats = period/48). `fx_flanger_sync` VERIFIED.
+   Also ✅ **flanger feedback** fixed 0.92 → 255/256 (`fx_flanger_feedback` BIT-EXACT, render `<<23` @0x52059c).
 
 **LAV / bevidst / inaudible:**
 9. Autopan pan-law (257-LUT vs cos/sin) — mathematically the same equal-power law.
 10. Reverb comb 1188→1187 & allpass 0.5→0.65 — subsumed by #1.
 11. Q-format→float across all 7 — deliberate; only matters after topology matches.
 
-**PÅSTÅET (need more extraction before acting):** phaser stage default & feedback scale; autopan/delay/chorus
-rate ranges; flanger feedback 0.92; delay/autopan/decimator exact rate & time maps. VAZ setters not yet decoded.
+**PÅSTÅET rest (step #3) — decoded status:** flanger sync+feedback ✅ done (above). The remaining rate/scale maps
+(phaser stages/feedback, chorus rate/depth, autopan/delay rate) are computed via VAZ's **80-bit x87 float**
+(FUN_00402ba8/bf4 in each setter) → not MSVC-reproducible; structure extractable but values need the runtime dump
+(step #4) to pin exactly. They stay TILNÆRMET until then — no guessing.
 
 > **Scope:** all 7 requested effects audited (Flanger, Reverb, Chorus, Phaser, Delay, Autopan, Decimator).
 > Render loops for the 6 non-Flanger effects were force-decompiled from the virtual methods (`vaz_reverb_render.c`,

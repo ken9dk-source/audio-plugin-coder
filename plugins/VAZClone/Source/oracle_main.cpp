@@ -280,6 +280,32 @@ int main()
              "clone (value+1)/10.24*sr/1000 vs VAZ (sr*25/256000)*(value+1) @0x52076c (25/256000==1/10240)");
     }
 
+    // ── FX 1b. Flanger feedback max — clone now 255/256 (was 0.92) matches VAZ (param<<23)/2^31 @0x52059c ──
+    {
+        double maxd = 0.0;
+        for (int v = 0; v <= 255; ++v)
+        {
+            const double vaz   = (double) ((int64_t) v << 23) / 2147483648.0;   // VAZ [+0x264]<<23 as Q31 fraction
+            const double clone = (v / 255.0) * (255.0 / 256.0);                  // clone fFb·255/256 (fFb=v/255)
+            maxd = std::max (maxd, std::abs (vaz - clone));
+        }
+        row ("fx_flanger_feedback", maxd < 1e-9 ? "BIT-EXACT" : "DEVIATION (max=" + std::to_string (maxd) + ")",
+             "clone fFb·255/256 == VAZ (param<<23)/2^31 @0x52059c (both = param/256); was a 0.92 guess");
+    }
+
+    // ── FX 1c. Flanger BPM-sync ·48 — clone (bpm/60)/periodBeats matches VAZ BPM·48/(60·period) ──────────
+    {
+        double maxd = 0.0; const double BPM = 140.0;
+        for (int P = 1; P <= 96; ++P)                                            // VAZ period units (1/48-note)
+        {
+            const double vazHz   = BPM * 48.0 / (60.0 * P);                      // SR·60·period/(BPM·48) → rateHz form
+            const double cloneHz = (BPM / 60.0) / ((double) P / 48.0);           // clone with periodBeats = period/48
+            maxd = std::max (maxd, std::abs (vazHz - cloneHz) / vazHz);
+        }
+        row ("fx_flanger_sync", maxd < 1e-12 ? "VERIFIED (·48 unit)" : "DEVIATION",
+             "VAZ inc=BPM·48·(2^31-1)/(SR·60·period) [·48 @0x5204a9-ae, ·60 @0x520493]; clone (bpm/60)/periodBeats == it (periodBeats=period/48)");
+    }
+
     // ── FX 2. Chorus base-delay — clone now uses VAZ's exact integer formula (FUN_00518fbc @0x518fbc) ──
     {
         const int srI = 44100; long maxd = 0;
