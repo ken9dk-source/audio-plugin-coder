@@ -3,11 +3,13 @@
 #include <juce_gui_extra/juce_gui_extra.h>
 #include <vector>
 #include <cmath>
+#include "VazDelayEngine.h"
 
 //==============================================================================
-// VAZDelay — standalone clone of VAZ 2010's Delay. Two L/R delay lines, 3 routing
-// modes (Stereo / Ping-Pong / Double), per-channel Feedback, Tone (1-pole LP in
-// the feedback path), Wet/Dry; Link + tempo Sync. Cross-fades delay-time changes.
+// VAZDelay — VAZ's real Delay (TFXDelay, render FUN_0051bba8 @0x51bba8): a stereo circular delay with a one-pole
+// damping LP in each feedback path, per-channel dry/wet, and 3 routing modes (0 Stereo · 1 Ping-Pong = cross
+// feedback · ≥2 serial Double). Ported as fixed-point in VazDelayEngine (integer taps, no interpolation — matches
+// VAZ); render bit-exact vs the decompile (VazOracle fx_delay_render). Link + tempo Sync; delay-time smoothing.
 //==============================================================================
 class VAZDelayAudioProcessor : public juce::AudioProcessor
 {
@@ -42,14 +44,9 @@ public:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
 private:
-    float readInterp (const std::vector<float>& buf, double readPos) const noexcept;
-
+    VazDelayEngine engine;
     double sr = 44100.0;
-    std::vector<float> bufL, bufR;     // delay lines (sized for 6 s)
-    int    bufLen = 1;
-    int    writeL = 0, writeR = 0;
-    double curDelL = 100.0, curDelR = 100.0;   // smoothed delay length (samples)
-    double toneZL = 0.0, toneZR = 0.0;         // 1-pole LP feedback-tone state
+    double curDelL = 4410.0, curDelR = 4410.0;   // smoothed delay length (samples) → quantised to the engine's int taps
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (VAZDelayAudioProcessor)
 };

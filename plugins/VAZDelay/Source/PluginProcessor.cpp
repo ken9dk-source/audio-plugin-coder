@@ -49,12 +49,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout VAZDelayAudioProcessor::crea
 void VAZDelayAudioProcessor::prepareToPlay (double sampleRate, int)
 {
     sr = sampleRate > 0.0 ? sampleRate : 44100.0;
-    bufLen = (int) (6.05 * sr) + 4;                 // 6 s max delay
-    bufL.assign ((size_t) bufLen, 0.0f);
-    bufR.assign ((size_t) bufLen, 0.0f);
-    writeL = writeR = 0;
+    engine.prepare (sr);                 // buffer = next pow2(sr·2.55) (FUN_0051bf78)
     curDelL = curDelR = 0.1 * sr;
-    toneZL = toneZR = 0.0;
 }
 
 bool VAZDelayAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -64,15 +60,6 @@ bool VAZDelayAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts)
     if (out != juce::AudioChannelSet::stereo() && out != juce::AudioChannelSet::mono())
         return false;
     return in == out;
-}
-
-float VAZDelayAudioProcessor::readInterp (const std::vector<float>& buf, double readPos) const noexcept
-{
-    int i0 = (int) readPos;
-    double f = readPos - (double) i0;
-    if (i0 >= bufLen) i0 -= bufLen;
-    int i1 = i0 + 1; if (i1 >= bufLen) i1 -= bufLen;
-    return buf[(size_t) i0] + (buf[(size_t) i1] - buf[(size_t) i0]) * (float) f;
 }
 
 void VAZDelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
@@ -127,70 +114,45 @@ void VAZDelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
         }
         return 5.0 * std::pow (1200.0, (double) p) * 0.001 * sr;       // free: 5 ms .. 6 s (log)
     };
-    const double tgtL = juce::jlimit (1.0, (double) (bufLen - 2), delSamples (dL, noteL));
-    const double tgtR = juce::jlimit (1.0, (double) (bufLen - 2), delSamples (dR, noteR));
+    const int    maxTap = engine.mask - 2;
+    const double tgtL = juce::jlimit (1.0, (double) maxTap, delSamples (dL, noteL));
+    const double tgtR = juce::jlimit (1.0, (double) maxTap, delSamples (dR, noteR));
 
-    auto toneCoef = [&] (float t) -> double
+    // VAZ damping one-pole (render @0x51bba8:54-56): w = x + (state−x)·k, k = damp/2^28 (feedback retention).
+    // Match the clone's tone (fc = 150·66^t): k = 1 − tc = exp(−2π·fc/sr). ⚠ exact VAZ tone→damp is 80-bit (approx).
+    auto dampCoef = [&] (float t) -> int32_t
     {
-        const double fc = 150.0 * std::pow (66.0, (double) t);     // Dark 150 Hz .. Bright ~10 kHz
-        return 1.0 - std::exp (-juce::MathConstants<double>::twoPi * fc / sr);
+        const double fc = 150.0 * std::pow (66.0, (double) t);
+        const double k  = std::exp (-juce::MathConstants<double>::twoPi * fc / sr);
+        return (int32_t) juce::jlimit ((long long) 0, (long long) 0x0FFFFFFF, std::llround (k * (double) 0x10000000));
     };
-    const double tcL = toneCoef (tnL), tcR = toneCoef (tnR);
-    const double smooth = 1.0 - std::exp (-1.0 / (0.02 * sr));     // ~20 ms delay-time glide → click-free
 
+    engine.mode = juce::jlimit (0, 2, mode);
+    engine.fbL  = juce::jlimit (0, 255, (int) std::lround (fbL * 255.0f));   // feedback (fb/256)
+    engine.fbR  = juce::jlimit (0, 255, (int) std::lround (fbR * 255.0f));
+    engine.dampL = dampCoef (tnL);  engine.dampR = dampCoef (tnR);
+    engine.dryL = (int32_t) std::llround ((double) dryL * (double) 0x40000000);   // Q30
+    engine.dryR = (int32_t) std::llround ((double) dryR * (double) 0x40000000);
+    engine.wetL = (int32_t) std::llround ((double) wL   * (double) 0x40000000);   // Q30
+    engine.wetR = (int32_t) std::llround ((double) wR   * (double) 0x40000000);
+
+    const double smooth = 1.0 - std::exp (-1.0 / (0.02 * sr));     // ~20 ms delay-time glide → quantised int tap
+    constexpr double kFS = 8388608.0;                             // Q23 full-scale
     const int n = buffer.getNumSamples();
     const int nCh = buffer.getNumChannels();
     float* L = buffer.getWritePointer (0);
     float* R = nCh > 1 ? buffer.getWritePointer (1) : nullptr;
-
     for (int i = 0; i < n; ++i)
     {
         curDelL += (tgtL - curDelL) * smooth;
         curDelR += (tgtR - curDelR) * smooth;
-
-        const double inL = (double) L[i];
-        const double inR = R != nullptr ? (double) R[i] : inL;
-
-        double rdL = (double) writeL - curDelL; while (rdL < 0.0) rdL += bufLen;
-        double rdR = (double) writeR - curDelR; while (rdR < 0.0) rdR += bufLen;
-        const double dlyL = (double) readInterp (bufL, rdL);
-        const double dlyR = (double) readInterp (bufR, rdR);
-
-        toneZL += tcL * (dlyL - toneZL);          // 1-pole LP in the feedback path
-        toneZR += tcR * (dlyR - toneZR);
-        const double tL = toneZL, tR = toneZR;
-
-        double wrL, wrR, outL, outR;
-        if (mode == 1)            // Ping-Pong: feedback crosses to the opposite channel
-        {
-            wrL = inL + (double) fbL * tR;
-            wrR = inR + (double) fbR * tL;
-            outL = inL * dryL + dlyL * wL;
-            outR = inR * dryR + dlyR * wR;
-        }
-        else if (mode == 2)       // Double: the two delays in series (mono pattern)
-        {
-            const double inM = 0.5 * (inL + inR);
-            wrL = inM + (double) fbL * tR;        // delay 1 = input + feedback from end
-            wrR = tL;                             // delay 1 output feeds delay 2
-            outL = inL * dryL + dlyR * wL;        // output = end of the chain
-            outR = inR * dryR + dlyR * wR;
-        }
-        else                      // Stereo: independent L / R
-        {
-            wrL = inL + (double) fbL * tL;
-            wrR = inR + (double) fbR * tR;
-            outL = inL * dryL + dlyL * wL;
-            outR = inR * dryR + dlyR * wR;
-        }
-
-        bufL[(size_t) writeL] = (float) wrL;
-        bufR[(size_t) writeR] = (float) wrR;
-        if (++writeL >= bufLen) writeL = 0;
-        if (++writeR >= bufLen) writeR = 0;
-
-        L[i] = (float) outL;
-        if (R != nullptr) R[i] = (float) outR;
+        engine.delayL = juce::jlimit (1, maxTap, (int) std::lround (curDelL));
+        engine.delayR = juce::jlimit (1, maxTap, (int) std::lround (curDelR));
+        int32_t li = (int32_t) std::llround ((double) L[i] * kFS);
+        int32_t ri = R ? (int32_t) std::llround ((double) R[i] * kFS) : li;
+        engine.processFrame (li, ri);
+        L[i] = (float) ((double) li / kFS);
+        if (R) R[i] = (float) ((double) ri / kFS);
     }
 }
 

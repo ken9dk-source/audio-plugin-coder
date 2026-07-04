@@ -13,6 +13,7 @@
 #include "../../VAZDecimator/Source/VazDecimatorEngine.h"  // the REAL clone decimator engine (tested below)
 #include "../../VAZChorus/Source/VazChorusEngine.h"         // the REAL clone chorus engine (tested below)
 #include "../../VAZPhaser/Source/VazPhaserEngine.h"          // the REAL clone phaser engine (tested below)
+#include "../../VAZDelay/Source/VazDelayEngine.h"            // the REAL clone delay engine (tested below)
 #include <cstdint>
 #include <cstdio>
 #include <cmath>
@@ -173,6 +174,57 @@ struct RefPhaser
         phase += inc;
         L = ch (L, phase, apL, fbL);
         R = ch (R, phase + (uint32_t) (lrPhase * -0x1000000), apR, fbR);
+    }
+};
+
+// Independent reference transcription of the delay render FUN_0051bba8 @0x51bba8 (iVar/offset style, 3 modes).
+struct RefDelay
+{
+    std::vector<int32_t> buf; int32_t mask = 0; uint32_t wpos = 0; int mode = 0;
+    int32_t delayL = 1, delayR = 1, fbL = 0, fbR = 0, dampL = 0, dampR = 0, stateL = 0, stateR = 0, dryL = 0, dryR = 0, wetL = 0, wetR = 0;
+    void prep (int nFrames) { buf.assign ((size_t) nFrames * 2, 0); mask = nFrames - 1; wpos = 0; stateL = stateR = 0; }
+    static int32_t mh (int32_t a, int32_t b) { return (int32_t) (((int64_t) a * (int64_t) b) >> 32); }
+    static int32_t sh (int32_t v, int n) { return (int32_t) ((uint32_t) v << n); }
+    void frame (int32_t& L, int32_t& R)
+    {
+        uint32_t u9 = (wpos - 1) & (uint32_t) mask; wpos = u9;
+        int32_t iv6, iv8, iv5, iv7;
+        int32_t tL = buf[(size_t) (((uint32_t) delayL + u9) & (uint32_t) mask) * 2 + 0];
+        int32_t tR = buf[(size_t) (((uint32_t) delayR + u9) & (uint32_t) mask) * 2 + 1];
+        if (mode == 1)
+        {
+            iv6 = L; iv8 = tL; iv5 = tR;
+            iv7 = iv6 + mh (sh (iv5, 2), sh (fbL, 22));
+            iv7 = mh (sh (stateL - iv7, 4), dampL) + iv7; stateL = iv7; buf[(size_t) u9 * 2 + 0] = iv7;
+            L = mh (dryL, sh (iv6, 2)) + mh (sh (iv8, 2), wetL);
+            iv6 = R;
+            iv8 = iv6 + mh (sh (iv8, 2), sh (fbR, 22));
+            iv8 = mh (sh (stateR - iv8, 4), dampR) + iv8; stateR = iv8; buf[(size_t) u9 * 2 + 1] = iv8;
+            R = mh (dryR, sh (iv6, 2)) + mh (sh (iv5, 2), wetR);
+        }
+        else if (mode < 2)
+        {
+            iv6 = L; iv8 = tL;
+            iv5 = iv6 + mh (sh (iv8, 2), sh (fbL, 22));
+            iv5 = mh (sh (stateL - iv5, 4), dampL) + iv5; stateL = iv5; buf[(size_t) u9 * 2 + 0] = iv5;
+            L = mh (dryL, sh (iv6, 2)) + mh (sh (iv8, 2), wetL);
+            iv6 = R; iv8 = tR;
+            iv5 = iv6 + mh (sh (iv8, 2), sh (fbR, 22));
+            iv5 = mh (sh (stateR - iv5, 4), dampR) + iv5; stateR = iv5; buf[(size_t) u9 * 2 + 1] = iv5;
+            R = mh (dryR, sh (iv6, 2)) + mh (sh (iv8, 2), wetR);
+        }
+        else
+        {
+            iv6 = L; iv8 = R; iv5 = tL;
+            iv7 = iv6 + iv8 + mh (sh (iv5, 2), sh (fbL, 22));
+            iv7 = mh (sh (stateL - iv7, 4), dampL) + iv7; stateL = iv7; buf[(size_t) u9 * 2 + 0] = iv7;
+            iv8 = mh (dryL, sh (iv6 + iv8, 2)) + mh (sh (iv5, 2), wetL);
+            iv6 = tR;
+            iv5 = iv8 + mh (sh (iv6, 2), sh (fbR, 22));
+            iv5 = mh (sh (stateR - iv5, 4), dampR) + iv5; stateR = iv5; buf[(size_t) u9 * 2 + 1] = iv5;
+            iv6 = mh (dryR, sh (iv8, 2)) + mh (sh (iv6, 2), wetR);
+            L = iv6; R = iv6;
+        }
     }
 };
 
@@ -507,6 +559,34 @@ int main()
         }
         row ("fx_phaser_render", maxd == 0 ? "BIT-EXACT" : "DEVIATION (max=" + std::to_string (maxd) + ")",
              "clone VazPhaserEngine vs independent transcription of FUN_005218d8 (N allpass + fb + linear mix + stereo), LFO moving, impulse+noise");
+    }
+
+    // ── FX 10. Delay render — clone VazDelayEngine vs independent transcription of FUN_0051bba8, all 3 modes ──
+    {
+        long maxd = 0;
+        for (int mode = 0; mode <= 2; ++mode)          // 0 Stereo · 1 Ping-Pong · 2 serial Double
+        {
+            VazDelayEngine eng; RefDelay ref;
+            eng.prepare (44100.0); ref.prep ((int) (eng.buf.size() / 2));   // same pow2 buffer/mask
+            eng.mode = ref.mode = mode;
+            eng.delayL = ref.delayL = 11025; eng.delayR = ref.delayR = 8267;   // ~250/187 ms taps
+            eng.fbL = ref.fbL = 170; eng.fbR = ref.fbR = 150;                  // feedback (fb/256)
+            eng.dampL = ref.dampL = 0x0C000000; eng.dampR = ref.dampR = 0x0A000000;   // Q28 damping
+            eng.dryL = ref.dryL = 0x40000000; eng.dryR = ref.dryR = 0x40000000;       // Q30 unity dry
+            eng.wetL = ref.wetL = 0x20000000; eng.wetR = ref.wetR = 0x20000000;       // Q30 0.5 wet
+            uint32_t rng = 0xDECAF0u;
+            for (int i = 0; i < 200000; ++i)           // long enough for the feedback tail
+            {
+                int32_t s = (i == 0) ? (1 << 21) : (int32_t) ((rng = rng * 1664525u + 1013904223u) >> 9) - (1 << 21);
+                int32_t eL = s, eR = s ^ 0x7f, rL = s, rR = s ^ 0x7f;
+                eng.processFrame (eL, eR); ref.frame (rL, rR);
+                long d1 = (long) eL - (long) rL; if (d1 < 0) d1 = -d1;
+                long d2 = (long) eR - (long) rR; if (d2 < 0) d2 = -d2;
+                if (d1 > maxd) maxd = d1; if (d2 > maxd) maxd = d2;
+            }
+        }
+        row ("fx_delay_render", maxd == 0 ? "BIT-EXACT" : "DEVIATION (max=" + std::to_string (maxd) + ")",
+             "clone VazDelayEngine vs independent transcription of FUN_0051bba8 (stereo/ping-pong/serial-double + damped fb), 3 modes, impulse+noise");
     }
 
     std::printf ("\n  Constants sourced: cutoff-smooth DAT_006d45e4, detune DAT_0052b168/0x52b0ec, env-rate DAT_006db7e8, stage0 DAT_006dc0bc, flanger delay 0x52076c, chorus delay 0x518fbc.\n");

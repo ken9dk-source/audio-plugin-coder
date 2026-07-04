@@ -241,15 +241,18 @@ Clone now ships `VazPhaserEngine` (fixed-point port; render bit-exact vs an inde
 | LFO / mix / stereo | triangle=abs, linear mix (mix<<22 → /256), separate banks +0x2b0/+0x2e0 + lrPhase·−2^24 | now identical (transcribed) | ✅ VERIFICERET |
 | inGain [+0x298] / rate inc [+0x294] | Q30 input scale / 80-bit LFO rate | inGain=unity 2^30 (no setter writes +0x298); rate≈fRate²·20 | inGain ASSUMED unity; **rate TILNÆRMET-ACCEPTERET** (80-bit, sub-audible) |
 
-### FX-E — Delay (`TFXDelay`, render `FUN_0051bba8` @0x51bba8) — AUDITED · fixed-point
+### FX-E — Delay (`TFXDelay`, render `FUN_0051bba8` @0x51bba8) — ✅ **FIXED (bit-exact)** · fixed-point
 
-| Part | Ghidra ref (VAZ) | Clone (VAZDelay) | Deviation class | Status |
-|---|---|---|---|---|
-| Engine | stereo circular buf, damped feedback (1-pole LP), sep L/R taps | same shape (bufL/bufR, tone LP in fb, sep L/R) | VERIFICERET (topology matches) | @0x51bba8 line-by-line |
-| Modes [+0x260] | 0 Stereo · 1 Ping-Pong · **≥2 = MONO** (L+R sum, one delay, dual-mono out) | 0 Stereo · 1 Ping-Pong · **2 = "Double"** (series delays) | **FORKERT TOPOLOGI** (mode 2 semantics) | @0x51bba8:131-171 vs .cpp:171-178 |
-| Feedback tone LP | in-loop 1-pole (coef +0x2a8/+0x2ac, state +0x2b0/+0x2b4) | `toneZ += tc·(dly−toneZ)` in fb | VERIFICERET (both damp the feedback) | @0x51bba8:54-56 vs .cpp:159 |
-| Delay-time map | prepare uses sr; buf = sr·0x9f6/1000 (≈2.55 s) → pow2 | free 5·1200^p ms (5ms..6s); sync note-table | **PÅSTÅET** (VAZ time-map + sync not extracted) | FUN_0051bf78:168 vs .cpp:128 |
-| Dry/wet | sep dry[+0x2c0]/wet[+0x2b8] gains | sep dry/wet per ch | VERIFICERET | @0x51bba8:59-62 |
+Clone now ships `VazDelayEngine` (fixed-point port; render bit-exact vs an independent transcription: VazOracle
+`fx_delay_render` BIT-EXACT over impulse+noise, **all 3 modes**). VAZ uses INTEGER taps (no interpolation).
+
+| Part | Ghidra ref (VAZ) | Clone (VazDelayEngine) | Status |
+|---|---|---|---|
+| Engine | stereo circular buf (int taps), damped feedback 1-pole, sep L/R | now identical (fixed-point transcription) | ✅ FIXED — `fx_delay_render` BIT-EXACT |
+| Modes [+0x260] | 0 Stereo (self fb) · 1 Ping-Pong (**cross** fb: L←tapR, R←tapL) · **≥2 = serial Double** (mono → L-delay → R-delay → dual-mono) | now all 3 identical | ✅ FIXED — *(corrects my earlier audit: mode 2 is a **serial double**, not simple mono; the clone's "Double" was close but the exact chaining differed)* |
+| Feedback damping | 1-pole `w = x + (state−x)·k`, k = damp/2^28 (Q28), states +0x2b0/+0x2b4 | now identical (Q28 damping); tone→k = exp(−2π·fc/sr) | ✅ FIXED (was float); tone→damp curve TILNÆRMET (80-bit) |
+| Q-formats | feedback tap·fb/256 (fb 0..255), dry/wet Q30 (v·g/2^30) | now identical | ✅ ported exactly |
+| Delay-time map | integer taps; buffer = next_pow2(sr·2550/1000) (FUN_0051bf78) | buffer exact; tap = round(smoothed samples); free 5·1200^p / sync note-table | buffer ✅ exact; **time-map TILNÆRMET-ACCEPTERET** (VAZ delay-time setter 80-bit, sub-audible) |
 
 ### FX-F — Autopan (`TFXAutopan`, render `FUN_00517d34` @0x517d34) — AUDITED · fixed-point · **cleanest match**
 
@@ -306,7 +309,9 @@ later fixed-point port to bit-exactness is a separate prioritisation decision, n
 **MEDIUM (audible on some presets):**
 5. ✅ **FIXED — Chorus base-delay** — clone now uses VAZ's exact `((sr·50)/256000)·(delay+1)` (FUN_00518fbc);
    VazOracle `fx_chorus_basedelay` BIT-EXACT.
-6. **Delay mode 2** — clone "Double" (series) ≠ VAZ mono. Only mode-2 presets.
+6. ✅ **FIXED — Delay** — `VazDelayEngine` (fixed-point): all 3 modes bit-exact (`fx_delay_render`), incl. mode 2 =
+   VAZ's exact **serial double** (mono→L-delay→R-delay→dual-mono; my earlier "mode 2 = mono" audit was wrong). Q28
+   damping + Q30 dry/wet exact. Residual: delay-time + tone→damp curves (80-bit, accepted).
 7. ✅ **FIXED — Phaser** — `VazPhaserEngine` (fixed-point): render BIT-EXACT (`fx_phaser_render`), coef from the
    **runtime-dumped 512-entry LUT** (`fx_phaser_coef_lut` VERIFIED, replaced tan()), feedback fixed 0.72→0.78125,
    stages verified. Residual: rate inc (80-bit, accepted) + inGain assumed unity.
