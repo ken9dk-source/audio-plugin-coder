@@ -54,30 +54,43 @@ public:
         // triangles and thin vertical "stems" hanging from the plateau down to
         // the triangles at the 3 inner crossovers. Straight segments only —
         // no Bézier / interpolation.
-        const float stemY = H - 14.f;    // bottom of the stems, at the triangles
+        // Continuous plateau at the band levels; a small V-dip at each of the 3
+        // inner crossovers, and a THIN vertical stem from every edge down to its
+        // triangle. Matches the DLL (flat tops, small notch, thin stems).
+        const float triY    = 137.f;      // triangle base y (component; editor ~167)
+        const float stemBot = triY - 8.f; // stems meet the triangle apex
+        const float dip     = 7.f;        // V-dip depth at each inner crossover
         g.setColour (juce::Colour (0xff8fc4e8));
-        const juce::PathStrokeType stroke (2.0f, juce::PathStrokeType::mitered,
-                                                 juce::PathStrokeType::butt);
+        const juce::PathStrokeType stroke (1.6f, juce::PathStrokeType::curved,
+                                                 juce::PathStrokeType::rounded);
+        const juce::PathStrokeType thin (1.1f);
 
         juce::Path plateau;
-        plateau.startNewSubPath (edge[0], stemY);            // bottom-left triangle
-        plateau.lineTo           (edge[0], dbToY (lvl[0]));   // up to band 0 level
+        plateau.startNewSubPath (edge[0], dbToY (lvl[0]));
         for (int b = 0; b < 4; ++b)
         {
-            plateau.lineTo (edge[b + 1], dbToY (lvl[b]));      // plateau across band b
+            const float yb = dbToY (lvl[b]);
             if (b < 3)
-                plateau.lineTo (edge[b + 1], dbToY (lvl[b + 1])); // vertical step
+            {
+                const float yn = dbToY (lvl[b + 1]);
+                plateau.lineTo (edge[b + 1] - 4.f, yb);                        // flat to the notch
+                plateau.lineTo (edge[b + 1],       juce::jmax (yb, yn) + dip); // V down
+                plateau.lineTo (edge[b + 1] + 4.f, yn);                        // V up to next level
+            }
+            else
+                plateau.lineTo (edge[b + 1], yb);                              // flat to right edge
         }
-        plateau.lineTo (edge[4], stemY);                     // down to bottom-right
         g.strokePath (plateau, stroke);
 
-        for (int i = 1; i <= 3; ++i)                          // inner crossover stems
+        for (int i = 0; i < 5; ++i)                                            // thin stems -> triangles
         {
-            const float yTop = juce::jmin (dbToY (lvl[i - 1]), dbToY (lvl[i]));
+            const float yTop = (i == 0) ? dbToY (lvl[0])
+                             : (i == 4) ? dbToY (lvl[3])
+                             : juce::jmax (dbToY (lvl[i - 1]), dbToY (lvl[i])) + dip;
             juce::Path stem;
             stem.startNewSubPath (edge[i], yTop);
-            stem.lineTo           (edge[i], stemY);
-            g.strokePath (stem, stroke);
+            stem.lineTo           (edge[i], stemBot);
+            g.strokePath (stem, thin);
         }
 
         // ---- diamonds (band levels) ------------------------------------
@@ -107,9 +120,9 @@ public:
                               || (i == 0 && dragKind_ == Drag::edge && dragIdx_ == 0)
                               || (i == 4 && dragKind_ == Drag::edge && dragIdx_ == 1);
             juce::Path t;
-            t.startNewSubPath (x - 5.f, H);
-            t.lineTo (x + 5.f, H);
-            t.lineTo (x,       H - 10.f);
+            t.startNewSubPath (x - 5.f, triY);
+            t.lineTo (x + 5.f, triY);
+            t.lineTo (x,       triY - 9.f);
             t.closeSubPath();
             g.setColour (hot ? juce::Colours::white : juce::Colour (0xffb8c8d2));
             g.fillPath (t);
@@ -241,13 +254,18 @@ private:
     // width (the dB ruler 20..-20 occupies the right ~27 px). Measured from 1000.png.
     static constexpr float F_MIN     = 25.f;
     static constexpr float F_MAX     = 12800.f;
-    static constexpr float LOG2_SPAN = 9.f;            // log2(12800/25) = log2(512) = 9
-    static constexpr float PLOT_FRAC = 263.f / 290.f;  // plotting width / panel width
-    float plotW () const noexcept { return (float) getWidth() * PLOT_FRAC; }
+    static constexpr float LOG2_SPAN = 9.f;            // log2(12800/25) = 9 octaves
+    // Plot (grid) area inside the 290-wide component: measured from the DLL editor
+    // capture (editor x392..605 -> component x15..228; 25 Hz@392, 12.8 kHz@605,
+    // ~23.7 px/octave). Was wrongly spread over 263/290 of the width.
+    static constexpr float PLOT_X0F = 15.f  / 290.f;
+    static constexpr float PLOT_WF  = 213.f / 290.f;
+    float plotX0 () const noexcept { return (float) getWidth() * PLOT_X0F; }
+    float plotW  () const noexcept { return (float) getWidth() * PLOT_WF; }
     float freqToX (float f) const noexcept
-    { return juce::jlimit (0.f, plotW(), plotW() * std::log2 (f / F_MIN) / LOG2_SPAN); }
+    { return plotX0() + plotW() * std::log2 (f / F_MIN) / LOG2_SPAN; }
     float xToFreq (float x) const noexcept
-    { return F_MIN * std::pow (2.f, (x / plotW()) * LOG2_SPAN); }
+    { return F_MIN * std::pow (2.f, ((x - plotX0()) / plotW()) * LOG2_SPAN); }
     // 0 dB sits where the original's default diamonds sit (clean y99 = component
     // 69), ~3.55 px per dB so the skin ruler's ±20 spans the grid exactly.
     static constexpr float ZERO_Y    = 69.f;
