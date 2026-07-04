@@ -193,11 +193,13 @@ is a **custom integer Schroeder network**, NOT juce::Reverb/Freeverb. ✅ **FIXE
 **Verdict:** ✅ **FIXED** — `VazReverbEngine` (`plugins/VAZReverb/Source/VazReverbEngine.h`) is a fixed-point port of
 the exact topology: 9 plain combs (SR-scaled tunings) + weighted-sum pseudo-stereo + 4 series allpass/ch (g=0.65) +
 global Q28 damping + linear mix. The old "faithful Freeverb match" comment is gone.
-**Bit-exactness:** the integer RENDER + all delay lengths are bit-exact (VazOracle `fx_reverb_render` BIT-EXACT vs an
-independent transcription; `fx_reverb_stable` VERIFIED). **Residual (documented):** the size→coef and damp→coef curves
-use VAZ's 80-bit x87 float (FUN_00522fcc/FUN_00523194) which MSVC's 64-bit `long double` cannot reproduce — and a
-literal read degenerates to coef≈1 (infinite tail); substituted with an RT60 decay so `size` sets the tail length.
-Exact coef reproduction would need a runtime dump of the (heap) reverb object's computed coef ints.
+**Bit-exactness:** the integer RENDER + all delay lengths are bit-exact (VazOracle `fx_reverb_render`; `fx_reverb_stable`
+VERIFIED). ✅ **Coef residual RESOLVED (step #4):** the size→coef and damp→coef curves are VAZ's 80-bit x87 float
+(FUN_00522fcc/FUN_00523194, not MSVC-reproducible), so they were **runtime-dumped** — `tools/vaz_coef_dump.cpp`
+LoadLibrary's Core.dll, resolves its IAT by hand (skips the crashing DllMain), and calls the real setters at every
+size/damp 0..255 → `reference/vaz_reverb_coef_lut.h` (validated: lengths dumped = tunings). The engine now uses the
+exact LUT (SR-adjusted by `^(44100/sr)` since the exponent ∝ 1/sr). `fx_reverb_coef_exact` VERIFIED. Also fixed the
+damp direction (was inverted). Only mode-0 sine LUT... n/a (reverb has none).
 
 ### FX-C — Chorus (`TFXChorus`, `FUN_00518ad8` @0x518ad8) — ✅ **FIXED (#4 topology + #5 base + #2 waveform)** · fixed-point
 
@@ -265,9 +267,11 @@ Clone now ships `VazDecimatorEngine` (render bit-exact vs an independent transcr
 | SR reduction | 11-bit acc [+0x268]>0x7ff → S&H; rate=(srP+1)·192000/SR (FUN_0051dd14) | now identical (VAZ rate formula + accumulator) | ✅ FIXED (was float accum) |
 | Params | 2: SR-reduction (+0x260, dflt 0xff) + bits (+0x264, dflt 16 via 0x10) | sample_rate→srParam(0..255), bit_depth→bits(1..16) | VERIFICERET |
 
-**Residual:** the smoothing-filter coef is VAZ's 80-bit x87 (FUN_0051dc7c) — not MSVC-reproducible; substituted with a
-DC-blocker coef from SR (the render algebra fixes DC-gain=0 for any coef<2^28, so it IS a DC-blocker). Render + mask +
-bias + rate are all bit-exact.
+**Residual:** the smoothing-filter coef is VAZ's 80-bit x87 (FUN_0051dc7c). Runtime dump was **attempted** (step #4,
+same harness as reverb) but FUN_0051dc7c → FUN_0051dd14 faults with an integer divide-by-zero even with the SR double-
+indirection set — the decimator object needs more fields initialised than we can safely fake standalone. Per the
+"no-guess" fallback, we KEEP the DC-blocker substitute (render algebra fixes DC-gain=0 for any coef<2^28, so it IS a
+DC-blocker). Render + mask + bias + rate remain bit-exact.
 
 ### FX still pending (out of the 7 for this request)
 | Effect | Core.dll | Clone | Status |

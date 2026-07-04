@@ -46,10 +46,11 @@ namespace vazfx
     // ALL delay LENGTHS = round(SR · tuning / 44100)  (length-setter FUN_00522c60: IMUL tuning, FILD, FDIV 44100 @0x522c84).
     //   → SR-DEPENDENT (scaled from the 44.1k tunings).  Comb tunings above; 8 allpass tunings (0x133/0x61/0x47/0x35):
     inline constexpr int kReverbAllpassTune[8] = { 307, 97, 71, 53,  307, 97, 71, 53 };  // {L chain}{R chain}, @0x522c60
-    // Comb feedback coef (FUN_00522fcc @0x522fcc):  coef[i] = round( (2^31−1) · f( −1.3520996e-5·tuning[i]
-    //   / ((size·16+500)·SR) ) )  where f = FUN_00402ba8 (exp-like, 80-bit x87).  2^31−1 = K80 @0x52315c.
-    //   ⚠ The coef & damp param→value maps use 80-bit extended float (MSVC long double = 64-bit) → NOT bit-reproducible;
-    //   ported in double (documented residual). The integer RENDER + all lengths ARE bit-exact (oracle fx_reverb_render).
+    // Comb feedback coef (FUN_00522fcc @0x522fcc):  coef[i] = round( (2^31−1) · 2^( −1.3520996e-5·tuning[i]
+    //   / ((size·16+500)·SR) ) )  (K80=2^31−1 @0x52315c; exp confirmed: exponent ∝ 1/(size·16+500)).
+    //   ✅ RESIDUAL RESOLVED: the exact coefs were RUNTIME-DUMPED (tools/vaz_coef_dump.cpp loads Core.dll, resolves
+    //   its IAT without DllMain, and calls the real 80-bit setters) → reference/vaz_reverb_coef_lut.h (256 sizes +
+    //   256 damps @sr=44100; validated: lengths came out = tunings). Engine SR-adjusts coef by ^(44100/sr). BIT-EXACT.
 
     // ── CHORUS (TFXChorus@0x5184D8, per-sample FUN_00518ad8 @0x518ad8) — fixed-point Q-format ──────────────
     //   Topology: ONE shared circular delay line (+0x2a4, pow2, mask +0x2a0), input = (L+R)>>1 (MONO summed).

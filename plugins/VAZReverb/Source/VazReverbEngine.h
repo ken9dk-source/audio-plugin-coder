@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <cstring>
 #include <cmath>
+#include "../../VAZClone/reference/vaz_reverb_coef_lut.h"   // EXACT runtime-dumped coef/damp LUTs (sr=44100)
 
 struct VazReverbEngine
 {
@@ -109,22 +110,22 @@ struct VazReverbEngine
     void setParams (double sr, int size, int damp, int mix) noexcept
     {
         setLengths (sr);
-        // Comb feedback coef. VAZ's FUN_00522fcc computes it in 80-bit x87 float (K80=2^31−1 @0x52315c, exponent
-        // −1.3520996e-5·tuning/((size·16+500)·sr) through FUN_00402ba8) — NOT reproducible in MSVC, and a literal
-        // read degenerates to coef≈1 (infinite tail). Substitute a musically-equivalent RT60 decay so 'size' sets
-        // the tail length, uniform across combs: coef[i] = 10^(−3·(len[i]/sr)/RT60), RT60 = 0.25..8 s from size.
-        const double rt60 = 0.25 + (double) size / 255.0 * 7.75;   // 0.25 s (size 0) … 8 s (size 255)
+        if (size < 0) size = 0; if (size > 255) size = 255;
+        if (damp < 0) damp = 0; if (damp > 255) damp = 255;
+        // EXACT comb feedback coefs, runtime-dumped from VAZ's real 80-bit setter (vaz_reverb_coef_lut.h @sr=44100).
+        // The exponent ∝ 1/(size·16+500)·1/sr (asm @0x522fcc), so the ONLY sr-dependence is the exp base →
+        // SR-adjust exactly: coef_sr = 2^31·(coef_44k/2^31)^(44100/sr).
+        const double srAdj = 44100.0 / sr;
         for (int i = 0; i < 10; ++i)
         {
-            const double delaySec = (double) combLen[i] / sr;
-            double cf = std::pow (10.0, -3.0 * delaySec / rt60);
-            if (cf > 0.9995) cf = 0.9995;                          // guard: never exactly 1.0 (stability)
-            if (cf < 0.0)    cf = 0.0;
-            combCoef[i] = (int32_t) std::llround (2147483647.0 * cf);
+            const double c44 = (double) vazfx::kReverbCombCoefLUT[size][i] / 2147483648.0;
+            const double c   = (sr == 44100.0) ? c44 : std::pow (c44, srAdj);
+            int64_t q = (int64_t) std::llround (2147483648.0 * c);
+            if (q > 0x7FFFFFFF) q = 0x7FFFFFFF; if (q < 0) q = 0;      // stay < 1.0 in Q31
+            combCoef[i] = (int32_t) q;
         }
-        // FUN_00523194: damp2 = coef (Q28), damp1 = 2^28 − coef. Map damp 0..255 → coef fraction of 2^28.
-        double d = (double) damp / 255.0; if (d < 0.0) d = 0.0; if (d > 1.0) d = 1.0;
-        damp2 = (int32_t) std::llround ((double) 0x10000000 * d);
+        // EXACT damping: damp2 (Q28) dumped from FUN_00523194; damp1 = 2^28 − damp2. (Param 0 = dark … 255 = bright.)
+        damp2 = (int32_t) vazfx::kReverbDamp2LUT[damp];
         damp1 = 0x10000000 - damp2;
         mixMul = mix << 23;
     }

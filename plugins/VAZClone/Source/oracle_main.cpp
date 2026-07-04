@@ -387,7 +387,18 @@ int main()
         const bool bounded = peakMax < 8.0 && std::isfinite (peakMax);        // no runaway / NaN
         row ("fx_reverb_stable", (decays && bounded) ? "VERIFIED (bounded+decays)" : "DEVIATION",
              "impulse→tail: early=" + std::to_string (peakEarly) + " late=" + std::to_string (peakLate)
-             + " peak=" + std::to_string (peakMax) + " (RT60 coef map; 80-bit VAZ curve substituted)");
+             + " peak=" + std::to_string (peakMax) + " (EXACT runtime-dumped coefs)");
+    }
+
+    // ── FX 5b. Reverb coefs — setParams uses the EXACT runtime-dumped LUT (was RT60 approximation) ────────
+    {
+        VazReverbEngine e;
+        e.setParams (44100.0, 255, 0, 255);
+        bool ok = ((uint32_t) e.combCoef[0] == 0x7B34E281u) && ((uint32_t) e.damp2 == 0x0F9F8172u);
+        e.setParams (44100.0, 0, 255, 128);
+        ok = ok && ((uint32_t) e.combCoef[0] == 0x5A3C109Du) && ((uint32_t) e.damp2 == 0x02BF40CEu);
+        row ("fx_reverb_coef_exact", ok ? "VERIFIED (dumped LUT)" : "DEVIATION",
+             "setParams(44100) == runtime dump: size255 coef0=0x7B34E281 damp0 damp2=0x0F9F8172; size0 coef0=0x5A3C109D (vaz_coef_dump.exe)");
     }
 
     // ── FX 6. Decimator render — clone VazDecimatorEngine vs independent transcription of FUN_0051dbcc ──

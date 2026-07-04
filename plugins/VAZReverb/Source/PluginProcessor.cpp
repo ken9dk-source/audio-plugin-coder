@@ -53,7 +53,7 @@ void VAZReverbAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
 
     // Map the 3 clone knobs onto VAZ's .v2p reverb fields (size/damp/mix, 0..255):
     const int size = juce::jlimit (0, 255, (int) std::lround (rt * 255.0f));          // Reverb Time → size (+0x260)
-    const int damp = juce::jlimit (0, 255, (int) std::lround ((1.0f - tone) * 255.0f)); // Tone: bright → less damping (+0x264)
+    const int damp = juce::jlimit (0, 255, (int) std::lround (tone * 255.0f));         // Tone (+0x264): dumped LUT — 0 dark … 255 bright
     const int mixP = juce::jlimit (0, 255, (int) std::lround (mix * 255.0f));          // Mix (+0x268)
     engine.setParams (sr, size, damp, mixP);
 
