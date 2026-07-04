@@ -214,7 +214,7 @@ VazOracle `fx_chorus_render` BIT-EXACT over impulse+noise, modes 1&2).
 | Waveform modes | 0 sine-LUT · 1 trapezoid @0x518BA4 · 2 triangle @0x518C1F | now identical (engine mode = param idx) | ✅ FIXED (#2) — `fx_chorus_waveform_map` VERIFIED |
 | 3 tap phases 0/120/240° | LUT step 0x55; phase ±0x55555554 | now identical | ✅ ported exactly |
 | Mix / stereo law | linear, gain[+0x280]; stereo via lrPhase[+0x27c] | now identical (output filter transcribed) | ✅ ported exactly |
-| **2-LFO rate / depth / lr / gain scalings** | inc1[+0x288]/inc2[+0x290], depth[+0x26c]·level[+0x298], lrPhase, gain | **APPROX** (rate≈fRate²·6, inc2≈inc1·1.27, depth≈f·0.04·sr) | **PÅSTÅET** — pending exact setters (step #3) |
+| 2-LFO rate/depth (setters decoded, step #3) | inc1 = 80-bit(rate [+0x268], FUN_00518ffc @0x518ffc); inc2 = 80-bit(**own param [+0x274]**, FUN_00519098 @0x519098); depth[+0x26c] & level2[+0x278] = **raw params** (FUN_00519078/FUN_00519114) | **APPROX** rate≈fRate²·6, inc2≈inc1·1.27 (structurally WRONG — inc2 is an independent 2nd-LFO rate, not a ratio), depth≈f·0.04·sr | **TILNÆRMET** — structure+addrs extracted; exact inc values are 80-bit AND the leaf setters fault standalone (integer div-by-0 on DllMain-uninit global) so NOT dumpable like the reverb (self-contained). Kept approx per no-guess. |
 | Sine LUT (mode 0) | +0x2a8 256-entry, 80-bit-built | `sin()` double LUT | TILNÆRMET (80-bit residual; modes 1/2 bit-exact) |
 | Sample format | integer Q-format (all `>>0x20`) | float | TILNÆRMET | @0x518ad8 |
 | Params | delay/rate/depth/lr_phase/mix/gain + 2 mode fields (+0x264,+0x270) + base(+0x260) | delay/rate/depth/lr_phase/mix/gain/waveform/sync/period | VERIFICERET (superset; clone adds sync — VAZ sync TBD) | createParameterLayout:24-35 |
@@ -313,10 +313,16 @@ later fixed-point port to bit-exactness is a separate prioritisation decision, n
 10. Reverb comb 1188→1187 & allpass 0.5→0.65 — subsumed by #1.
 11. Q-format→float across all 7 — deliberate; only matters after topology matches.
 
-**PÅSTÅET rest (step #3) — decoded status:** flanger sync+feedback ✅ done (above). The remaining rate/scale maps
-(phaser stages/feedback, chorus rate/depth, autopan/delay rate) are computed via VAZ's **80-bit x87 float**
-(FUN_00402ba8/bf4 in each setter) → not MSVC-reproducible; structure extractable but values need the runtime dump
-(step #4) to pin exactly. They stay TILNÆRMET until then — no guessing.
+**PÅSTÅET rest (step #3) — final decoded status:** flanger sync+feedback ✅ VERIFICERET/FIXED. The remaining rate/scale
+maps are all decoded to their setters (with addresses) and confirmed **80-bit x87**: chorus rate `FUN_00518ffc`
+@0x518ffc & inc2 `FUN_00519098` @0x519098 (inc2 is an **independent** param [+0x274] — clone's ·1.27 ratio is
+structurally wrong), phaser/flanger rate `FUN_005208f0` @0x5208f0, autopan rate `FUN_0051a5fc` @0x51a5fc (also uses a
+global `PTR_DAT_0052c0fc`). depth[+0x26c]/level2[+0x278] are raw params (`FUN_00519078`/`FUN_00519114`).
+**Runtime dump does NOT extend to these:** unlike the reverb's self-contained `FUN_00522c60` (SR from the object), the
+leaf rate-setters divide by **DllMain-initialised global/object state** that's zero standalone → they fault (integer
+div-by-0) when called in isolation (confirmed: chorus + decimator both crash). Exact values would need a full
+object-construction harness (ctor→VMT, the remaining blocker) or a running VAZ host. Per no-guess: **kept the
+approximate maps (structure+addresses documented); status TILNÆRMET, not VERIFICERET.**
 
 > **Scope:** all 7 requested effects audited (Flanger, Reverb, Chorus, Phaser, Delay, Autopan, Decimator).
 > Render loops for the 6 non-Flanger effects were force-decompiled from the virtual methods (`vaz_reverb_render.c`,

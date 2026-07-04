@@ -56,6 +56,10 @@ static void decimSmooth (void* self)
         call f
     }
 }
+// NOTE: an attempt to also dump the chorus/phaser/autopan LFO-rate incs (leaf setters FUN_00518ffc/FUN_00519098/
+// FUN_005208f0/FUN_0051a5fc) FAILS — those are 80-bit AND divide by DllMain-initialised global/object state that is
+// zero standalone (integer div-by-0). Only self-contained setup methods (reverb FUN_00522c60, SR from the object)
+// are dumpable this way. Those rate maps stay approximate; see .ideas/vaz-full-gap-inventory.md §11.
 
 int main ()
 {
