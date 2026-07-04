@@ -1,6 +1,7 @@
 #pragma once
 #include <cmath>
 #include <complex>
+#include <algorithm>
 
 // Crossover filter sections for the QuadraFuzz clone.
 //
@@ -120,19 +121,19 @@ namespace QFX
         void design (double flo, double fhi, double sr) noexcept
         {
             using cd = std::complex<double>;
-            const double Wlo = std::tan (PI * flo / sr);   // pre-warped band edges
-            const double Whi = std::tan (PI * fhi / sr);
-            // The DLL's BP is NOT a textbook geometric Butterworth BP. A runtime
-            // dump of its actual biquad coeffs (host_dump2; reconstruction validated
-            // to -62 dB) showed every pole-pair's geometric mean sits ABOVE the
-            // geometric centre and the bandwidth is slightly trimmed, by FIXED
-            // factors (constant across frequency over a 20x band-ratio span):
-            //   w0^2 = 1.1497 * (Wlo*Whi),   BW = 0.9665 * (Whi - Wlo).
-            // With these the band matches the original to ~0.01 dB (inner bands);
-            // the plain geometric BP (factors 1,1) was off by up to 4.6 dB at the
-            // lower edge, which was the ~0.6 dB crossover-sum residual.
-            const double w02 = 1.1497 * (Wlo * Whi);       // shifted analog centre^2
-            const double BW  = 0.9665 * (Whi - Wlo);       // trimmed analog bandwidth
+            // EXACT DLL design (QuadraFuzz.dll FUN_1000a8f0): the LOW edge is
+            // scaled by 1.15 (const _DAT_100219b0) before a *standard* geometric
+            // Butterworth BP; edges are first clamped to SR*0.48 (lo, _DAT_100219c0)
+            // and SR*0.49 (hi, _DAT_100219b8). This reproduces the DLL's dumped
+            // biquad coeffs to 0.000 dB on every band incl. near-Nyquist band3, and
+            // replaces an earlier fit (w0^2=1.1497*Wlo*Whi, BW=0.9665*dW) which was
+            // this scaling's small-angle approximation and drifted ~1% near Nyquist.
+            const double loS = std::min (flo, sr * 0.48) * 1.15;   // _DAT_100219b0
+            const double hiS = std::min (fhi, sr * 0.49);          // _DAT_100219b8
+            const double Wlo = std::tan (PI * loS / sr);           // pre-warped edges
+            const double Whi = std::tan (PI * hiS / sr);
+            const double w02 = Wlo * Whi;                          // standard geometric
+            const double BW  = Whi - Wlo;
             // the two Butterworth-4 LP pole-pairs (|pole| = 1, cutoff = 1 rad/s)
             const double Q4[2] = { 0.54119610014619698, 1.30656296487637652 };
             int bi = 0;

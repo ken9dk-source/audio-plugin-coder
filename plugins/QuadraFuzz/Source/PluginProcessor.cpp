@@ -146,16 +146,14 @@ float QuadraFuzzAudioProcessor::waveshape (float x, int shape) noexcept
 // waveshape via the table, then post-gain by the band-GAIN knob. (Global In is
 // applied to the input before the crossover, Out to the sum afterwards — both
 // linear, so equivalent to the original's per-sample In·…·Out.)
-// Per-shape output normalisation (engine+0x3c in the DLL — set per shape via the
-// x87 FUN_10014d90, not statically readable). Measured ABSOLUTELY by a per-stage
-// null test: render a -40 dBFS log sweep (linear regime) through BOTH the real DLL
-// and the clone at each shape; the broadband gain ratio orig/clone IS the norm
-// (the filterbank response and the table slope cancel in the ratio). The earlier
-// sine500 "relative" numbers were confounded (harmonics + a wrong shape-0 anchor)
-// and left the clone 2-6 dB too loud, worst on shapes 3/4 (-5.3 / -6.2 dB). These
-// null the linear sweep to 0.0 dB median and band-center tones to -27..-37 dB.
-static const float SHAPE_NORM[5] = { 0.787f, 0.484f, 0.415f, 0.434f, 0.294f };
-//          sine500 guess (wrong): { 1.000f, 0.667f, 0.603f, 0.796f, 0.600f }
+// Per-shape output normalisation (engine+0x3c in the DLL — x87 FUN_10014d90, not
+// statically readable). Measured by a per-stage null test: a -40 dBFS log sweep
+// (linear regime) through BOTH the real DLL and the clone at each shape; the
+// broadband gain ratio orig/clone IS the norm. Re-measured against the EXACT
+// x1.15 low-edge filter (an earlier pass used a C/D-fudge filter and read these
+// ~0.08-0.43 dB low). With the exact filter + these norms the whole chain nulls
+// against the DLL at ~-89 dB (float32 floor) across sweep / noise / tones.
+static const float SHAPE_NORM[5] = { 0.7943f, 0.4955f, 0.4266f, 0.4519f, 0.3090f };
 
 void QuadraFuzzAudioProcessor::applyBandFuzz (juce::AudioBuffer<float>& buf,
                                               float gainDb, float levelDb, int shape)
