@@ -2,32 +2,14 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_gui_extra/juce_gui_extra.h>
 #include <cmath>
+#include "VazPhaserEngine.h"
 
 //==============================================================================
-// VAZPhaser — N-stage first-order allpass cascade swept by an LFO, with feedback.
-// (VAZ Phaser: Stages / Frequency / Feedback / Rate / Depth / L-R Phase / Mix / Gain.)
+// VAZPhaser — VAZ's real Phaser (TFXPhaser, render FUN_005218d8 @0x5218d8): an N-stage (=(p+1)·2) first-order
+// all-pass cascade swept by a triangle LFO, with feedback. Ported as fixed-point (Q30) in VazPhaserEngine; the
+// all-pass coefs come from VAZ's EXACT 512-entry runtime-dumped LUT (replaces the old tan()-bilinear). Render
+// bit-exact vs the decompile (VazOracle fx_phaser_render); coef LUT VERIFIED (fx_phaser_coef_lut).
 //==============================================================================
-struct APStage
-{
-    double z = 0.0;
-    inline double process (double x, double a) noexcept { double y = -a * x + z; z = x + a * y; return y; }
-    void reset() noexcept { z = 0.0; }
-};
-
-struct PhaserChannel
-{
-    APStage ap[12];
-    double  fb = 0.0;
-    void reset() noexcept { for (auto& s : ap) s.reset(); fb = 0.0; }
-    inline double process (double in, int stages, double a, double feedback, double fbSign, double mix, double gain) noexcept
-    {
-        double x = in + fb * feedback * fbSign;
-        for (int i = 0; i < stages; ++i) x = ap[i].process (x, a);
-        fb = x;
-        return (in * (1.0 - mix) + x * mix) * gain;
-    }
-};
-
 class VAZPhaserAudioProcessor : public juce::AudioProcessor
 {
 public:
@@ -58,8 +40,8 @@ public:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
 private:
-    PhaserChannel chL, chR;
+    VazPhaserEngine engine;
     double sr = 44100.0;
-    double lfoPhase = 0.0;
+    double lfoPhase = 0.0;   // continuous LFO phase (drives the engine's 32-bit inc via a running accumulator)
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (VAZPhaserAudioProcessor)
 };

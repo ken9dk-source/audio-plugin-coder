@@ -56,10 +56,20 @@ static void decimSmooth (void* self)
         call f
     }
 }
-// NOTE: an attempt to also dump the chorus/phaser/autopan LFO-rate incs (leaf setters FUN_00518ffc/FUN_00519098/
-// FUN_005208f0/FUN_0051a5fc) FAILS — those are 80-bit AND divide by DllMain-initialised global/object state that is
-// zero standalone (integer div-by-0). Only self-contained setup methods (reverb FUN_00522c60, SR from the object)
-// are dumpable this way. Those rate maps stay approximate; see .ideas/vaz-full-gap-inventory.md §11.
+// FUN_00521aa0(this=EAX, EDX=&srPtr): phaser coef-LUT builder. It calls FUN_004bed70(this) which sets [+0x1c]=EDX,
+// then reads **[+0x1c] (double indirection) as SR → pass EDX=&g_srPtr so [+0x1c]=&g_srPtr and **=44100.
+static void phaserBuildLut (void* self)
+{
+    void* f = fnv (0x521aa0); int** srpp = &g_srPtr;
+    __asm {
+        mov eax, self
+        mov edx, srpp
+        call f
+    }
+}
+// NOTE: the chorus/phaser/autopan LFO-rate INCS (leaf setters FUN_00518ffc/FUN_00519098/FUN_005208f0/FUN_0051a5fc)
+// are NOT dumpable — 80-bit AND they divide by DllMain-initialised global/object state = 0 standalone (int div-by-0).
+// Only self-contained setup methods (reverb FUN_00522c60, phaser FUN_00521aa0 — SR from the object) work.
 
 int main ()
 {
@@ -92,6 +102,17 @@ int main ()
         *(int*) (obj + 0x260) = 128; *(int*) (obj + 0x264) = d; *(void**) (obj + 0x1c) = &g_sr;
         reverbSetup (obj);
         printf ("D,%d,%08X\n", d, *(uint32_t*) (obj + 0x302e4));   // damp2 (damp1 = 2^28 − damp2)
+    }
+    // Phaser 512-entry coef LUT (FUN_00521aa0 @0x521aa0): (1 − i·5·ln2·440/255/sr)·2^30 clamp≥0. sr=44100.
+    // Set sync-flag [+0x274]=1 so the tail FUN_00521c84 skips its 80-bit inc calc (would div-by-0 standalone).
+    {
+        memset (obj, 0, 0x40000);
+        *(void**) (obj + 0x1c) = &g_srPtr;   // SR (** double indirection, like the chorus/decimator)
+        *(int*) (obj + 0x274) = 1;           // sync flag = 1 → skip the 80-bit rate inc in the tail
+        *(int*) (obj + 0x27c) = 0x40;        // rate param (unused when synced)
+        phaserBuildLut (obj);
+        printf ("PVALID inGain[+0x298]=%08X mix[+0x288]=%08X\n", *(uint32_t*) (obj + 0x298), *(uint32_t*) (obj + 0x288));
+        for (int i = 0; i < 512; ++i) printf ("P,%d,%08X\n", i, *(uint32_t*) (obj + 0x310 + i * 4));
     }
     for (int p = 0; p <= 255; ++p)
     {

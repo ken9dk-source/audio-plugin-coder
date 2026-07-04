@@ -12,6 +12,7 @@
 #include "../../VAZReverb/Source/VazReverbEngine.h"       // the REAL clone reverb engine (tested below)
 #include "../../VAZDecimator/Source/VazDecimatorEngine.h"  // the REAL clone decimator engine (tested below)
 #include "../../VAZChorus/Source/VazChorusEngine.h"         // the REAL clone chorus engine (tested below)
+#include "../../VAZPhaser/Source/VazPhaserEngine.h"          // the REAL clone phaser engine (tested below)
 #include <cstdint>
 #include <cstdio>
 #include <cmath>
@@ -148,6 +149,30 @@ struct RefChorus
         buf[wpos] = (inL + inR) >> 1;
         L = (int32_t) (((int64_t) (gain << 22) * (int64_t) (st + i8 + inL * -4)) >> 32) + (inL * 4 >> 2);
         R = (int32_t) (((int64_t) (gain << 22) * (int64_t) ((i8 - st) + inR * -4)) >> 32) + (inR * 4 >> 2);
+    }
+};
+
+// Independent reference transcription of the phaser render FUN_005218d8 @0x5218d8 (iVar/offset style, per channel).
+struct RefPhaser
+{
+    int32_t coefLut[512]; int32_t apL[12] = {0}, apR[12] = {0}, fbL = 0, fbR = 0;
+    uint32_t phase = 0, inc = 0; int32_t depth = 128, center = 96, numStages = 4, fbGain = 0, inGain = 0x40000000, mix = 0, lrPhase = 0;
+    void loadLut () { for (int i = 0; i < 512; ++i) coefLut[i] = (int32_t) vazfx::kPhaserCoefLUT[i]; }
+    static int32_t q (int32_t v, int32_t c) { return (int32_t) (((int64_t) (int32_t) ((uint32_t) v << 2) * (int64_t) c) >> 32); }
+    int32_t idx (uint32_t ph) { int32_t s = (int32_t) ph >> 31, ab = ((int32_t) ph ^ s) - s;
+        int32_t i = ((ab >> 16) * depth + center * 0x8000) >> 15; if (i < 0) i = 0; if (i > 511) i = 511; return i; }
+    int32_t ch (int32_t rin, uint32_t ph, int32_t* ap, int32_t& fb)
+    {
+        int32_t i1 = coefLut[idx (ph)], i5 = q (rin, inGain), i8 = numStages, i4 = i5 + q (fb, fbGain), i3;
+        do { i8--; i3 = ap[i8] - q (i4, i1); ap[i8] = q (i3, i1) + i4; i4 = i3; } while (i8 != 0);
+        fb = i3;
+        return i5 + (int32_t) (((int64_t) ((uint32_t) mix << 22) * (int64_t) (int32_t) ((uint32_t) (i3 - i5) << 2)) >> 32);
+    }
+    void frame (int32_t& L, int32_t& R)
+    {
+        phase += inc;
+        L = ch (L, phase, apL, fbL);
+        R = ch (R, phase + (uint32_t) (lrPhase * -0x1000000), apR, fbR);
     }
 };
 
@@ -451,6 +476,37 @@ int main()
         }
         row ("fx_chorus_render", maxd == 0 ? "BIT-EXACT" : "DEVIATION (max=" + std::to_string (maxd) + ")",
              "clone VazChorusEngine vs independent transcription of FUN_00518ad8 (mono line + 3 combined taps + stereo), modes 1&2, impulse+noise");
+    }
+
+    // ── FX 8. Phaser coef LUT — engine's sr=44100 LUT == the runtime dump (vaz_phaser_coef_lut.h) ──────────
+    {
+        VazPhaserEngine e; e.setSampleRate (44100.0);
+        bool ok = ((uint32_t) e.coefLut[0] == 0x3FFE1880u) && ((uint32_t) e.coefLut[511] == 0x3846D580u)
+               && ((uint32_t) e.coefLut[256] == vazfx::kPhaserCoefLUT[256]);
+        row ("fx_phaser_coef_lut", ok ? "VERIFIED (dumped LUT)" : "DEVIATION",
+             "512-entry allpass coef LUT (FUN_00521aa0 @0x521aa0): coef[0]=0x3FFE1880, coef[511]=0x3846D580 (runtime-dumped, replaces tan())");
+    }
+
+    // ── FX 9. Phaser render — clone VazPhaserEngine vs independent transcription of FUN_005218d8 ──────────
+    {
+        VazPhaserEngine eng; RefPhaser ref;
+        eng.clearBuffers(); eng.setSampleRate (44100.0); ref.loadLut();
+        // identical params on both sides (LFO moving so the LUT index sweeps):
+        eng.inc = ref.inc = 0x00300000u; eng.depth = ref.depth = 200; eng.center = ref.center = 90;
+        eng.numStages = ref.numStages = 8; eng.fbGain = ref.fbGain = 90 << 23; eng.inGain = ref.inGain = 0x40000000;
+        eng.mix = ref.mix = 200; eng.lrPhase = ref.lrPhase = 40;
+        uint32_t rng = 0xBEEF01u; long maxd = 0;
+        for (int i = 0; i < 200000; ++i)
+        {
+            int32_t s = (i == 0) ? (1 << 21) : (int32_t) ((rng = rng * 1664525u + 1013904223u) >> 9) - (1 << 21);
+            int32_t eL = s, eR = s ^ 0x1234, rL = s, rR = s ^ 0x1234;
+            eng.processFrame (eL, eR); ref.frame (rL, rR);
+            long d1 = (long) eL - (long) rL; if (d1 < 0) d1 = -d1;
+            long d2 = (long) eR - (long) rR; if (d2 < 0) d2 = -d2;
+            if (d1 > maxd) maxd = d1; if (d2 > maxd) maxd = d2;
+        }
+        row ("fx_phaser_render", maxd == 0 ? "BIT-EXACT" : "DEVIATION (max=" + std::to_string (maxd) + ")",
+             "clone VazPhaserEngine vs independent transcription of FUN_005218d8 (N allpass + fb + linear mix + stereo), LFO moving, impulse+noise");
     }
 
     std::printf ("\n  Constants sourced: cutoff-smooth DAT_006d45e4, detune DAT_0052b168/0x52b0ec, env-rate DAT_006db7e8, stage0 DAT_006dc0bc, flanger delay 0x52076c, chorus delay 0x518fbc.\n");

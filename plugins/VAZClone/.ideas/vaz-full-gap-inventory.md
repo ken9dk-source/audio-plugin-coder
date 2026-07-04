@@ -226,18 +226,20 @@ now VAZ-exact (`VazChorusEngine`, `fx_chorus_render`/`fx_chorus_basedelay`/`fx_c
 stay TILNÆRMET-ACCEPTERET (80-bit, not isolable-dumpable, sub-audible for continuous mod rates). Mode-0 sine LUT is
 an 80-bit residual (modes 1/2 bit-exact).
 
-### FX-D — Phaser (`TFXPhaser`, render `FUN_005218d8` @0x5218d8) — AUDITED · fixed-point (Q30)
+### FX-D — Phaser (`TFXPhaser`, render `FUN_005218d8` @0x5218d8) — ✅ **FIXED (bit-exact)** · fixed-point (Q30)
 
-Virtual render force-decompiled (`tools/vaz_fx_render4.c`). Clone `VAZPhaser` = 1st-order allpass chain (float).
+Clone now ships `VazPhaserEngine` (fixed-point port; render bit-exact vs an independent transcription: VazOracle
+`fx_phaser_render` BIT-EXACT over impulse+noise with the LFO sweeping). Replaced the float `tan()`-bilinear path.
 
-| Part | Ghidra ref (VAZ) | Clone (VAZPhaser) | Deviation class | Status |
-|---|---|---|---|---|
-| Engine | N-stage 1st-order allpass, coef from 512-entry LUT, feedback, linear mix | N allpass, coef via `tan()` bilinear, feedback, linear mix | TILNÆRMET (topology matches) | @0x5218d8 line-by-line |
-| Allpass coef | 512-LUT: `(1−i·5·ln2·440/255/sr)·2^30` clamp≥0 (FUN_00521aa0) | `(1−t)/(1+t)`, t=`tan(π·fc/sr)`, fc=`fcBase·2^(depth·lfo)` | **TILNÆRMET ALGORITME** (LUT vs tan curve → notch positions drift) | LUT DAT_00521b50=440/b4c=255/b58=2^30 |
-| LFO→coef | idx=`(\|ph\|>>16·depth[+0x280]+center[+0x264]·0x8000)>>15` (linear into LUT) | fc exp mapping | TILNÆRMET | @0x5218d8:19-21 |
-| Stages | N = [+0x2a0] (default not extracted) | 2 + 2·round(f·5) → 2..12 (even) | **PÅSTÅET** (VAZ default/range not pinned) | .cpp:70 |
-| Feedback | [+0x29c] (scale not extracted) | f·0.72 | **PÅSTÅET** (0.72 clone guess) | .cpp:75 |
-| LFO / mix / stereo | triangle=abs, linear mix [+0x288], separate banks +0x2b0/+0x2e0 + lrPhase[+0x284] | triangle, linear mix, chL/chR + lrOffset | VERIFICERET (matches) | @0x5218d8:16,38,45 |
+| Part | Ghidra ref (VAZ) | Clone (VazPhaserEngine) | Status |
+|---|---|---|---|
+| Engine | N-stage 1st-order allpass (Q30), coef from 512-LUT, feedback, linear mix | now identical (fixed-point transcription) | ✅ FIXED — `fx_phaser_render` BIT-EXACT |
+| Allpass coef | 512-LUT `(1−i·5·ln2·440/255/sr)·2^30` (FUN_00521aa0) | **runtime-dumped LUT** (`vaz_phaser_coef_lut.h`), SR-adjusted `2^30−(2^30−c)·(44100/sr)` | ✅ FIXED (was tan()) — `fx_phaser_coef_lut` VERIFIED |
+| LFO→coef idx | `((\|ph\|>>16)·depth[+0x280]+center[+0x264]·0x8000)>>15` | now identical | ✅ ported exactly | 
+| Stages | N = (stagesParam+1)·2 → 2..12 (FUN_00521b68 @0x521b68) | (round(f·5)+1)·2 | ✅ **VERIFICERET** (clone `2+2·round(f·5)` == VAZ) |
+| Feedback | fbGain = clamp(param,±100)<<23 → max **±0.78125** (FUN_00521bf4 @0x521bf4) | param(0..100)<<23, ±invert | ✅ **FIXED** (was 0.72 guess → 100/128=0.78125) |
+| LFO / mix / stereo | triangle=abs, linear mix (mix<<22 → /256), separate banks +0x2b0/+0x2e0 + lrPhase·−2^24 | now identical (transcribed) | ✅ VERIFICERET |
+| inGain [+0x298] / rate inc [+0x294] | Q30 input scale / 80-bit LFO rate | inGain=unity 2^30 (no setter writes +0x298); rate≈fRate²·20 | inGain ASSUMED unity; **rate TILNÆRMET-ACCEPTERET** (80-bit, sub-audible) |
 
 ### FX-E — Delay (`TFXDelay`, render `FUN_0051bba8` @0x51bba8) — AUDITED · fixed-point
 
@@ -305,7 +307,9 @@ later fixed-point port to bit-exactness is a separate prioritisation decision, n
 5. ✅ **FIXED — Chorus base-delay** — clone now uses VAZ's exact `((sr·50)/256000)·(delay+1)` (FUN_00518fbc);
    VazOracle `fx_chorus_basedelay` BIT-EXACT.
 6. **Delay mode 2** — clone "Double" (series) ≠ VAZ mono. Only mode-2 presets.
-7. **Phaser coef** — 512-entry exp LUT vs `tan()` bilinear → notch frequencies/sweep shape drift.
+7. ✅ **FIXED — Phaser** — `VazPhaserEngine` (fixed-point): render BIT-EXACT (`fx_phaser_render`), coef from the
+   **runtime-dumped 512-entry LUT** (`fx_phaser_coef_lut` VERIFIED, replaced tan()), feedback fixed 0.72→0.78125,
+   stages verified. Residual: rate inc (80-bit, accepted) + inGain assumed unity.
 8. ✅ **VERIFICERET — Flanger BPM-sync** — VAZ `inc=BPM·48·(2^31−1)/(SR·60·period)` (·48 @0x5204a9-ae, FUN_00520418);
    clone `(bpm/60)/periodBeats` is equivalent (periodBeats = period/48). `fx_flanger_sync` VERIFIED.
    Also ✅ **flanger feedback** fixed 0.92 → 255/256 (`fx_flanger_feedback` BIT-EXACT, render `<<23` @0x52059c).

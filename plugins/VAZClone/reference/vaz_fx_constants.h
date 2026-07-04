@@ -74,11 +74,17 @@ namespace vazfx
     //     idx = ( (|phase|>>16)·depth[+0x280] + center[+0x264]·0x8000 ) >> 15      (LFO = abs = triangle)
     //   allpass: y = buf − coef·x ; buf = coef·y + x.  Feedback [+0x29c] on last stage; linear mix [+0x288].
     //   Stereo = SEPARATE banks (+0x2b0 L / +0x2e0 R), R phase offset lrPhase[+0x284]. Effect-type +0x58 = 5.
-    //   LUT builder: coef[i] = (1.0 − (i·5·ln2·K)·440/255 / sr) · 2^30, clamped ≥ 0   (i = 0..511):
-    inline constexpr float kPhaserLutFreqBase = 440.0f;   // DAT_00521b50 (A440 reference)
-    inline constexpr float kPhaserLutDiv255   = 255.0f;   // DAT_00521b4c
-    inline constexpr int   kPhaserLutQ30       = 0x40000000; // DAT_00521b58 = 2^30 (Q30 coef scale)
-    inline constexpr int   kPhaserLutEntries   = 0x200;   // 512-entry coef LUT (clone uses per-sample tan() bilinear)
+    //   LUT builder: coef[i] = (1.0 − (i·5·ln2·K)·440/255 / sr) · 2^30, clamped ≥ 0   (i = 0..511).  Q30.
+    //   ✅ The 512 coefs were RUNTIME-DUMPED (FUN_00521aa0 self-contained, SR from [+0x1c]) → reference/vaz_phaser_coef_lut.h
+    //   (coef[0]=0x3FFE1880 … coef[511]=0x3846D580). Replaces the clone's tan() bilinear. Engine SR-adjusts linearly:
+    //   coef_sr = 2^30 − (2^30 − coef_44k)·(44100/sr). VazPhaserEngine; oracle fx_phaser_coef_lut / fx_phaser_render.
+    inline constexpr int   kPhaserLutQ30     = 0x40000000; // DAT_00521b58 = 2^30 (Q30 coef scale)
+    inline constexpr int   kPhaserLutEntries = 0x200;      // 512-entry coef LUT
+    // Stages (FUN_00521b68 @0x521b68): N = (stagesParam+1)·2 → 2..12 (banks 12 ints). Clone 2+2·round(f·5) matches.
+    // Feedback (FUN_00521bf4 @0x521bf4): fbGain[+0x29c] = clamp(param,−100,100) << 23 (Q30) → max ±0.78125 (100<<23);
+    //   clamps 0x32000000/0xCE000000. (Clone's 0.72 guess was wrong → 100/128 = 0.78125.)
+    inline constexpr int   kPhaserFbShift  = 23;           // param << 23
+    inline constexpr int   kPhaserFbClamp  = 100;          // param clamped ±100 → coef ±0.78125
 
     // ── DELAY (TFXDelay@0x51AF18, render FUN_0051bba8 @0x51bba8, prepare FUN_0051bf78 @0x51bf78) ───────────
     //   Stereo circular buffer (+0x2e0, 8 B/frame, size pow2 mask +0x2dc = (sr·0x9f6/1000) rounded up).

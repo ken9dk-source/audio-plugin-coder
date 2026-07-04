@@ -39,9 +39,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout VAZPhaserAudioProcessor::cre
 
 void VAZPhaserAudioProcessor::prepareToPlay (double sampleRate, int)
 {
-    sr = sampleRate;
-    chL.reset(); chR.reset();
-    lfoPhase = 0.0;
+    sr = sampleRate > 0.0 ? sampleRate : 44100.0;
+    engine.clearBuffers();
+    engine.setSampleRate (sr);   // build the SR-adjusted coef LUT
 }
 
 bool VAZPhaserAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -65,19 +65,17 @@ void VAZPhaserAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
     const float fLrPh   = apvts.getRawParameterValue (ParameterIDs::lr_phase)->load();
     const float fMix    = apvts.getRawParameterValue (ParameterIDs::mix)->load();
     const float fGain   = apvts.getRawParameterValue (ParameterIDs::gain)->load();
-    const float fbPhase = apvts.getRawParameterValue (ParameterIDs::feedback_phase)->load();
+    const bool  fbPhase = apvts.getRawParameterValue (ParameterIDs::feedback_phase)->load() > 0.5f;
 
-    const int    stages   = juce::jlimit (2, 12, 2 + 2 * (int) std::lround (fStages * 5.0f));
-    // RE'd from Core.dll TFXPhaser @0x5218D8: the LFO is a UNIPOLAR triangle (abs of the phase
-    // accumulator) that sweeps the all-pass freq UP from a base (idx = base + |phase|·depth @0x52190A).
-    const double fcBase   = 80.0 * std::pow (25.0, (double) fFreq);    // sweep FLOOR: 80 Hz..2 kHz
-    const double depthOct = (double) fDepth * 2.5;                     // triangle sweep: 0..+2.5 octaves above the floor
-    const double feedback = (double) fFb * 0.72;                       // resonance/intensity (kept musical → no screech)
-    const double fbSign   = fbPhase > 0.5f ? -1.0 : 1.0;              // Feedback Phase: − = inverted polarity
-    const double mix      = (double) fMix;
-    const double gain     = (double) fGain;
-    // Modulation rate: free (Rate² → 0..20 Hz, Rate fully DOWN = STATIC notch — the VAZ hardtrance signature)
-    // or tempo-synced (Sync on → host-BPM division from the 24-entry note table).
+    // Map the knobs onto VAZ's TFXPhaser fields (setters FUN_00521b68/bf4/d14/b80/d24; render @0x5218d8):
+    const int stagesParam = juce::jlimit (0, 5,   (int) std::lround (fStages * 5.0f));  // N=(p+1)·2 → 2..12 (FUN_00521b68)
+    const int fbParam     = juce::jlimit (0, 100, (int) std::lround (fFb   * 100.0f));  // feedback 0..100 → 0..0.78125 (FUN_00521bf4)
+    const int depthP      = juce::jlimit (0, 255, (int) std::lround (fDepth * 255.0f)); // LUT-index sweep (+0x280)
+    const int centerP     = juce::jlimit (0, 255, (int) std::lround (fFreq  * 255.0f)); // base LUT index / notch freq (+0x264)
+    const int lrP         = juce::jlimit (0, 255, (int) std::lround (fLrPh  * 255.0f)); // L/R phase offset (+0x284)
+    const int mixP        = juce::jlimit (0, 255, (int) std::lround (fMix   * 255.0f)); // Dry..Wet (+0x288)
+
+    // LFO rate → 32-bit phase increment. ⚠ APPROX (rate/inc is VAZ 80-bit x87, not isolable-dumpable — accepted).
     static constexpr double periodBeats[24] = { 1.0/12, 1.0/8, 1.0/6, 1.0/4, 1.0/3, 1.0/2, 2.0/3, 1.0,
         2.0, 3.0, 4.0, 5.0, 6.0, 8.0, 12.0, 16.0, 24.0, 32.0, 48.0, 64.0, 96.0, 128.0, 192.0, 256.0 };
     double rateHz;
@@ -88,42 +86,26 @@ void VAZPhaserAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
             if (auto pos = ph->getPosition())
                 if (auto b = pos->getBpm()) bpm = *b;
         const int p = juce::jlimit (0, 23, (int) apvts.getRawParameterValue (ParameterIDs::mod_period)->load());
-        rateHz = (bpm / 60.0) / periodBeats[p];               // tempo-synced Hz
+        rateHz = (bpm / 60.0) / periodBeats[p];
     }
     else
         rateHz = (double) fRate * (double) fRate * 20.0;      // free: 0..20 Hz
-    const double lfoInc   = rateHz / sr;
-    if (lfoInc <= 0.0) lfoPhase = 0.0;            // static → freeze LFO at neutral so the Frequency knob alone sets the notch position
-    const double nyq      = 0.45 * sr;
-    const double lrOffset = (double) fLrPh * 0.5;          // up to half-cycle between channels
+    const uint32_t inc = (uint32_t) (int64_t) (rateHz / sr * 4294967296.0);
+    engine.setParams (stagesParam, fbParam, fbPhase, depthP, centerP, lrP, mixP, inc);
+    const double outGain = (double) fGain;
 
+    constexpr double kFS = 8388608.0;   // Q23 full-scale
     const int n = buffer.getNumSamples();
     const int numCh = buffer.getNumChannels();
     float* L = buffer.getWritePointer (0);
     float* R = numCh > 1 ? buffer.getWritePointer (1) : nullptr;
-
-    auto triangle = [] (double ph) noexcept                // VAZ LFO = abs(phase) = triangle (real @0x521902), 0→1→0
-    { return ph < 0.5 ? 2.0 * ph : 2.0 - 2.0 * ph; };
-
     for (int i = 0; i < n; ++i)
     {
-        const double lfoL = triangle (lfoPhase);           // unipolar 0..1 (was bipolar sine)
-        const double fcL  = juce::jlimit (20.0, nyq, fcBase * std::pow (2.0, depthOct * lfoL));
-        const double tL   = std::tan (juce::MathConstants<double>::pi * fcL / sr);
-        const double aL   = juce::jlimit (-0.98, 0.98, (1.0 - tL) / (1.0 + tL));   // 1st-order all-pass coeff (positive → notch in the audible band)
-        L[i] = (float) chL.process ((double) L[i], stages, aL, feedback, fbSign, mix, gain);
-
-        if (R != nullptr)
-        {
-            double pr = lfoPhase + lrOffset; if (pr >= 1.0) pr -= 1.0;
-            const double lfoR = triangle (pr);             // unipolar triangle (L/R phase offset)
-            const double fcR  = juce::jlimit (20.0, nyq, fcBase * std::pow (2.0, depthOct * lfoR));
-            const double tR   = std::tan (juce::MathConstants<double>::pi * fcR / sr);
-            const double aR   = juce::jlimit (-0.98, 0.98, (1.0 - tR) / (1.0 + tR));
-            R[i] = (float) chR.process ((double) R[i], stages, aR, feedback, fbSign, mix, gain);
-        }
-
-        lfoPhase += lfoInc; if (lfoPhase >= 1.0) lfoPhase -= 1.0;
+        int32_t li = (int32_t) std::llround ((double) L[i] * kFS);
+        int32_t ri = R ? (int32_t) std::llround ((double) R[i] * kFS) : li;
+        engine.processFrame (li, ri);
+        L[i] = (float) ((double) li / kFS * outGain);
+        if (R) R[i] = (float) ((double) ri / kFS * outGain);
     }
 }
 
