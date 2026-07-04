@@ -287,9 +287,9 @@ verified and float is a deliberate choice → *TILNÆRMET-BEVIDST* (Autopan pan-
 later fixed-point port to bit-exactness is a separate prioritisation decision, not done here.
 
 **HØJESTE (wrong engine / audible on ~every preset):**
-1. ✅ **FIXED — Reverb** — replaced `juce::Reverb` with `VazReverbEngine`, a fixed-point port of VAZ's exact
-   9-comb + weighted-sum pseudo-stereo + global-damping Schroeder (allpass g=0.65, SR-scaled tunings incl. allpass
-   {307,97,71,53}). Render BIT-EXACT (VazOracle `fx_reverb_render`) + stable. Residual: 80-bit coef curve → RT60 substitute.
+1. ✅ **FIXED — Reverb** — `VazReverbEngine`: exact 9-comb + weighted-sum pseudo-stereo + global-damping Schroeder
+   (allpass g=0.65, SR-scaled tunings incl. allpass {307,97,71,53}). Render BIT-EXACT (`fx_reverb_render`) + stable.
+   **Coefs now EXACT** (runtime-dumped, step #4 → `vaz_reverb_coef_lut.h`; `fx_reverb_coef_exact` VERIFIED) — no residual.
 2. ✅ **FIXED — Chorus waveform mode 1↔2 swap** — now idx1=trapezoid, idx2=triangle (VAZ order).
    VazOracle `fx_chorus_waveform_map` VERIFIED; both suites green. @0x518ad8 modes 1/2.
    *NB:* clone trapezoid slope is still an approximation of VAZ's `clamp(2·tri−0.5,0,1)` — deferred to the chorus round.
