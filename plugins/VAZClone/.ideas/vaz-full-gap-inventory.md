@@ -214,15 +214,17 @@ VazOracle `fx_chorus_render` BIT-EXACT over impulse+noise, modes 1&2).
 | Waveform modes | 0 sine-LUT · 1 trapezoid @0x518BA4 · 2 triangle @0x518C1F | now identical (engine mode = param idx) | ✅ FIXED (#2) — `fx_chorus_waveform_map` VERIFIED |
 | 3 tap phases 0/120/240° | LUT step 0x55; phase ±0x55555554 | now identical | ✅ ported exactly |
 | Mix / stereo law | linear, gain[+0x280]; stereo via lrPhase[+0x27c] | now identical (output filter transcribed) | ✅ ported exactly |
-| 2-LFO rate/depth (setters decoded, step #3) | inc1 = 80-bit(rate [+0x268], FUN_00518ffc @0x518ffc); inc2 = 80-bit(**own param [+0x274]**, FUN_00519098 @0x519098); depth[+0x26c] & level2[+0x278] = **raw params** (FUN_00519078/FUN_00519114) | **APPROX** rate≈fRate²·6, inc2≈inc1·1.27 (structurally WRONG — inc2 is an independent 2nd-LFO rate, not a ratio), depth≈f·0.04·sr | **TILNÆRMET** — structure+addrs extracted; exact inc values are 80-bit AND the leaf setters fault standalone (integer div-by-0 on DllMain-uninit global) so NOT dumpable like the reverb (self-contained). Kept approx per no-guess. |
+| **2-LFO rate (dual-LFO)** | inc1 = 80-bit(rate [+0x268], FUN_00518ffc @0x518ffc); inc2 = 80-bit(**own param [+0x274]**, FUN_00519098 @0x519098) — two INDEPENDENT LFO rates | ✅ **FIXED (struct)** — added independent `rate2` param (LFO2), inc2 = f(rate2) not inc1·1.27 → true free dual-LFO beating. Wired: layout + processBlock + WebSliderRelay + index.html slider | dual-LFO **FIXED**; the shared rate→inc *curve* f() stays **TILNÆRMET-ACCEPTERET** (below) |
+| rate→inc curve + depth/level scalings | f(param) is 80-bit x87 (FUN_00518ffc/FUN_00519098/FUN_005208f0/FUN_0051a5fc); depth[+0x26c]/level2[+0x278] = raw params | **APPROX** rate≈fRate²·6, depth≈f·0.04·sr | **TILNÆRMET-ACCEPTERET** — 80-bit AND leaf setters fault standalone (div-by-0 on DllMain-uninit global; only reverb's self-contained FUN_00522c60 was dumpable). Sub-audible residual (continuous mod rates, not discrete pitch/length). No object-ctor harness (same ctor→VMT blocker as Osc3). |
 | Sine LUT (mode 0) | +0x2a8 256-entry, 80-bit-built | `sin()` double LUT | TILNÆRMET (80-bit residual; modes 1/2 bit-exact) |
 | Sample format | integer Q-format (all `>>0x20`) | float | TILNÆRMET | @0x518ad8 |
 | Params | delay/rate/depth/lr_phase/mix/gain + 2 mode fields (+0x264,+0x270) + base(+0x260) | delay/rate/depth/lr_phase/mix/gain/waveform/sync/period | VERIFICERET (superset; clone adds sync — VAZ sync TBD) | createParameterLayout:24-35 |
 
 **Status:** the topology (mono line + 3 combined taps + tap-diff stereo), base delay, and waveform selection are
 now VAZ-exact (`VazChorusEngine`, `fx_chorus_render`/`fx_chorus_basedelay`/`fx_chorus_waveform_map` all green).
-**Remaining PÅSTÅET:** the rate/depth/lr/gain param→field scalings are still approximate (2-LFO inc, depth·level,
-lrPhase, gain) — pending the exact setters (step #3). Mode-0 sine LUT is an 80-bit residual (modes 1/2 bit-exact).
+**Status:** dual-LFO structure ✅ FIXED (independent `rate2` param). The rate→inc *curve* + depth/lr/gain scalings
+stay TILNÆRMET-ACCEPTERET (80-bit, not isolable-dumpable, sub-audible for continuous mod rates). Mode-0 sine LUT is
+an 80-bit residual (modes 1/2 bit-exact).
 
 ### FX-D — Phaser (`TFXPhaser`, render `FUN_005218d8` @0x5218d8) — AUDITED · fixed-point (Q30)
 

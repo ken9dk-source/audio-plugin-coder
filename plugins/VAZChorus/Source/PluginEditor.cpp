@@ -26,6 +26,7 @@ VAZChorusAudioProcessorEditor::VAZChorusAudioProcessorEditor (VAZChorusAudioProc
                 })
             .withOptionsFrom (delayRelay)
             .withOptionsFrom (rateRelay)
+            .withOptionsFrom (rate2Relay)
             .withOptionsFrom (depthRelay)
             .withOptionsFrom (lrPhaseRelay)
             .withOptionsFrom (mixRelay)
@@ -44,6 +45,7 @@ VAZChorusAudioProcessorEditor::VAZChorusAudioProcessorEditor (VAZChorusAudioProc
     };
     delayAtt     = attach (ParameterIDs::delay,     delayRelay);
     rateAtt      = attach (ParameterIDs::rate,      rateRelay);
+    rate2Att     = attach (ParameterIDs::rate2,     rate2Relay);
     depthAtt     = attach (ParameterIDs::depth,     depthRelay);
     lrPhaseAtt   = attach (ParameterIDs::lr_phase,  lrPhaseRelay);
     mixAtt       = attach (ParameterIDs::mix,       mixRelay);

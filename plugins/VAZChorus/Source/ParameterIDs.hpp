@@ -3,7 +3,8 @@
 namespace ParameterIDs
 {
     constexpr auto delay     = "delay";      // 0..1 → base delay 5..30 ms (chorus centre)
-    constexpr auto rate      = "rate";       // 0..1 → LFO speed
+    constexpr auto rate      = "rate";       // 0..1 → LFO1 speed
+    constexpr auto rate2     = "rate2";      // 0..1 → LFO2 speed — VAZ's INDEPENDENT 2nd-LFO rate [+0x274] (FUN_00519098), not a 1.27 ratio
     constexpr auto depth     = "depth";      // 0..1 → modulation depth
     constexpr auto lr_phase  = "lr_phase";   // 0..1 → L/R LFO phase offset (stereo width)
     constexpr auto mix       = "mix";        // 0..1 → Dry..Wet

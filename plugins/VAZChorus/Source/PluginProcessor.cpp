@@ -22,7 +22,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout VAZChorusAudioProcessor::cre
             ParameterID { id, 1 }, name, NormalisableRange<float>(0.0f, 1.0f), def);
     };
     layout.add (pct (ParameterIDs::delay,     "Delay",     0.4f));    // base delay 5..30 ms
-    layout.add (pct (ParameterIDs::rate,      "Rate",      0.3f));
+    layout.add (pct (ParameterIDs::rate,      "Rate",      0.3f));    // LFO1 rate
+    layout.add (pct (ParameterIDs::rate2,     "Rate 2",    0.34f));   // LFO2 rate — independent (VAZ [+0x274]); dflt ≈1.28× LFO1 for beating
     layout.add (pct (ParameterIDs::depth,     "Depth",     0.5f));
     layout.add (pct (ParameterIDs::lr_phase,  "L/R Phase", 0.3f));
     layout.add (pct (ParameterIDs::mix,       "Mix",       0.5f));
@@ -58,6 +59,7 @@ void VAZChorusAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
 
     const float fDelay  = apvts.getRawParameterValue (ParameterIDs::delay)->load();
     const float fRate   = apvts.getRawParameterValue (ParameterIDs::rate)->load();
+    const float fRate2  = apvts.getRawParameterValue (ParameterIDs::rate2)->load();
     const float fDepth  = apvts.getRawParameterValue (ParameterIDs::depth)->load();
     const float fLrPh   = apvts.getRawParameterValue (ParameterIDs::lr_phase)->load();
     const float fMix    = apvts.getRawParameterValue (ParameterIDs::mix)->load();
@@ -86,7 +88,11 @@ void VAZChorusAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
     else
         rateHz = (double) fRate * (double) fRate * 6.0;       // free: 0..6 Hz (chorus is slow)
     engine.inc1  = (uint32_t) (int64_t) (rateHz / sr * 4294967296.0);
-    engine.inc2  = (uint32_t) (int64_t) (rateHz * 1.27 / sr * 4294967296.0);   // 2nd LFO detuned (approx)
+    // LFO2 rate is now an INDEPENDENT param (VAZ [+0x274], FUN_00519098) — NOT inc1·1.27. Same rate→inc curve as
+    // LFO1 (both approximate, 80-bit non-dumpable), driven by fRate2 → the *ratio* between the two LFOs is now
+    // structurally correct = true free dual-LFO beating. Kept free (un-synced) so beating persists in Sync mode.
+    const double rate2Hz = (double) fRate2 * (double) fRate2 * 6.0;
+    engine.inc2  = (uint32_t) (int64_t) (rate2Hz / sr * 4294967296.0);
     engine.level = 0x8000;                                                     // common scale (approx)
     const int32_t modDepth = (int32_t) std::llround ((double) fDepth * 0.04 * sr);
     engine.depth = engine.level2 = modDepth;                                   // both LFO depths = fDepth (approx)

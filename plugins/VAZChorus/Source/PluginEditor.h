@@ -18,6 +18,7 @@ private:
 
     juce::WebSliderRelay delayRelay    { ParameterIDs::delay };
     juce::WebSliderRelay rateRelay     { ParameterIDs::rate };
+    juce::WebSliderRelay rate2Relay    { ParameterIDs::rate2 };
     juce::WebSliderRelay depthRelay    { ParameterIDs::depth };
     juce::WebSliderRelay lrPhaseRelay  { ParameterIDs::lr_phase };
     juce::WebSliderRelay mixRelay      { ParameterIDs::mix };
@@ -30,7 +31,7 @@ private:
     std::unique_ptr<juce::WebBrowserComponent> webView;
 
     std::unique_ptr<juce::WebSliderParameterAttachment>
-        delayAtt, rateAtt, depthAtt, lrPhaseAtt, mixAtt, gainAtt;
+        delayAtt, rateAtt, rate2Att, depthAtt, lrPhaseAtt, mixAtt, gainAtt;
     std::unique_ptr<juce::WebToggleButtonParameterAttachment> modSyncAtt;
     std::unique_ptr<juce::WebComboBoxParameterAttachment>      waveformAtt, modPeriodAtt;
 
