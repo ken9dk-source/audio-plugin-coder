@@ -38,7 +38,7 @@ public:
         // frequency axis below the plot is drawn afterwards, unclipped.
         g.saveState();
         g.reduceClipRegion (juce::Rectangle<int> (0, 0,
-                            juce::roundToInt (plotX0() + plotW()),
+                            juce::roundToInt (plotRight()),
                             juce::roundToInt (dbToY (-20.f)) + 7));
 
         // ---- response curve: plateau at the band levels, ROUNDED shoulders that
@@ -99,7 +99,7 @@ public:
         }
         for (int i = 0; i < 5; ++i)                         // bottom diamonds (edges)
         {
-            if (edge[i] > plotX0() + plotW() + 2.f) continue;   // off-plot marker: not grabbable
+            if (edge[i] > plotRight() + 2.f) continue;          // off-plot marker: not grabbable
             if (std::abs (e.position.x - edge[i]) < 9.f && e.position.y > 20.f)
             {
                 if      (i == 0) { dragKind_ = Drag::edge;  dragIdx_ = 0; }
@@ -172,12 +172,13 @@ private:
     void drawGrid (juce::Graphics& g) const
     {
         g.setColour (juce::Colour (0xff063e57));
-        const float xL = freqToX (25.f), xR = freqToX (12800.f);
+        const float xL = plotX0(), xR = plotRight();          // full plot: 25 Hz .. ~23 kHz border
+        const float yT = dbToY (20.f), yB = dbToY (-20.f);
         for (int db = -20; db <= 20; db += 5)
             g.drawHorizontalLine (juce::roundToInt (dbToY ((float) db)), xL, xR);
-        const float yT = dbToY (20.f), yB = dbToY (-20.f);
-        for (int oct = 0; oct <= 9; ++oct)
-            g.drawVerticalLine (juce::roundToInt (freqToX (25.f * (float) (1 << oct))), yT, yB);
+        for (int oct = 0; oct <= 9; ++oct)                    // 25 Hz .. 12.8 kHz octave lines
+            g.drawVerticalLine ((int) freqToX (25.f * (float) (1 << oct)), yT, yB);  // FLOOR (matches orig)
+        g.drawVerticalLine ((int) xR, yT, yB);                // right border (12.8 kHz is inset)
     }
 
     // frequency axis: log labels 025..12.8 kHz + minor ticks, below the plot.
@@ -191,19 +192,19 @@ private:
             { 800.f,"0.8" },{ 1600.f,"1.6" },{ 3200.f,"3.2" },{ 6400.f,"6.4" },{ 12800.f,"12.8" } };
         for (auto& m : maj)
         {
-            const int x = juce::roundToInt (freqToX (m.first));
+            const int x = (int) freqToX (m.first);           // FLOOR (matches orig grid)
             g.drawVerticalLine (x, ty, ty + 4.f);
             g.drawText (m.second, x - 15, juce::roundToInt (ty) + 4, 30, 11,
                         juce::Justification::centred, false);
         }
-        for (int oct = 0; oct < 9; ++oct)                    // 3 minor ticks per octave
-            for (float s : { 1.25f, 1.5f, 1.75f })           // linear quarter-octave (measured)
+        for (int oct = 0; oct < 10; ++oct)                   // 3 minor ticks per octave,
+            for (float s : { 1.25f, 1.5f, 1.75f })           // incl. the 12.8k..23k margin cell
             {
-                const float f = 25.f * (float) (1 << oct) * s;
-                if (f < 12800.f) g.drawVerticalLine (juce::roundToInt (freqToX (f)), ty, ty + 2.5f);
+                const float f = 25.f * (float) (1 << oct) * s;   // linear quarter-octave (measured)
+                if (f < F_MAX) g.drawVerticalLine ((int) freqToX (f), ty, ty + 2.5f);
             }
-        g.drawText ("kHz", juce::roundToInt (freqToX (12800)) + 9, juce::roundToInt (ty) + 4,
-                    26, 11, juce::Justification::left, false);
+        g.drawText ("kHz", (int) freqToX (12800) + 14, juce::roundToInt (ty) + 4,
+                    26, 11, juce::Justification::left, false);   // gap after "12.8" (measured x619)
     }
 
     void bandEdges (float (&edge)[5]) const
@@ -225,18 +226,25 @@ private:
         }
         if (p.y > 20.f)
             for (int i = 0; i < 5; ++i)
-                if (edge[i] <= plotX0() + plotW() + 2.f && std::abs (p.x - edge[i]) < 9.f) return true;
+                if (edge[i] <= plotRight() + 2.f && std::abs (p.x - edge[i]) < 9.f) return true;
         return false;
     }
 
-    // x-axis: 25 Hz@x392 .. 12.8 kHz@x605 (component x15..228 of the 290-wide panel).
-    static constexpr float F_MIN     = 25.f;
-    static constexpr float F_MAX     = 12800.f;
-    static constexpr float LOG2_SPAN = 9.f;
-    static constexpr float PLOT_X0F  = 15.f  / 290.f;
-    static constexpr float PLOT_WF   = 213.f / 290.f;
-    float plotX0 () const noexcept { return (float) getWidth() * PLOT_X0F; }
-    float plotW  () const noexcept { return (float) getWidth() * PLOT_WF; }
+    // x-axis (MEASURED off the original): plot rect editor x392..625 (comp x15..248);
+    // 25 Hz at the LEFT border (x392), the right border ~23 kHz at x625, and 12.8 kHz
+    // INSET at x605 with a margin cell to the right where the high band's edge lives
+    // (edgeHi=22 kHz -> x624, inside). Same px/octave (23.667) as the 10 octave grid
+    // lines, so bands 0-2 + the octave lines keep their positions and only band3 comes
+    // into view (previously edgeHi mapped past x605 -> the high band fell off-plot).
+    static constexpr float F_MIN      = 25.f;
+    static constexpr float F_MAX      = 23000.f;         // right border ~23 kHz (for the drag clamp)
+    static constexpr float LOG2_SPAN  = 9.f;             // px/octave = plotW/9 EXACT (matches orig grid)
+    static constexpr float PLOT_X0F   = 15.f  / 290.f;   // 25 Hz, left border (editor x392)
+    static constexpr float PLOT_WF    = 213.f / 290.f;   // 25 Hz..12.8 kHz span = 9 octaves (freqToX)
+    static constexpr float PLOT_RIGHTF= 248.f / 290.f;   // plot right border (editor x625); 12.8 kHz inset
+    float plotX0    () const noexcept { return (float) getWidth() * PLOT_X0F; }
+    float plotW     () const noexcept { return (float) getWidth() * PLOT_WF; }     // 9-octave span
+    float plotRight () const noexcept { return (float) getWidth() * PLOT_RIGHTF; } // plot rect right edge
     float freqToX (float f) const noexcept
     { return plotX0() + plotW() * std::log2 (f / F_MIN) / LOG2_SPAN; }
     float xToFreq (float x) const noexcept
