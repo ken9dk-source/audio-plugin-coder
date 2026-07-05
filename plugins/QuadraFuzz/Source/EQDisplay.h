@@ -3,130 +3,76 @@
 #include "PluginProcessor.h"
 
 // EQ / filterbank window — a 1:1 recreation of the original QuadraFuzz display.
-//   * 4 diamond handles  = per-band LEVEL  (drag vertically)   -> proc.bandLevelDb
-//   * 3 triangle handles = crossover freqs (drag horizontally) -> proc.crossHz
-//     (+ 2 fixed outer triangles marking the band-edge limits)
-//   * blue plateau response curve
+//   * 4 diamond handles (top)    = per-band LEVEL  (drag vertically) -> bandLevelDb
+//   * 5 diamond handles (bottom) = band edges / crossovers (drag horizontally)
+//   * response curve: the DLL's STYLISED display (not the raw filter magnitude) —
+//     a plateau at each band level, rounded shoulders converging to a thin stem at
+//     each edge, faint 5 dB / per-octave grid, and a log frequency axis. All
+//     colours + geometry sampled pixel-for-pixel from the original editor.
 //
-// CRITICAL: these handles read/write the processor's INTERNAL filterbank state,
-// NOT the Band1..Band4 knob parameters. Turning a knob does nothing here, and
-// dragging a handle does nothing to the knobs — exactly like the original DLL.
+// The handles read/write the processor's INTERNAL filterbank state, NOT the
+// Band1..Band4 knob parameters.
 
 class EQDisplay : public juce::Component, private juce::Timer
 {
 public:
     explicit EQDisplay (QuadraFuzzAudioProcessor& p) : proc_ (p)
     {
-        setOpaque (false);   // let the skin's navy + dB ruler + freq labels show through
-        startTimerHz (20);   // reflect external (preset/state) changes
+        setOpaque (false);   // the skin provides the navy panel + dB ruler
+        startTimerHz (20);
     }
-
     ~EQDisplay() override { stopTimer(); }
 
     //==========================================================================
     void paint (juce::Graphics& g) override
     {
-        const float W = (float) getWidth();
-        const float H = (float) getHeight();
+        float edge[5]; bandEdges (edge);
+        float lvl[4]; for (int b = 0; b < 4; ++b) lvl[b] = proc_.bandLevelDb[b].load();
+        const float botY = dbToY (-20.f);
 
-        // Transparent: the skin (1000.png) already provides the navy panel, the
-        // dB ruler (20..-20) and the frequency labels. We only draw the live grid,
-        // response curve and the draggable handles on top.
+        drawGrid (g);
 
-        // ---- grid -------------------------------------------------------
-        g.setColour (juce::Colour (0x333a6c84));
-        for (float f : { 50.f, 100.f, 200.f, 400.f, 800.f, 1600.f, 3200.f, 6400.f })
-            g.drawVerticalLine (juce::roundToInt (freqToX (f)), 0.f, H);
-        for (float db : { -15.f, -10.f, -5.f, 5.f, 10.f, 15.f })
-            g.drawHorizontalLine (juce::roundToInt (dbToY (db)), 0.f, W);
-        g.setColour (juce::Colour (0x553a6c84));
-        g.drawHorizontalLine (juce::roundToInt (dbToY (0.f)), 0.f, W);
-
-        // ---- geometry ---------------------------------------------------
-        float edge[5];
-        bandEdges (edge);
-        float lvl[4];
-        for (int b = 0; b < 4; ++b) lvl[b] = proc_.bandLevelDb[b].load();
-
-        // ---- blue response curve (exactly like the original) -----------
-        // A CONTINUOUS horizontal plateau across the bands (stepping vertically
-        // where two band levels differ), with the outer edges dropping to the
-        // triangles and thin vertical "stems" hanging from the plateau down to
-        // the triangles at the 3 inner crossovers. Straight segments only —
-        // no Bézier / interpolation.
-        // Continuous plateau at the band levels; a small V-dip at each of the 3
-        // inner crossovers, and a THIN vertical stem from every edge down to its
-        // triangle. Matches the DLL (flat tops, small notch, thin stems).
-        const float triY    = 137.f;      // triangle base y (component; editor ~167)
-        const float stemBot = triY - 8.f; // stems meet the triangle apex
-        const float dip     = 7.f;        // V-dip depth at each inner crossover
-        g.setColour (juce::Colour (0xff8fc4e8));
-        const juce::PathStrokeType stroke (1.6f, juce::PathStrokeType::curved,
-                                                 juce::PathStrokeType::rounded);
-        const juce::PathStrokeType thin (1.1f);
-
-        juce::Path plateau;
-        plateau.startNewSubPath (edge[0], dbToY (lvl[0]));
+        // ---- response curve: plateau at the band levels, ROUNDED shoulders that
+        //      CONVERGE to a thin vertical stem at each edge (down to the -20 dB
+        //      marker). Reproduces the DLL's stylised display: the stem starts at
+        //      -2.3 dB (measured) and the neighbouring shoulders meet, they don't
+        //      cross. Curve colour + grid sampled from the original editor. ------
+        g.setColour (juce::Colour (0xff59a8d1));
+        const juce::PathStrokeType curve (1.0f, juce::PathStrokeType::curved,
+                                                juce::PathStrokeType::rounded);
+        const float DIP = 7.f, R = 6.f;   // stem-top drop (~2.3 dB) / shoulder run
         for (int b = 0; b < 4; ++b)
         {
             const float yb = dbToY (lvl[b]);
-            if (b < 3)
-            {
-                const float yn = dbToY (lvl[b + 1]);
-                plateau.lineTo (edge[b + 1] - 4.f, yb);                        // flat to the notch
-                plateau.lineTo (edge[b + 1],       juce::jmax (yb, yn) + dip); // V down
-                plateau.lineTo (edge[b + 1] + 4.f, yn);                        // V up to next level
-            }
-            else
-                plateau.lineTo (edge[b + 1], yb);                              // flat to right edge
+            juce::Path c;
+            c.startNewSubPath (edge[b], yb + DIP);                    // left shoulder foot
+            c.quadraticTo (edge[b], yb, edge[b] + R, yb);            // round up to plateau
+            c.lineTo (edge[b + 1] - R, yb);                          // plateau
+            c.quadraticTo (edge[b + 1], yb, edge[b + 1], yb + DIP);  // round down to stem
+            g.strokePath (c, curve);
         }
-        g.strokePath (plateau, stroke);
-
-        for (int i = 0; i < 5; ++i)                                            // thin stems -> triangles
+        for (int i = 0; i < 5; ++i)                                  // 5 stems -> markers
         {
-            const float yTop = (i == 0) ? dbToY (lvl[0])
-                             : (i == 4) ? dbToY (lvl[3])
-                             : juce::jmax (dbToY (lvl[i - 1]), dbToY (lvl[i])) + dip;
-            juce::Path stem;
-            stem.startNewSubPath (edge[i], yTop);
-            stem.lineTo           (edge[i], stemBot);
-            g.strokePath (stem, thin);
+            const float yTop = (i == 0) ? dbToY (lvl[0]) + DIP
+                             : (i == 4) ? dbToY (lvl[3]) + DIP
+                             : juce::jmin (dbToY (lvl[i - 1]), dbToY (lvl[i])) + DIP;
+            juce::Path s; s.startNewSubPath (edge[i], yTop); s.lineTo (edge[i], botY);
+            g.strokePath (s, juce::PathStrokeType (1.0f));
         }
 
-        // ---- diamonds (band levels) ------------------------------------
+        // ---- diamonds: 4 band levels (top) + 5 edges (bottom, -20) -------
         for (int b = 0; b < 4; ++b)
-        {
-            const float cx = (edge[b] + edge[b + 1]) * 0.5f;
-            const float cy = dbToY (lvl[b]);
-            const bool  hot = (dragKind_ == Drag::level && dragIdx_ == b);
-            juce::Path d;
-            d.startNewSubPath (cx,        cy - 6.f);
-            d.lineTo          (cx + 5.f,  cy);
-            d.lineTo          (cx,        cy + 6.f);
-            d.lineTo          (cx - 5.f,  cy);
-            d.closeSubPath();
-            g.setColour (hot ? juce::Colours::white : juce::Colour (0xffd6e2ea));
-            g.fillPath (d);
-            g.setColour (juce::Colour (0xff5a6e7a));
-            g.strokePath (d, juce::PathStrokeType (1.f));
-        }
-
-        // ---- triangles (all 5 band edges — all draggable) --------------
+            drawDiamond (g, (edge[b] + edge[b + 1]) * 0.5f, dbToY (lvl[b]),
+                         dragKind_ == Drag::level && dragIdx_ == b, true);   // tall
         for (int i = 0; i < 5; ++i)
         {
-            const float x   = edge[i];
-            const bool  inner = (i >= 1 && i <= 3);
-            const bool  hot   = (inner && dragKind_ == Drag::cross && dragIdx_ == (i - 1))
-                              || (i == 0 && dragKind_ == Drag::edge && dragIdx_ == 0)
-                              || (i == 4 && dragKind_ == Drag::edge && dragIdx_ == 1);
-            juce::Path t;
-            t.startNewSubPath (x - 5.f, triY);
-            t.lineTo (x + 5.f, triY);
-            t.lineTo (x,       triY - 9.f);
-            t.closeSubPath();
-            g.setColour (hot ? juce::Colours::white : juce::Colour (0xffb8c8d2));
-            g.fillPath (t);
+            const bool hot = (i >= 1 && i <= 3 && dragKind_ == Drag::cross && dragIdx_ == i - 1)
+                           || (i == 0 && dragKind_ == Drag::edge && dragIdx_ == 0)
+                           || (i == 4 && dragKind_ == Drag::edge && dragIdx_ == 1);
+            drawDiamond (g, edge[i], botY, hot, false);                      // wide
         }
+
+        drawFreqAxis (g);
     }
 
     //==========================================================================
@@ -134,79 +80,57 @@ public:
     {
         dragKind_ = Drag::none;
         float edge[5]; bandEdges (edge);
-
-        // diamonds first (band level)
-        for (int b = 0; b < 4; ++b)
+        for (int b = 0; b < 4; ++b)                         // top diamonds (level)
         {
             const float cx = (edge[b] + edge[b + 1]) * 0.5f;
             const float cy = dbToY (proc_.bandLevelDb[b].load());
             if (std::abs (e.position.x - cx) < 8.f && std::abs (e.position.y - cy) < 9.f)
             { dragKind_ = Drag::level; dragIdx_ = b; return; }
         }
-        // inner crossovers — grabbable anywhere along their vertical divider (the
-        // triangle + the stem above it), exactly like the original. Diamonds sit at
-        // band CENTRES and are tested first, so there is no x-overlap to worry about.
-        for (int i = 0; i < 3; ++i)
+        for (int i = 0; i < 5; ++i)                         // bottom diamonds (edges)
         {
-            const float x = freqToX (proc_.crossHz[i].load());
-            if (std::abs (e.position.x - x) < 9.f && e.position.y > 20.f)
-            { dragKind_ = Drag::cross; dragIdx_ = i; return; }
+            if (std::abs (e.position.x - edge[i]) < 9.f && e.position.y > 20.f)
+            {
+                if      (i == 0) { dragKind_ = Drag::edge;  dragIdx_ = 0; }
+                else if (i == 4) { dragKind_ = Drag::edge;  dragIdx_ = 1; }
+                else             { dragKind_ = Drag::cross; dragIdx_ = i - 1; }
+                return;
+            }
         }
-        // outer edges — the 2 outer triangles (band-0 low edge, band-3 high edge)
-        if (std::abs (e.position.x - edge[0]) < 9.f && e.position.y > 20.f)
-        { dragKind_ = Drag::edge; dragIdx_ = 0; return; }
-        if (std::abs (e.position.x - edge[4]) < 9.f && e.position.y > 20.f)
-        { dragKind_ = Drag::edge; dragIdx_ = 1; return; }
     }
 
     void mouseDrag (const juce::MouseEvent& e) override
     {
         if (dragKind_ == Drag::level)
         {
-            const float db = juce::jlimit (-20.f, 20.f, yToDb (e.position.y));
-            proc_.bandLevelDb[dragIdx_].store (db);
+            proc_.bandLevelDb[dragIdx_].store (juce::jlimit (-20.f, 20.f, yToDb (e.position.y)));
             repaint();
         }
         else if (dragKind_ == Drag::cross)
         {
             float f = juce::jlimit (F_MIN, F_MAX, xToFreq (e.position.x));
-            // keep crossovers ordered, bounded by the neighbour cross or the outer edge
             const float lo = (dragIdx_ > 0) ? proc_.crossHz[dragIdx_ - 1].load() * 1.05f
                                             : proc_.edgeLoHz.load() * 1.05f;
             const float hi = (dragIdx_ < 2) ? proc_.crossHz[dragIdx_ + 1].load() * 0.95f
                                             : proc_.edgeHiHz.load() * 0.95f;
-            f = juce::jlimit (lo, hi, f);
-            proc_.crossHz[dragIdx_].store (f);
+            proc_.crossHz[dragIdx_].store (juce::jlimit (lo, hi, f));
             repaint();
         }
         else if (dragKind_ == Drag::edge)
         {
             float f = juce::jlimit (F_MIN, F_MAX, xToFreq (e.position.x));
-            if (dragIdx_ == 0)   // low edge — stays below cross0
-            {
-                f = juce::jlimit (F_MIN, proc_.crossHz[0].load() * 0.95f, f);
-                proc_.edgeLoHz.store (f);
-            }
-            else                 // high edge — stays above cross2
-            {
-                f = juce::jlimit (proc_.crossHz[2].load() * 1.05f, F_MAX, f);
-                proc_.edgeHiHz.store (f);
-            }
+            if (dragIdx_ == 0) proc_.edgeLoHz.store (juce::jlimit (F_MIN, proc_.crossHz[0].load() * 0.95f, f));
+            else               proc_.edgeHiHz.store (juce::jlimit (proc_.crossHz[2].load() * 1.05f, F_MAX, f));
             repaint();
         }
     }
 
-    void mouseUp (const juce::MouseEvent&) override
-    {
-        dragKind_ = Drag::none;
-        repaint();
-    }
+    void mouseUp (const juce::MouseEvent&) override { dragKind_ = Drag::none; repaint(); }
 
     void mouseMove (const juce::MouseEvent& e) override
     {
-        const bool overHandle = hitDiamond (e.position) || hitTriangle (e.position);
-        setMouseCursor (overHandle ? juce::MouseCursor::PointingHandCursor
-                                   : juce::MouseCursor::NormalCursor);
+        setMouseCursor (overHandle (e.position) ? juce::MouseCursor::PointingHandCursor
+                                                : juce::MouseCursor::NormalCursor);
     }
 
 private:
@@ -215,11 +139,62 @@ private:
     Drag dragKind_ = Drag::none;
     int  dragIdx_  = -1;
 
-    static constexpr float DB_RANGE = 20.f;
-
     void timerCallback() override { if (dragKind_ == Drag::none) repaint(); }
 
-    // band edges in x: [edgeLo, cross0, cross1, cross2, edgeHi] — all 5 draggable
+    // grey lozenge handle. TOP (level) handles are TALL (7x11, drag up/down);
+    // BOTTOM (edge) handles are WIDE (11x7, drag left/right) — measured off the
+    // original, which orients each marker to hint its drag axis.
+    void drawDiamond (juce::Graphics& g, float cx, float cy, bool hot, bool tall) const
+    {
+        const float hw = tall ? 3.5f : 5.5f;
+        const float hh = tall ? 5.5f : 3.5f;
+        juce::Path d;
+        d.startNewSubPath (cx, cy - hh); d.lineTo (cx + hw, cy);
+        d.lineTo (cx, cy + hh);          d.lineTo (cx - hw, cy);
+        d.closeSubPath();
+        g.setColour (hot ? juce::Colours::white : juce::Colour (0xffc8c8c8));
+        g.fillPath (d);
+    }
+
+    // faint background grid: 5 dB horizontals + per-octave verticals, colour
+    // (6,62,87) sampled from the original editor (the clone skin has no grid).
+    void drawGrid (juce::Graphics& g) const
+    {
+        g.setColour (juce::Colour (0xff063e57));
+        const float xL = freqToX (25.f), xR = freqToX (12800.f);
+        for (int db = -20; db <= 20; db += 5)
+            g.drawHorizontalLine (juce::roundToInt (dbToY ((float) db)), xL, xR);
+        const float yT = dbToY (20.f), yB = dbToY (-20.f);
+        for (int oct = 0; oct <= 9; ++oct)
+            g.drawVerticalLine (juce::roundToInt (freqToX (25.f * (float) (1 << oct))), yT, yB);
+    }
+
+    // frequency axis: log labels 025..12.8 kHz + minor ticks, below the plot.
+    void drawFreqAxis (juce::Graphics& g) const
+    {
+        const float ty = dbToY (-20.f) + 8.f;
+        g.setColour (juce::Colour (0xff6796a8));
+        g.setFont (juce::Font (juce::FontOptions().withHeight (9.5f)));
+        static const std::pair<float, const char*> maj[] = {
+            { 25.f,"025" },{ 50.f,"0.05" },{ 100.f,"0.1" },{ 200.f,"0.2" },{ 400.f,"0.4" },
+            { 800.f,"0.8" },{ 1600.f,"1.6" },{ 3200.f,"3.2" },{ 6400.f,"6.4" },{ 12800.f,"12.8" } };
+        for (auto& m : maj)
+        {
+            const int x = juce::roundToInt (freqToX (m.first));
+            g.drawVerticalLine (x, ty, ty + 4.f);
+            g.drawText (m.second, x - 15, juce::roundToInt (ty) + 4, 30, 11,
+                        juce::Justification::centred, false);
+        }
+        for (int oct = 0; oct < 9; ++oct)                    // 3 minor ticks per octave
+            for (float s : { 1.25f, 1.5f, 1.75f })           // linear quarter-octave (measured)
+            {
+                const float f = 25.f * (float) (1 << oct) * s;
+                if (f < 12800.f) g.drawVerticalLine (juce::roundToInt (freqToX (f)), ty, ty + 2.5f);
+            }
+        g.drawText ("kHz", juce::roundToInt (freqToX (12800)) + 9, juce::roundToInt (ty) + 4,
+                    26, 11, juce::Justification::left, false);
+    }
+
     void bandEdges (float (&edge)[5]) const
     {
         edge[0] = freqToX (proc_.edgeLoHz.load());
@@ -228,8 +203,7 @@ private:
         edge[3] = freqToX (proc_.crossHz[2].load());
         edge[4] = freqToX (proc_.edgeHiHz.load());
     }
-
-    bool hitDiamond (juce::Point<float> p) const
+    bool overHandle (juce::Point<float> p) const
     {
         float edge[5]; bandEdges (edge);
         for (int b = 0; b < 4; ++b)
@@ -238,38 +212,29 @@ private:
             const float cy = dbToY (proc_.bandLevelDb[b].load());
             if (std::abs (p.x - cx) < 8.f && std::abs (p.y - cy) < 9.f) return true;
         }
-        return false;
-    }
-    bool hitTriangle (juce::Point<float> p) const
-    {
-        if (p.y <= 20.f) return false;
-        float edge[5]; bandEdges (edge);
-        for (int i = 0; i < 5; ++i)              // all 5 edges are draggable
-            if (std::abs (p.x - edge[i]) < 9.f) return true;
+        if (p.y > 20.f)
+            for (int i = 0; i < 5; ++i)
+                if (std::abs (p.x - edge[i]) < 9.f) return true;
         return false;
     }
 
-    // x-axis = the skin's frequency ruler: 025 (25 Hz) at the left .. 12.8 kHz at
-    // the right, octaves evenly spaced. The plotting area is 263/290 of the panel
-    // width (the dB ruler 20..-20 occupies the right ~27 px). Measured from 1000.png.
+    // x-axis: 25 Hz@x392 .. 12.8 kHz@x605 (component x15..228 of the 290-wide panel).
     static constexpr float F_MIN     = 25.f;
     static constexpr float F_MAX     = 12800.f;
-    static constexpr float LOG2_SPAN = 9.f;            // log2(12800/25) = 9 octaves
-    // Plot (grid) area inside the 290-wide component: measured from the DLL editor
-    // capture (editor x392..605 -> component x15..228; 25 Hz@392, 12.8 kHz@605,
-    // ~23.7 px/octave). Was wrongly spread over 263/290 of the width.
-    static constexpr float PLOT_X0F = 15.f  / 290.f;
-    static constexpr float PLOT_WF  = 213.f / 290.f;
+    static constexpr float LOG2_SPAN = 9.f;
+    static constexpr float PLOT_X0F  = 15.f  / 290.f;
+    static constexpr float PLOT_WF   = 213.f / 290.f;
     float plotX0 () const noexcept { return (float) getWidth() * PLOT_X0F; }
     float plotW  () const noexcept { return (float) getWidth() * PLOT_WF; }
     float freqToX (float f) const noexcept
     { return plotX0() + plotW() * std::log2 (f / F_MIN) / LOG2_SPAN; }
     float xToFreq (float x) const noexcept
     { return F_MIN * std::pow (2.f, ((x - plotX0()) / plotW()) * LOG2_SPAN); }
-    // 0 dB sits where the original's default diamonds sit (clean y99 = component
-    // 69), ~3.55 px per dB so the skin ruler's ±20 spans the grid exactly.
+
+    // y-axis: 0 dB at component y69 (editor y99); -20 dB at the bottom diamond row
+    // (editor y159) -> 3.0 px/dB.
     static constexpr float ZERO_Y    = 69.f;
-    static constexpr float PX_PER_DB = 3.55f;
+    static constexpr float PX_PER_DB = 3.0f;
     float dbToY (float db) const noexcept { return ZERO_Y - db * PX_PER_DB; }
     float yToDb (float y)  const noexcept { return (ZERO_Y - y) / PX_PER_DB; }
 
