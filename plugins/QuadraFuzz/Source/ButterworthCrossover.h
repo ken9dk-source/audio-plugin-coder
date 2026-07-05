@@ -2,6 +2,7 @@
 #include <cmath>
 #include <complex>
 #include <algorithm>
+#include <cassert>
 
 // Crossover filter sections for the QuadraFuzz clone.
 //
@@ -128,8 +129,19 @@ namespace QFX
             // biquad coeffs to 0.000 dB on every band incl. near-Nyquist band3, and
             // replaces an earlier fit (w0^2=1.1497*Wlo*Whi, BW=0.9665*dW) which was
             // this scaling's small-angle approximation and drifted ~1% near Nyquist.
-            const double loS = std::min (flo, sr * 0.48) * 1.15;   // _DAT_100219b0
-            const double hiS = std::min (fhi, sr * 0.49);          // _DAT_100219b8
+            double loS = std::min (flo, sr * 0.48) * 1.15;         // _DAT_100219b0
+            double hiS = std::min (fhi, sr * 0.49);                // _DAT_100219b8
+            // STABILITY GUARD: the raw DLL scaling lets loS reach 0.552*fs (past
+            // Nyquist) and, for a narrow/inverted high band, loS > hiS -> negative
+            // bandwidth -> analog poles in the right half-plane -> bilinear poles
+            // OUTSIDE the unit circle -> self-oscillation -> NaN (permanent silence).
+            // Keep 0 < loS < hiS < fs/2 so BW>0 and every pole stays inside. At
+            // normal settings loS << hiS << 0.49*fs, so these clamps never fire and
+            // the coeffs remain bit-identical to the DLL (validated by null test).
+            if (hiS > sr * 0.499) hiS = sr * 0.499;                // Whi finite (< tan 90)
+            const double loMax = hiS - sr * 0.002;                 // guarantee BW >= ~0.002*fs
+            if (loS > loMax)        loS = loMax;
+            if (loS < sr * 0.0005)  loS = sr * 0.0005;
             const double Wlo = std::tan (PI * loS / sr);           // pre-warped edges
             const double Whi = std::tan (PI * hiS / sr);
             const double w02 = Wlo * Whi;                          // standard geometric
@@ -165,6 +177,12 @@ namespace QFX
                    / (1.0        + sec[i].a1 * z1 + sec[i].a2 * z2);
             const double g = std::pow (1.0 / std::abs (H), 0.25);
             for (int i = 0; i < 4; ++i) { sec[i].b0 *= g; sec[i].b1 *= g; sec[i].b2 *= g; }
+#ifndef NDEBUG
+            // every biquad pole must be inside the unit circle (stability triangle:
+            // a2 < 1 and |a1| < 1 + a2). Catches any future design regression.
+            for (int i = 0; i < 4; ++i)
+                assert (sec[i].a2 < 1.0 && std::abs (sec[i].a1) < 1.0 + sec[i].a2);
+#endif
         }
     };
 }

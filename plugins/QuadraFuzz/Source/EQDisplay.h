@@ -32,6 +32,15 @@ public:
 
         drawGrid (g);
 
+        // Clip curve/stems/diamonds to the plot rectangle: a high band pushed up
+        // (edge above 12.8 kHz, e.g. the default edgeHi=22 kHz) must NOT draw past
+        // the right edge into the dB ruler — the original clips it there too. The
+        // frequency axis below the plot is drawn afterwards, unclipped.
+        g.saveState();
+        g.reduceClipRegion (juce::Rectangle<int> (0, 0,
+                            juce::roundToInt (plotX0() + plotW()),
+                            juce::roundToInt (dbToY (-20.f)) + 7));
+
         // ---- response curve: plateau at the band levels, ROUNDED shoulders that
         //      CONVERGE to a thin vertical stem at each edge (down to the -20 dB
         //      marker). Reproduces the DLL's stylised display: the stem starts at
@@ -72,6 +81,7 @@ public:
             drawDiamond (g, edge[i], botY, hot, false);                      // wide
         }
 
+        g.restoreState();          // end plot clip — the axis below draws unclipped
         drawFreqAxis (g);
     }
 
@@ -89,6 +99,7 @@ public:
         }
         for (int i = 0; i < 5; ++i)                         // bottom diamonds (edges)
         {
+            if (edge[i] > plotX0() + plotW() + 2.f) continue;   // off-plot marker: not grabbable
             if (std::abs (e.position.x - edge[i]) < 9.f && e.position.y > 20.f)
             {
                 if      (i == 0) { dragKind_ = Drag::edge;  dragIdx_ = 0; }
@@ -214,7 +225,7 @@ private:
         }
         if (p.y > 20.f)
             for (int i = 0; i < 5; ++i)
-                if (std::abs (p.x - edge[i]) < 9.f) return true;
+                if (edge[i] <= plotX0() + plotW() + 2.f && std::abs (p.x - edge[i]) < 9.f) return true;
         return false;
     }
 

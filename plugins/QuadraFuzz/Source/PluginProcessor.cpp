@@ -200,6 +200,19 @@ void QuadraFuzzAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
 
     runCrossover (buffer);
     juce::AudioBuffer<float>* bands[4] = { &band0Buf, &band1Buf, &band2Buf, &band3Buf };
+    // NaN/Inf safety net: if a band filter ever goes unstable, flush its state and
+    // silence just that band this block, so audio recovers next block instead of
+    // being stuck silent forever (a stuck NaN in z1/z2 poisons every future sample).
+    for (int b = 0; b < 4; ++b)
+    {
+        bool bad = false;
+        for (int c = 0; c < ch && ! bad; ++c)
+        {
+            const float* p = bands[b]->getReadPointer (c);
+            for (int s = 0; s < n; ++s) if (! std::isfinite (p[s])) { bad = true; break; }
+        }
+        if (bad) { bandBP[b].reset(); bands[b]->clear(); lastEdge[0] = -1.f; }  // force redesign
+    }
     for (int b = 0; b < 4; ++b)
         applyBandFuzz (*bands[b], drive[b], level[b], shape);
 
