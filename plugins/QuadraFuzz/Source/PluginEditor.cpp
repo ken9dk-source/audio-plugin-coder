@@ -18,12 +18,14 @@ static const juce::Rectangle<int> DB_LABEL_BOUNDS[6] = {
     {  38,128, 48, 14 }, { 278,128, 48, 14 },
 };
 
-// Filmstrip buttons aligned over the skin's 5 buttons. Derived from the
-// original: its active gold face sits at clean y50..60, i.e. button 0 top ~47,
-// 30 px spacing. The filmstrip replaces the skin button it covers.
+// Filmstrip buttons aligned 1:1 over the skin's 5 buttons. Pixel-measured from
+// the original: each skin button frame is x683..715 / y49..61, and the 35x16
+// filmstrip has 1px top + 2px right/bottom panel-coloured padding with its frame
+// at img(x0,y1). Placing the native 35x16 strip at {683,48} maps img(x0,y1) ->
+// skin(683,49) exactly, so the strip overlays the skin button seamlessly.
 static const juce::Rectangle<int> SHAPE_BOUNDS[5] = {
-    { 677,  47, 39, 18 }, { 677, 77, 39, 18 }, { 677, 107, 39, 18 },
-    { 677, 137, 39, 18 }, { 677, 167, 39, 18 },
+    { 683,  48, 35, 16 }, { 683, 78, 35, 16 }, { 683, 108, 35, 16 },
+    { 683, 138, 35, 16 }, { 683, 168, 35, 16 },
 };
 
 static const char* const KNOB_IDS[6] = { "Band1", "Band2", "Band3", "Band4", "In", "Out" };
@@ -194,7 +196,11 @@ void QuadraFuzzAudioProcessorEditor::parameterChanged (const juce::String& param
 {
     if (paramID == "Shape")
     {
-        const int idx = juce::roundToInt (newValue * (NUM_SHAPES - 1));
+        // APVTS delivers the DENORMALISED value here; for an AudioParameterChoice
+        // that is already the 0..4 index — do NOT rescale it (the old *(N-1) turned
+        // idx 1 into 4 and 2..4 out of range). Read it straight, like the ctor does.
+        const int idx = juce::jlimit (0, NUM_SHAPES - 1,
+                                      (int) audioProcessor.apvts.getRawParameterValue ("Shape")->load());
         juce::MessageManager::callAsync ([this, idx]() { updateShapeButtons (idx); });
     }
     else if (paramID == "Preset")
