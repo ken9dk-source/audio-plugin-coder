@@ -561,6 +561,33 @@ int main()
              "clone VazPhaserEngine vs independent transcription of FUN_005218d8 (N allpass + fb + linear mix + stereo), LFO moving, impulse+noise");
     }
 
+    // ── DIAG. Phaser stages — RMS audibility of a 2↔12 stages change at DEFAULT vs STRONG settings ─────────
+    {
+        auto runStages = [] (int stagesParam, int depthP, int centerP, int mixP, int fbP, std::vector<double>& out)
+        {
+            VazPhaserEngine e; e.clearBuffers(); e.setSampleRate (44100.0);
+            e.setParams (stagesParam, fbP, false, depthP, centerP, 64, mixP, 175284u);   // rate≈1.8 Hz
+            uint32_t rng = 0x1357u; out.clear();
+            for (int i = 0; i < 40000; ++i)
+            {
+                int32_t s = (int32_t) ((rng = rng * 1664525u + 1013904223u) >> 9) - (1 << 21);   // steady noise (no impulse)
+                int32_t L = s, R = s; e.processFrame (L, R);
+                if (i >= 2000) out.push_back ((double) L / 8388608.0);   // skip settling
+            }
+        };
+        auto rmsRatio = [&] (int depthP, int centerP, int mixP, int fbP) -> double
+        {
+            std::vector<double> a, b; runStages (0, depthP, centerP, mixP, fbP, a); runStages (5, depthP, centerP, mixP, fbP, b);
+            double sd = 0, ss = 0; for (size_t i = 0; i < a.size(); ++i) { const double d = a[i] - b[i]; sd += d * d; ss += b[i] * b[i]; }
+            return ss > 0 ? std::sqrt (sd / ss) : 0.0;   // RMS(out2−out12) / RMS(out12)
+        };
+        const double def = rmsRatio (153, 128, 128, 50);   // plugin defaults: freq 0.5, depth 0.6, mix 0.5, fb 0.5
+        const double str = rmsRatio (255, 220, 200, 80);   // strong: high freq/depth/mix/fb
+        row ("fx_phaser_stages_diag", (def > 0.02) ? "OK (audible at default)" : "WEAK at default (VAZ coef≈1 → narrow low-freq notches)",
+             "RMS(st2−st12)/RMS: default=" + std::to_string (def) + "  strong=" + std::to_string (str)
+             + "  (engine responds; low default = coef-LUT is 0.88..0.9999 = low-freq allpass)");
+    }
+
     // ── FX 10. Delay render — clone VazDelayEngine vs independent transcription of FUN_0051bba8, all 3 modes ──
     {
         long maxd = 0;

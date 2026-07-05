@@ -21,7 +21,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout VAZPhaserAudioProcessor::cre
         return std::make_unique<AudioParameterFloat>(
             ParameterID { id, 1 }, name, NormalisableRange<float>(0.0f, 1.0f), def);
     };
-    layout.add (pct (ParameterIDs::stages,    "Stages",    0.2f));   // → 4 stages
+    // Stages: DISCRETE 6-step control (was a continuous 0..1 float → small knob moves stayed in the same value =
+    // "dead zones"). Steps 0..5 → N = (step+1)·2 = 2/4/6/8/10/12 all-pass stages (VAZ N=(p+1)·2, FUN_00521b68).
+    layout.add (std::make_unique<AudioParameterFloat>(
+        ParameterID { ParameterIDs::stages, 1 }, "Stages",
+        NormalisableRange<float>(0.0f, 5.0f, 1.0f), 1.0f,
+        AudioParameterFloatAttributes().withStringFromValueFunction (
+            [] (float v, int) { return juce::String ((juce::roundToInt (v) + 1) * 2); })));   // display 2..12
     layout.add (pct (ParameterIDs::frequency, "Frequency", 0.5f));
     layout.add (pct (ParameterIDs::feedback,  "Feedback",  0.5f));
     layout.add (pct (ParameterIDs::rate,      "Rate",      0.3f));
@@ -68,7 +74,7 @@ void VAZPhaserAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
     const bool  fbPhase = apvts.getRawParameterValue (ParameterIDs::feedback_phase)->load() > 0.5f;
 
     // Map the knobs onto VAZ's TFXPhaser fields (setters FUN_00521b68/bf4/d14/b80/d24; render @0x5218d8):
-    const int stagesParam = juce::jlimit (0, 5,   (int) std::lround (fStages * 5.0f));  // N=(p+1)·2 → 2..12 (FUN_00521b68)
+    const int stagesParam = juce::jlimit (0, 5,   (int) std::lround (fStages));  // fStages is now 0..5 (discrete step) → N=(p+1)·2
     const int fbParam     = juce::jlimit (0, 100, (int) std::lround (fFb   * 100.0f));  // feedback 0..100 → 0..0.78125 (FUN_00521bf4)
     const int depthP      = juce::jlimit (0, 255, (int) std::lround (fDepth * 255.0f)); // LUT-index sweep (+0x280)
     const int centerP     = juce::jlimit (0, 255, (int) std::lround (fFreq  * 255.0f)); // base LUT index / notch freq (+0x264)
