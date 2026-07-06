@@ -58,3 +58,9 @@ endif()
 if(UNIX AND NOT APPLE)
     target_compile_definitions(TranceEQ PUBLIC JUCE_USE_CURL=0)
 endif()
+
+# ---- Test suite (opt-in; does not affect the normal plugin build) ----
+option(APC_BUILD_TESTS "Build the TranceEQ Catch2 test suite" OFF)
+if(APC_BUILD_TESTS)
+    add_subdirectory(Tests)
+endif()

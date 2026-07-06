@@ -1,5 +1,7 @@
 #include "PluginProcessor.h"
-#include "PluginEditor.h"
+#if ! TRANCEEQ_HEADLESS
+ #include "PluginEditor.h"      // excluded from the headless test build (no editor/WebView/BinaryData)
+#endif
 
 //==============================================================================
 // Mode templates — straight from the PDF "Anbefalede EQ-bånd" table.
@@ -431,7 +433,11 @@ void TranceEQAudioProcessor::setStateInformation (const void* data, int size)
 
 juce::AudioProcessorEditor* TranceEQAudioProcessor::createEditor()
 {
+   #if TRANCEEQ_HEADLESS
+    return nullptr;
+   #else
     return new TranceEQAudioProcessorEditor (*this);
+   #endif
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
