@@ -150,3 +150,98 @@ TEST_CASE ("Bypass is transparent: nulls against the latency-delayed dry input",
         REQUIRE (nullDb < -120.0);
     }
 }
+
+TEST_CASE ("Bypass toggling is click-free, finite, and latency-constant", "[processor][bypass][toggle]")
+{
+    juce::ScopedJuceInitialiser_GUI init;
+    const double fs = 48000.0; const int block = 64;      // small block => toggles land mid-fade
+
+    TranceEQAudioProcessor p;
+    p.setPlayConfigDetails (2, 2, fs, block);
+    p.prepareToPlay (fs, block);
+    setScaled (p, ParameterIDs::bandGain (2), 12.0f);     // heavy EQ so wet != dry
+    setScaled (p, ParameterIDs::os, 1.0f);                // 2x => non-zero latency
+    runBlock (p, 2, block);                                // engage OS / settle latency
+    const int lat = p.getLatencySamples();
+    REQUIRE (lat > 0);
+
+    const int totalBlocks = 400;
+    std::vector<float> out; out.reserve ((size_t) totalBlocks * block);
+    juce::AudioBuffer<float> buf (2, block);
+    juce::MidiBuffer midi;
+    double phase = 0.0; const double inc = 2.0 * tt::kPi * 220.0 / fs;
+    bool by = false;
+
+    for (int blk = 0; blk < totalBlocks; ++blk)
+    {
+        if (blk % 5 == 0)                                  // re-toggle every 320 samples (< 20 ms fade)
+        {
+            by = ! by;
+            setScaled (p, ParameterIDs::bypass, by ? 1.0f : 0.0f);
+        }
+        for (int i = 0; i < block; ++i)
+        {
+            const float s = 0.5f * (float) std::sin (phase); phase += inc;
+            buf.setSample (0, i, s); buf.setSample (1, i, s);
+        }
+        midi.clear();
+        p.processBlock (buf, midi);
+        REQUIRE (p.getLatencySamples() == lat);            // latency must not move when toggling
+        for (int i = 0; i < block; ++i) out.push_back (buf.getSample (0, i));
+    }
+
+    double maxStep = 0.0;
+    for (size_t t = 0; t < out.size(); ++t)
+    {
+        REQUIRE (std::isfinite (out[t]));
+        if (t > 0) maxStep = juce::jmax (maxStep, (double) std::abs (out[t] - out[t - 1]));
+    }
+    INFO ("max sample-to-sample step = " << maxStep << " (a hard switch would be O(1))");
+    REQUIRE (maxStep < 0.1);                               // smooth fade => tiny steps; a click would be ~0.2-2
+}
+
+TEST_CASE ("Host-bypass parameter equals the internal bypass path", "[processor][bypass][hostparam]")
+{
+    juce::ScopedJuceInitialiser_GUI init;
+    const double fs = 48000.0; const int block = 128; const int nb = 200;
+
+    auto run = [&] (bool viaHostHandle)
+    {
+        TranceEQAudioProcessor p;
+        p.setPlayConfigDetails (2, 2, fs, block);
+        p.prepareToPlay (fs, block);
+
+        REQUIRE (p.getBypassParameter() != nullptr);
+        REQUIRE (p.getBypassParameter() == p.apvts.getParameter (ParameterIDs::bypass));  // same object
+        REQUIRE (p.getBypassParameter()->isAutomatable());
+
+        juce::AudioBuffer<float> buf (2, block);
+        juce::MidiBuffer midi;
+        double ph = 0.0; std::vector<float> out; out.reserve ((size_t) nb * block);
+        for (int blk = 0; blk < nb; ++blk)
+        {
+            const bool by = ((blk / 10) % 2) == 1;
+            juce::AudioProcessorParameter* prm = viaHostHandle
+                ? p.getBypassParameter()
+                : (juce::AudioProcessorParameter*) p.apvts.getParameter (ParameterIDs::bypass);
+            prm->setValueNotifyingHost (by ? 1.0f : 0.0f);
+            for (int i = 0; i < block; ++i)
+            {
+                const float s = 0.4f * (float) std::sin (ph); ph += 2.0 * tt::kPi * 330.0 / fs;
+                buf.setSample (0, i, s); buf.setSample (1, i, s);
+            }
+            midi.clear();
+            p.processBlock (buf, midi);
+            for (int i = 0; i < block; ++i) out.push_back (buf.getSample (0, i));
+        }
+        return out;
+    };
+
+    const auto a = run (true);
+    const auto b = run (false);
+    REQUIRE (a.size() == b.size());
+    double maxDiff = 0.0;
+    for (size_t i = 0; i < a.size(); ++i) maxDiff = juce::jmax (maxDiff, (double) std::abs (a[i] - b[i]));
+    INFO ("host vs internal max diff = " << maxDiff);
+    REQUIRE (maxDiff == 0.0);   // getBypassParameter() IS the internal bypass param => bit-identical
+}

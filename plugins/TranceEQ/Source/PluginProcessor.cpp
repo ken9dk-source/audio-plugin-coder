@@ -197,7 +197,7 @@ void TranceEQAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
     dryW = 0;
     dryScratch.setSize (2, osMaxBlock, false, false, true);
     dryScratch.clear();
-    bypassMix.reset (sampleRate, 0.015);                 // ~15 ms click-free crossfade
+    bypassMix.reset (sampleRate, 0.020);                 // ~20 ms click-free crossfade
     bypassMix.setCurrentAndTargetValue (pBypass->load() > 0.5f ? 1.0f : 0.0f);
 
     monoBuf.assign ((size_t) osMaxBlock, 0.0f);
@@ -367,19 +367,22 @@ void TranceEQAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
             }
     }
 
-    // ---- 8. de-zippered output trim + click-free, latency-compensated bypass crossfade ----
+    // ---- 8. de-zippered output trim + click-free, latency-compensated, EQUAL-POWER bypass ----
+    // Equal-power law via amplitude sqrt: gWet = √(1−mix), gDry = √(mix)  ⇒ gWet² + gDry² = 1.
+    // Endpoints are exact (√0 = 0, √1 = 1) so a settled bypass is still bit-transparent, and a
+    // mid-fade re-toggle is continuous (mix is a linear-smoothed value, sqrt() is continuous).
     bypassMix.setTargetValue (bypass ? 1.0f : 0.0f);               // 0 = wet, 1 = dry
     outGain.setTargetValue (juce::Decibels::decibelsToGain (pOutput->load()));
     for (int i = 0; i < n; ++i)
     {
-        const float mix = bypassMix.getNextValue();
-        const float g   = outGain.getNextValue();                  // wet-only output trim
+        const float mix  = juce::jlimit (0.0f, 1.0f, bypassMix.getNextValue());
+        const float gDry = std::sqrt (mix);
+        const float gWet = std::sqrt (1.0f - mix);
+        const float g    = outGain.getNextValue();                 // wet-only output trim
         float monoOut = 0.0f;
         for (int ch = 0; ch < numCh; ++ch)
         {
-            const float wet = chans[ch][i] * g;
-            const float dry = dryScratch.getSample (ch, i);
-            const float out = wet + mix * (dry - wet);             // lerp wet → dry, no click
+            const float out = gWet * (chans[ch][i] * g) + gDry * dryScratch.getSample (ch, i);
             chans[ch][i] = out;
             monoOut += out;
         }
@@ -429,6 +432,14 @@ void TranceEQAudioProcessor::setStateInformation (const void* data, int size)
 {
     if (auto xml = getXmlFromBinary (data, size))
         apvts.replaceState (juce::ValueTree::fromXml (*xml));
+}
+
+// Designate our 'bypass' parameter as the host bypass. The JUCE wrappers then route the DAW's
+// native bypass button to this parameter (and call our processBlock, not processBlockBypassed),
+// so host bypass goes through the equal-power crossfade — and no duplicate bypass is auto-added.
+juce::AudioProcessorParameter* TranceEQAudioProcessor::getBypassParameter() const
+{
+    return apvts.getParameter (ParameterIDs::bypass);
 }
 
 juce::AudioProcessorEditor* TranceEQAudioProcessor::createEditor()
