@@ -1,0 +1,139 @@
+{
+  "plugin_name": "TranceChords",
+  "version": "v0.0.0",
+  "current_phase": "tested",
+  "ui_framework": "native",
+  "complexity_score": 8,
+  "created_at": "2026-06-18T00:00:00Z",
+  "last_modified": "2026-06-18T00:00:00Z",
+  "phase_history": [
+    {
+      "phase": "ideation_complete",
+      "completed_at": "2026-06-18T00:00:00Z",
+      "framework_selected": "native",
+      "notes": "Spec from PDF 'Avanceret akkordgenerator for vokal trance'. Vocal-trance chord-progression generator. Instrument (IS_SYNTH) with built-in preview pad + MIDI drag-out. User confirmed: Native C++ UI, instrument+preview role, name TranceChords. Modes include Dorian & Phrygian (+ all 7 modes, harmonic & melodic minor)."
+    },
+    {
+      "phase": "plan_complete",
+      "completed_at": "2026-06-18T00:00:00Z",
+      "framework_selected": "native",
+      "notes": "Header-only music-theory core (Scales/Chord/Voicing/ProgressionTemplates/Generator). Rule engine (function-weighted diatonic walk, mode-aware) + 24 curated PDF templates, blended by Variation slider. MidiExport -> juce::MidiFile temp file for drag-out. PadSynth (juce::Synthesiser) for preview + master chorus/reverb. Native juce::Component editor = DragAndDropContainer."
+    },
+    {
+      "phase": "design_complete",
+      "completed_at": "2026-06-18T00:00:00Z",
+      "framework_selected": "native",
+      "notes": "Native dark-trance UI: Key/Mode/Section/Length + BPM header; Mood/Energy/Complexity/VoiceLeading/Density/Variation/Humanize sliders; toggles (Sus/Borrowed/ForbidTriads/NoPop/ScaleLock/Modulation); GENERATE + Play/Stop; chord-card row (click=audition, lock); native 'DRAG MIDI -> DAW' strip; preset menu."
+    },
+    {
+      "phase": "code_complete",
+      "completed_at": "2026-06-18T00:00:00Z",
+      "framework_selected": "native",
+      "notes": "ALL modules implemented. Theory core (Scales/Chord/Voicing/ProgressionTemplates/Generator) header-only; rule engine = scale-accurate stacked-thirds + section-weighted functional walk; 24 curated PDF templates; Variation blends template<->rules. Clean-sus fix (Lydian #4 / Phrygian b2 no longer produce harsh/mislabeled sus). MidiExport -> juce::MidiFile temp + drag-out. PadSynth (juce::Synthesiser, 3-saw+sub PolyBLEP -> TPT LP -> ADSR) + master chorus/reverb. Processor: APVTS, lock-free atomic schedule, host PPQ MIDI-out + internal preview loop + click-audition, state I/O incl. progression+locks. Native editor = DragAndDropContainer (performExternalDragDropOfFiles). BUILDS clean: VST3 + Standalone + render harness (MSVC, exit 0)."
+    },
+    {
+      "phase": "tested",
+      "completed_at": "2026-06-18T00:00:00Z",
+      "framework_selected": "native",
+      "notes": "Render harness RESULT=PASS: scale-lock holds across Ionian/Aeolian/Phrygian/Dorian/Harmonic-Minor/Lydian (48 chords in-scale); modal idioms correct (Phrygian i-bVI-bVII, Dorian->A7sus4 dominant, harmonic-minor Gm(maj7)/dim7); borrowed+modulation lifts final cell +1 semitone; MIDI file written (253 bytes, 30 voiced notes); pad audible+finite, peak 0.79 (post headroom trim). Standalone GUI smoke test: editor constructs + runs 5s, no crash. PENDING (user): load in DAW, audition, drag MIDI onto a track; VST3 install needs admin."
+    },
+    {
+      "phase": "iteration_variety",
+      "completed_at": "2026-06-18T00:00:00Z",
+      "framework_selected": "native",
+      "notes": "User feedback: more combinations + each Generate must change. Added degreePhrases() (~40 mode-aware Roman-numeral phrases) + styledPhrases() with Style param (Any/Uplifting/Oldschool 2000, ~46 phrases). 3-band Variation (templates/degree-phrases/free-walk), default 50. Multi-cell A/B assembly + retry-until-different-from-previous. Harness VARIETY=8/8 distinct. New presets: Uplifting Anthem, Oldschool 2000. isPopRotation narrowed to literal I-V-vi-IV only."
+    },
+    {
+      "phase": "iteration_layers",
+      "completed_at": "2026-06-19T00:00:00Z",
+      "framework_selected": "native",
+      "notes": "Performance layers: Bassline (Sustained/Root-8ths/Offbeat/Rolling) + Arpeggiator (Up/Down/UpDown/Converge/Random x 1/8,1/16,1/8T). Generic NoteLayer in MidiExport (single shared file/host/preview path). Per-layer OS drag-out strips (CHORDS/BASS/ARP). Schedule holds 3 event lists, processBlock gates bass/arp by enable. LAYERS UI row (enables + pattern/rate combos). Harness LAYERS=PASS (bass 32 notes MIDI36-47, arp 128 notes); RESULT=PASS; clean build (no warnings); standalone smoke OK."
+    },
+    {
+      "phase": "iteration_melody_aware",
+      "completed_at": "2026-06-19T00:00:00Z",
+      "framework_selected": "native",
+      "notes": "Melody-aware generation (user-selected). Editor = juce::FileDragAndDropTarget: drop a .mid melody -> parseMelodyFile -> setMelody -> applyMelodyFit re-fits chords (extension add or diatonic substitution so dominant melody note per slot is a chord tone; locked chords untouched; in-scale). melody_fit toggle + Clear + status label. Counter-melody = 4th layer (Outline/Top Voice/Pulse) + COUNTER drag-out, dodges melody pc. Harness MELODY-FIT=PASS (support 4->8 of 8 slots, counter 64 notes); RESULT=PASS; clean build no warnings; standalone smoke OK. Fixed JUCE API name isInterestedInFileDrag (not ...FileDragAndDrop)."
+    },
+    {
+      "phase": "iteration_sections",
+      "completed_at": "2026-06-19T00:00:00Z",
+      "framework_selected": "native",
+      "notes": "Added 4 song sections (Section enum now 7): Breakdown (slow 2-bar chords, tonic-dwell), Build-up (denser >=2/bar, ends on dominant), Drop (max energy, modulation-capable like Chorus), Bridge (departs from tonic, iii/VI emphasis). Each has nextDegree weighting + degree-phrase pool + section-aware harmonic rhythm (chordBeats from effDensity*lenScale). Section combo auto-populates. Harness SCALE-LOCK=PASS 100/100 incl. new sections; Breakdown=4 long chords, Build-up=16 ends E7sus4, Drop=8 big, Bridge starts Em7; RESULT=PASS; clean build; standalone smoke OK."
+    },
+    {
+      "phase": "iteration_song_mode",
+      "completed_at": "2026-06-19T00:00:00Z",
+      "framework_selected": "native",
+      "notes": "Song mode: chain sections into a full arrangement. tc::songForm() = 5 templates (Verse-Build-Drop, Club, Full Track, Vocal Song, Intro-Build-Drop-Outro). song_mode + song_form params; buildSong() generates each section (own seed), offsets beats, concatenates to one currentProg (one key, modulation off per-section); melody-fit + layers + per-layer drag-out cover the whole song. UI: Song toggle + form combo in action row; layoutCards wraps long songs at 12/row; export tag 'Song_'. Harness SONG=PASS (Full Track 7 sections/56 chords/224 beats, in-scale); RESULT=PASS; clean build; standalone smoke OK."
+    },
+    {
+      "phase": "iteration_layer_synths",
+      "completed_at": "2026-06-19T00:00:00Z",
+      "framework_selected": "native",
+      "notes": "Dedicated layer sounds: Synth/SimpleSynth.h (reusable subtractive voice: 1-2 saws+sub -> TPT LP w/ own filter env -> tanh drive -> amp ADSR). BassSynth (deep/punchy, sub-heavy) for bass layer; PluckSynth (bright fast-pluck) for arp+counter; PadSynth still for chords. processBlock routes each layer to its own MIDI buffer + synth; renders 3 buses (chords+pluck wet->chorus/reverb, bass kept DRY out of reverb), summed. Layer mixer: mix_chords/mix_bass/mix_pluck % faders (UI MIX row of linear sliders). Pre-allocated scratch buffers (RT-safe, no processBlock alloc). Harness SYNTHS=PASS (bass peak 0.747, pluck 0.784); RESULT=PASS; clean build no warnings; standalone smoke OK (audio-path change verified)."
+    },
+    {
+      "phase": "iteration_musical_depth",
+      "completed_at": "2026-06-19T00:00:00Z",
+      "framework_selected": "native",
+      "notes": "Musical depth: (1) separate arp/counter levels - added counterSynth (own timbre, softer) + scratchCounter; mixer now 4 buses (mix_chords/bass/arp/counter), arp->pluck, counter->counter, both wet, bass dry. (2) global swing % applied to off-steps of bass/arp/counter step generators. (3) voicing_style combo Close/Open/Drop-2/Wide (octave-only re-spacing in Voicing.h applyVoicingStyle, scale-safe). (4) new bass patterns Octaves + Walking. UI: 4-fader MIX row, Swing knob (gen group), Voicing combo (action row). Harness DEPTH=PASS (swing-shift Y, voicing-diff Y, walking-range Y); RESULT=PASS; clean build no warnings; standalone smoke OK."
+    },
+    {
+      "phase": "iteration_workflow",
+      "completed_at": "2026-06-19T00:00:00Z",
+      "framework_selected": "native",
+      "notes": "Workflow: Undo/Redo over generated progressions (history vector + historyPos; generate/recallFavorite push, undo/redo walk, cap 60). Favorites (saveFavorite/recallFavorite/favoriteLabel) persisted in plugin state. State (getStateInformation) now serializes FAVS (favorite progressions) + MELODY (loaded melody NoteLayer) so sessions restore them; setStateInformation seeds history baseline. UI: undo(<)/redo(>) buttons + Fav-save + Favorites combo in action row (hint label removed for space); undo/redo enabled-state + favorites list updated in timerCallback. Clean build no warnings; standalone smoke OK."
+    },
+    {
+      "phase": "iteration_visualization",
+      "completed_at": "2026-06-19T00:00:00Z",
+      "framework_selected": "native",
+      "notes": "Visualization (editor-only): bottom TIMELINE bar (proportional chord segments tinted by brightness + smooth playhead from processor playBeatForUi atomic), Tension+Bright meters (from current chord type/quality), piano KEYBOARD C2-C6 highlighting current chord notes (teal) + active melody note (violet). New processor accessors playheadBeat/scheduleTotalBeats/chordNotesAt/activeMelodyNote (lock-free schedule reads). Window made RESIZABLE (setResizable + constrainer 940x740..1500x1100, default 1000x760); compacted cards(116)/knob-h(74) so all sections fit. VERIFIED via real screenshot (tools/shot_trancechords.ps1): full UI renders correctly, timeline+meters+keyboard visible, chord cards show roman numerals. Clean build; standalone smoke OK."
+    },
+    {
+      "phase": "iteration_smarter_ai",
+      "completed_at": "2026-06-19T00:00:00Z",
+      "framework_selected": "native",
+      "notes": "Smarter AI: secondary dominants (applySecondaryDominants -> V7/x of following chord, sec_dominants toggle), Picardy third (final minor tonic of Chorus/Drop -> major), Neapolitan bII added to borrows. buildSong connects sections with secondary-dominant pull (V7/+ into each new section). CRITICAL FIX (harness caught): chromatic devices (secondary dominants, Picardy) gated behind !scaleLock else SCALE-LOCK breaks; harness AI check uses scaleLock=false. Harness AI=PASS, SCALE-LOCK=PASS, RESULT=PASS; clean build; standalone smoke OK."
+    },
+    {
+      "phase": "iteration_presets_styles",
+      "completed_at": "2026-06-19T00:00:00Z",
+      "framework_selected": "native",
+      "notes": "Factory presets + style packs. 4 new Styles (Style enum now 7): Psytrance (dark/Phrygian/hypnotic), Festival (mainstage big/simple), Progressive (deep/smooth/sophisticated), Classic ASOT (emotional uplifting, sus-rich) - each with its own phrase pool (~109 styled phrases). 16 factory presets (kNumPresets=16). Harness SCALE-LOCK=PASS 132/132 incl. new-style cases; RESULT=PASS; clean build; standalone smoke OK."
+    },
+    {
+      "phase": "iteration_sound_polish",
+      "completed_at": "2026-06-19T00:00:00Z",
+      "framework_selected": "native",
+      "notes": "Sound polish: (1) sidechain PUMP - Synth/Pump.h pumpGain(frac,depth) beat-synced ducking applied per-sample to the full mix; pump % param + Pump knob; host-grid aligned via ppq frac, free-running otherwise. (2) master SOFT-CLIP (softClip: linear <0.9 then tanh) for a safe ceiling + glue. (3) lusher reverb (room 0.72->0.80, damp 0.4->0.32, wet *0.65). Pump.h is pure/testable. Harness POLISH=PASS; RESULT=PASS; clean build; standalone smoke OK."
+    },
+    {
+      "phase": "iteration_chord_vocab_genre_fix",
+      "completed_at": "2026-07-06T00:00:00Z",
+      "framework_selected": "native",
+      "notes": "AUDIT + FIX of chord vocabulary (removed jazz colours wrong for vocal/uplifting trance). Chord.h ChordType reduced to a WHITELIST: Minor, Major, Sus2, Sus4, MinAdd9, MajAdd9, Min7 (sole 7th, sparingly), Power5. REMOVED: Maj7, Dom7, Maj6/Min6, Maj9/Min9/Dom9, Dim/Dim7, Min7b5, Aug, MinMaj7, Dom7Sus4, Maj7#11, 11/13. Generator.classifyChord emits whitelist only; buildRuleChord rebuilt to construct tritone-free (perfect-5th-or-omit) in-scale triads + complexity->power5/add9/rare-min7 (no stacked 7ths/9ths); borrows are triads (V major not V7); pre-chorus ending = scale-safe Vsus via buildRuleChord; applySecondaryDominants neutered (no-op, dominant-7 removed) + buildSong pull removed; sec_dominants toggle removed from UI (param inert). MelodyFit substitutes whitelist triads + only add9/min7 colour. All 24 curated PDF templates rewritten to whitelist. STEP3: canonical minor idioms (i-VI-III-VII, i-VII-VI-VII, i-v-VI-III, i-VI-VII-i) added prominently. STEP4 harness VOCAB assertion: 23957 chord-intervals across ALL modes/sections/styles (scaleLock on+off) => 0 out-of-whitelist violations; SCALE-LOCK 132/132; full harness RESULT=PASS; clean build no warnings; standalone smoke OK. Editor chordTension switch updated for new types. NOTE: stackScaleChord now dead (kept)."
+    }
+  ],
+  "validation": {
+    "creative_brief_exists": true,
+    "parameter_spec_exists": true,
+    "architecture_defined": true,
+    "ui_framework_selected": true,
+    "design_complete": true,
+    "code_complete": true,
+    "tests_passed": true,
+    "ship_ready": false
+  },
+  "framework_selection": {
+    "decision": "native",
+    "rationale": "User-selected. Native juce::Component editor makes OS-level MIDI drag-out (performExternalDragDropOfFiles) reliable; no WebView2 overlay/z-order problems. Data-rich but bounded UI is fine in pure C++ + LookAndFeel.",
+    "implementation_strategy": "phased"
+  },
+  "error_recovery": {
+    "last_backup": null,
+    "rollback_available": false,
+    "error_log": []
+  }
+}
