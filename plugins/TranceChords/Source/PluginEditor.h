@@ -1,6 +1,7 @@
 #pragma once
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_gui_basics/juce_gui_basics.h>
+#include <array>
 #include "PluginProcessor.h"
 
 //==============================================================================
@@ -44,10 +45,29 @@ private:
     void setupCombo (juce::ComboBox& box, const char* paramId, std::unique_ptr<CAtt>& att);
     void addToggle (const char* paramId, const juce::String& name);
 
+    // shared LookAndFeel — clean accent-arc rotary that scales with the knob size
+    struct KnobLnf : public juce::LookAndFeel_V4
+    {
+        juce::Colour accent, panel, text, dim;
+        void drawRotarySlider (juce::Graphics&, int x, int y, int w, int h,
+                               float pos, float start, float end, juce::Slider&) override;
+    };
+
     // chord-card layout / hit-testing
     juce::Rectangle<int> cardArea;
     std::vector<juce::Rectangle<int>> cardRects;
     void layoutCards();
+
+    // new-layout regions (set in resized(), drawn in paint())
+    std::array<juce::Rectangle<int>, 3> setupPills;
+    std::array<juce::Rectangle<int>, 4> layerCards;
+    juce::Rectangle<int> melodyStrip, tabBar, tabBody;
+
+    // tabbed sound section + collapsible keyboard
+    juce::TextButton genTabBtn { "GENERATOR" }, toneTabBtn { "TONE & FX" }, keyboardBtn;
+    int  activeTab = 0;             // 0 = generator, 1 = tone & fx
+    bool keyboardOpen = false;
+    void updateTabVisibility();
 
     // visualization
     juce::Rectangle<int> keyboardArea, timelineArea, meterArea;
@@ -68,7 +88,7 @@ private:
     };
 
     TranceChordsAudioProcessor& proc;
-    juce::LookAndFeel_V4 lnf;
+    KnobLnf lnf;
 
     // header combos
     juce::ComboBox keyBox, modeBox, sectionBox, moodBox, styleBox, lengthBox, densityBox, presetBox;
@@ -83,7 +103,7 @@ private:
 
     juce::TextButton generateBtn { "GENERATE" };
     juce::TextButton playBtn      { "PLAY" };
-    juce::Label      titleLabel, bpmLabel, hintLabel, layersLabel;
+    juce::Label      titleLabel, bpmLabel, hintLabel;
 
     // history + favorites
     juce::TextButton undoBtn, redoBtn, saveFavBtn;
@@ -103,8 +123,7 @@ private:
     juce::ComboBox songFormBox;
     std::unique_ptr<CAtt> songFormAtt;
 
-    // layer mixer
-    juce::Label  mixLabel;
+    // layer mixer (level faders live inside the layer cards)
     juce::Slider mixChordsSlider, mixBassSlider, mixArpSlider, mixCounterSlider;
     std::unique_ptr<SAtt> mixChordsAtt, mixBassAtt, mixArpAtt, mixCounterAtt;
 
@@ -123,6 +142,7 @@ private:
 
     std::atomic<bool> needsRegen { false }, needsRevoice { false };
     int lastVersion = -1;
+    int lastEnableMask = -1;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (TranceChordsAudioProcessorEditor)
 };
