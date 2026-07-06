@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TranceEQ</title>
+<style>
+  /* ===== Midnight-blue + teal · muted, low-stimulation palette (neuroinclusive) ===== */
+  :root{
+    --bg0:#0b0e14; --bg1:#10141c; --panel:#161b26; --panel2:#1b2230;
+    --line:#243043; --line2:#2d3a50;
+    --txt:#aeb9c9; --txt-dim:#7d8a9c; --head:#cdd8e6;
+    --teal:#4fc3b0; --teal-dim:#2f6f68; --teal-soft:rgba(79,195,176,.16);
+    --warn:#d2a96a;
+  }
+  *{ box-sizing:border-box; margin:0; padding:0; user-select:none; -webkit-user-select:none; -webkit-user-drag:none; }
+  html,body{ width:100%; height:100%; overflow:hidden; font-family:'Segoe UI',Arial,Helvetica,sans-serif;
+    background:linear-gradient(160deg,var(--bg1),var(--bg0)); color:var(--txt); font-size:12px; }
+  .app{ display:flex; flex-direction:column; height:100%; }
+
+  /* header */
+  .hdr{ display:flex; align-items:center; gap:14px; padding:10px 14px; background:linear-gradient(var(--panel2),var(--panel));
+    border-bottom:1px solid var(--line); }
+  .brand{ display:flex; align-items:baseline; gap:8px; }
+  .brand .logo{ color:var(--teal); font-weight:700; font-size:17px; letter-spacing:.5px; }
+  .brand .sub{ color:var(--txt-dim); font-size:10px; letter-spacing:.4px; }
+  .tabs{ display:flex; gap:6px; margin-left:6px; }
+  .mode-tab{ padding:5px 14px; border:1px solid var(--line2); border-radius:6px; background:var(--panel);
+    color:var(--txt-dim); cursor:pointer; font-size:12px; transition:all .12s; }
+  .mode-tab:hover{ color:var(--head); border-color:var(--teal-dim); }
+  .mode-tab.active{ background:var(--teal-soft); color:var(--teal); border-color:var(--teal-dim); font-weight:600; }
+  .spacer{ flex:1; }
+  .pill{ display:flex; align-items:center; gap:7px; padding:4px 10px; border:1px solid var(--line2);
+    border-radius:14px; background:var(--panel); color:var(--txt-dim); cursor:pointer; font-size:11px; }
+  .pill .dot{ width:8px; height:8px; border-radius:50%; background:var(--line2); }
+  .pill.on{ color:var(--teal); border-color:var(--teal-dim); }
+  .pill.on .dot{ background:var(--teal); box-shadow:0 0 6px var(--teal); }
+  .focusbtn{ padding:5px 12px; border:1px solid var(--line2); border-radius:6px; background:var(--panel);
+    color:var(--txt); cursor:pointer; font-size:11px; }
+  .focusbtn:hover{ border-color:var(--teal-dim); color:var(--head); }
+
+  /* graph */
+  .graph{ position:relative; flex:1 1 auto; min-height:200px; background:var(--bg0);
+    border-bottom:1px solid var(--line); }
+  #eq{ width:100%; height:100%; display:block; cursor:crosshair; }
+  .readout{ position:absolute; top:10px; left:54px; font-size:11px; color:var(--txt-dim); pointer-events:none; }
+  .readout b{ color:var(--teal); font-weight:600; }
+  .hint{ position:absolute; bottom:8px; right:14px; font-size:9.5px; color:var(--txt-dim); opacity:.65; pointer-events:none; }
+
+  /* control area */
+  .ctrls{ flex:0 0 auto; padding:10px 14px 12px; background:linear-gradient(var(--panel),var(--panel2)); }
+  .basic-only,.adv-only{ display:none; }
+  body.basic .basic-only{ display:block; }
+  body.advanced .adv-only{ display:block; }
+
+  /* basic macros */
+  .macros{ display:flex; gap:18px; align-items:flex-end; flex-wrap:wrap; }
+  .macro{ flex:1 1 130px; min-width:120px; }
+  .macro .mlbl{ color:var(--head); font-size:11px; margin-bottom:5px; display:flex; justify-content:space-between; }
+  .macro .mlbl .val{ color:var(--teal); font-variant-numeric:tabular-nums; }
+
+  /* slider */
+  .slider{ position:relative; height:18px; border-radius:4px; background:linear-gradient(var(--bg0),#0e1320);
+    border:1px solid var(--line); box-shadow:inset 0 1px 3px #000; cursor:pointer; }
+  .slider .fill{ position:absolute; top:0; bottom:0; left:0; width:50%; border-radius:4px 0 0 4px;
+    background:linear-gradient(var(--teal-dim),rgba(79,195,176,.25)); }
+  .slider .thumb{ position:absolute; top:-1px; width:10px; height:18px; border-radius:3px; left:0;
+    transform:translateX(-50%); background:linear-gradient(#bfeee6,var(--teal)); box-shadow:0 1px 3px #000; }
+
+  /* advanced band table */
+  .kt-row{ display:flex; gap:16px; align-items:flex-end; margin-bottom:12px; flex-wrap:wrap;
+    padding-bottom:10px; border-bottom:1px solid var(--line); }
+  .kt-row .macro{ flex:0 0 150px; }
+  .ktdetect{ flex:0 0 auto; color:var(--txt-dim); font-size:11px; }
+  .ktdetect b{ color:var(--teal); }
+  table.bands{ width:100%; border-collapse:collapse; }
+  table.bands th{ text-align:left; color:var(--txt-dim); font-weight:500; font-size:10px; padding:2px 8px;
+    text-transform:uppercase; letter-spacing:.4px; }
+  table.bands td{ padding:4px 8px; border-top:1px solid var(--line); vertical-align:middle; }
+  .bnum{ width:14px; height:14px; border-radius:3px; display:inline-block; }
+  .sel{ background:var(--panel); color:var(--txt); border:1px solid var(--line2); border-radius:4px;
+    font-size:11px; padding:2px 4px; outline:none; }
+  .tg{ display:inline-block; min-width:30px; text-align:center; font-size:10px; padding:3px 8px; border-radius:4px;
+    border:1px solid var(--line2); background:var(--panel); color:var(--txt-dim); cursor:pointer; }
+  .tg.on{ background:var(--teal-soft); color:var(--teal); border-color:var(--teal-dim); }
+  .cell-sl{ width:130px; }
+  .cell-sl .val{ display:block; font-size:9.5px; color:var(--teal); text-align:right; margin-top:1px; font-variant-numeric:tabular-nums; }
+  .ctl .val{ font-size:9.5px; color:var(--teal); }
+</style>
+</head>
+<body class="basic">
+  <div class="app">
+    <div class="hdr">
+      <div class="brand"><span class="logo">TranceEQ</span><span class="sub">Lead · Pluck · Midbass</span></div>
+      <div class="tabs">
+        <span class="mode-tab" data-mode="0">Lead</span>
+        <span class="mode-tab" data-mode="1">Pluck</span>
+        <span class="mode-tab" data-mode="2">Midbass</span>
+      </div>
+      <div class="spacer"></div>
+      <span class="pill" id="ktPill" data-toggle="kt_on" title="Key-track: bands follow the played note"><span class="dot"></span>Key-Track</span>
+      <span class="pill" id="byPill" data-toggle="bypass" title="Bypass the EQ"><span class="dot"></span>Bypass</span>
+      <span class="focusbtn" id="focusBtn" title="Toggle simple / full layout">Focus: Simple</span>
+    </div>
+
+    <div class="graph">
+      <canvas id="eq"></canvas>
+      <div class="readout" id="ro">Output spectrum</div>
+      <div class="hint">drag node = freq/gain · wheel = Q · ctrl-click = reset</div>
+    </div>
+
+    <div class="ctrls">
+      <!-- ===== BASIC (Focus) ===== -->
+      <div class="basic-only">
+        <div class="macros">
+          <div class="macro"><div class="mlbl"><span id="m0lbl">Low Cut</span><span class="val"></span></div>
+            <div class="slider" data-param="b0_freq"><div class="fill"></div><div class="thumb"></div></div></div>
+          <div class="macro"><div class="mlbl"><span id="m1lbl">Warmth</span><span class="val"></span></div>
+            <div class="slider" data-param="b1_gain"><div class="fill"></div><div class="thumb"></div></div></div>
+          <div class="macro"><div class="mlbl"><span id="m2lbl">Presence</span><span class="val"></span></div>
+            <div class="slider" data-param="b2_gain"><div class="fill"></div><div class="thumb"></div></div></div>
+          <div class="macro"><div class="mlbl"><span id="m3lbl">Air</span><span class="val"></span></div>
+            <div class="slider" data-param="b4_gain"><div class="fill"></div><div class="thumb"></div></div></div>
+          <div class="macro"><div class="mlbl"><span>Output</span><span class="val"></span></div>
+            <div class="slider" data-param="output"><div class="fill"></div><div class="thumb"></div></div></div>
+        </div>
+      </div>
+
+      <!-- ===== ADVANCED ===== -->
+      <div class="adv-only">
+        <div class="kt-row">
+          <div class="macro"><div class="mlbl"><span>Track Amount</span><span class="val"></span></div>
+            <div class="slider" data-param="kt_amt"><div class="fill"></div><div class="thumb"></div></div></div>
+          <div class="macro"><div class="mlbl"><span>Track Ref</span><span class="val"></span></div>
+            <div class="slider" data-param="kt_ref"><div class="fill"></div><div class="thumb"></div></div></div>
+          <div class="macro" style="flex:0 0 100px"><div class="mlbl"><span>Source</span></div>
+            <select class="sel" data-combo="kt_src" style="width:100%"><option>Audio</option><option>MIDI</option></select></div>
+          <div class="macro" style="flex:0 0 90px"><div class="mlbl"><span>Oversample</span></div>
+            <select class="sel" data-combo="os" style="width:100%"><option>Off</option><option>2x</option><option>4x</option></select></div>
+          <div class="macro"><div class="mlbl"><span>Output</span><span class="val"></span></div>
+            <div class="slider" data-param="output"><div class="fill"></div><div class="thumb"></div></div></div>
+          <div class="ktdetect">Detected note<br><b id="noteOut">—</b></div>
+        </div>
+        <table class="bands">
+          <thead><tr><th></th><th>On</th><th>Type</th><th>Freq</th><th>Gain</th><th>Q</th><th>Track</th></tr></thead>
+          <tbody id="bandBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+<script>
+/* ============================================================================
+   Inlined JUCE WebView interop + frontend (Raw Material Software, JUCE 8 licence).
+   ========================================================================== */
+{
+  if (typeof window.__JUCE__ === "undefined") {
+    console.warn("window.__JUCE__ undefined — using placeholder (no native backend).");
+    window.__JUCE__ = { postMessage: function () {} };
+  }
+  if (typeof window.__JUCE__.initialisationData === "undefined") {
+    window.__JUCE__.initialisationData = {
+      __juce__platform: [], __juce__functions: [], __juce__registeredGlobalEventIds: [],
+      __juce__sliders: [], __juce__toggles: [], __juce__comboBoxes: [],
+    };
+  }
+  class ListenerList {
+    constructor(){ this.listeners=new Map(); this.listenerId=0; }
+    addListener(fn){ const id=this.listenerId++; this.listeners.set(id,fn); return id; }
+    removeListener(id){ this.listeners.delete(id); }
+    callListeners(p){ for(const [,v] of this.listeners) v(p); }
+  }
+  class EventListenerList {
+    constructor(){ this.eventListeners=new Map(); }
+    addEventListener(eid,fn){ if(!this.eventListeners.has(eid)) this.eventListeners.set(eid,new ListenerList());
+      return [eid, this.eventListeners.get(eid).addListener(fn)]; }
+    removeEventListener([eid,id]){ if(this.eventListeners.has(eid)) this.eventListeners.get(eid).removeListener(id); }
+    emitEvent(eid,o){ if(this.eventListeners.has(eid)) this.eventListeners.get(eid).callListeners(o); }
+  }
+  class Backend {
+    constructor(){ this.listeners=new EventListenerList(); }
+    addEventListener(eid,fn){ return this.listeners.addEventListener(eid,fn); }
+    removeEventListener(h){ this.listeners.removeEventListener(h); }
+    emitEvent(eid,o){ window.__JUCE__.postMessage(JSON.stringify({eventId:eid,payload:o})); }
+    emitByBackend(eid,o){ this.listeners.emitEvent(eid, JSON.parse(o)); }
+  }
+  if (typeof window.__JUCE__.backend === "undefined") window.__JUCE__.backend = new Backend();
+}
+
+class PromiseHandler {
+  constructor(){ this.lastPromiseId=0; this.promises=new Map();
+    window.__JUCE__.backend.addEventListener("__juce__complete", ({promiseId,result})=>{
+      if(this.promises.has(promiseId)){ this.promises.get(promiseId).resolve(result); this.promises.delete(promiseId); }});
+  }
+  createPromise(){ const id=this.lastPromiseId++; const result=new Promise((resolve,reject)=>this.promises.set(id,{resolve,reject})); return [id,result]; }
+}
+const promiseHandler = new PromiseHandler();
+function getNativeFunction(name){
+  const f=function(){ const [id,result]=promiseHandler.createPromise();
+    window.__JUCE__.backend.emitEvent("__juce__invoke",{name:name,params:Array.prototype.slice.call(arguments),resultId:id}); return result; };
+  return f;
+}
+class ListenerList {
+  constructor(){ this.listeners=new Map(); this.listenerId=0; }
+  addListener(fn){ const id=this.listenerId++; this.listeners.set(id,fn); return id; }
+  removeListener(id){ this.listeners.delete(id); }
+  callListeners(p){ for(const [,v] of this.listeners) v(p); }
+}
+const BasicControl_valueChangedEventId="valueChanged";
+const BasicControl_propertiesChangedId="propertiesChanged";
+const SliderControl_sliderDragStartedEventId="sliderDragStarted";
+const SliderControl_sliderDragEndedEventId="sliderDragEnded";
+class SliderState {
+  constructor(name){ this.name=name; this.identifier="__juce__slider"+name; this.scaledValue=0;
+    this.properties={start:0,end:1,skew:1,name:"",label:"",numSteps:100,interval:0,parameterIndex:-1};
+    this.valueChangedEvent=new ListenerList(); this.propertiesChangedEvent=new ListenerList();
+    window.__JUCE__.backend.addEventListener(this.identifier,(e)=>this.handleEvent(e));
+    window.__JUCE__.backend.emitEvent(this.identifier,{eventType:"requestInitialUpdate"}); }
+  setNormalisedValue(v){ this.scaledValue=this.snapToLegalValue(this.normalisedToScaledValue(v));
+    window.__JUCE__.backend.emitEvent(this.identifier,{eventType:BasicControl_valueChangedEventId,value:this.scaledValue}); }
+  sliderDragStarted(){ window.__JUCE__.backend.emitEvent(this.identifier,{eventType:SliderControl_sliderDragStartedEventId}); }
+  sliderDragEnded(){ window.__JUCE__.backend.emitEvent(this.identifier,{eventType:SliderControl_sliderDragEndedEventId}); }
+  handleEvent(e){ if(e.eventType==BasicControl_valueChangedEventId){ this.scaledValue=e.value; this.valueChangedEvent.callListeners(); }
+    if(e.eventType==BasicControl_propertiesChangedId){ let {eventType:_,...rest}=e; this.properties=rest; this.propertiesChangedEvent.callListeners(); } }
+  getScaledValue(){ return this.scaledValue; }
+  getNormalisedValue(){ return Math.pow((this.scaledValue-this.properties.start)/(this.properties.end-this.properties.start),this.properties.skew); }
+  normalisedToScaledValue(v){ return Math.pow(v,1/this.properties.skew)*(this.properties.end-this.properties.start)+this.properties.start; }
+  snapToLegalValue(v){ const i=this.properties.interval; if(i==0) return v; const s=this.properties.start;
+    const c=(x,mn=0,mx=1)=>Math.max(mn,Math.min(mx,x)); return c(s+i*Math.floor((v-s)/i+0.5),this.properties.start,this.properties.end); }
+}
+const sliderStates=new Map();
+for(const n of window.__JUCE__.initialisationData.__juce__sliders) sliderStates.set(n,new SliderState(n));
+function getSliderState(n){ if(!sliderStates.has(n)) sliderStates.set(n,new SliderState(n)); return sliderStates.get(n); }
+class ToggleState {
+  constructor(name){ this.name=name; this.identifier="__juce__toggle"+name; this.value=false;
+    this.properties={name:"",parameterIndex:-1}; this.valueChangedEvent=new ListenerList(); this.propertiesChangedEvent=new ListenerList();
+    window.__JUCE__.backend.addEventListener(this.identifier,(e)=>this.handleEvent(e));
+    window.__JUCE__.backend.emitEvent(this.identifier,{eventType:"requestInitialUpdate"}); }
+  getValue(){ return this.value; }
+  setValue(v){ this.value=v; window.__JUCE__.backend.emitEvent(this.identifier,{eventType:BasicControl_valueChangedEventId,value:this.value}); }
+  handleEvent(e){ if(e.eventType==BasicControl_valueChangedEventId){ this.value=e.value; this.valueChangedEvent.callListeners(); }
+    if(e.eventType==BasicControl_propertiesChangedId){ let {eventType:_,...rest}=e; this.properties=rest; this.propertiesChangedEvent.callListeners(); } }
+}
+const toggleStates=new Map();
+for(const n of window.__JUCE__.initialisationData.__juce__toggles) toggleStates.set(n,new ToggleState(n));
+function getToggleState(n){ if(!toggleStates.has(n)) toggleStates.set(n,new ToggleState(n)); return toggleStates.get(n); }
+class ComboBoxState {
+  constructor(name){ this.name=name; this.identifier="__juce__comboBox"+name; this.value=0;
+    this.properties={name:"",parameterIndex:-1,choices:[]}; this.valueChangedEvent=new ListenerList(); this.propertiesChangedEvent=new ListenerList();
+    window.__JUCE__.backend.addEventListener(this.identifier,(e)=>this.handleEvent(e));
+    window.__JUCE__.backend.emitEvent(this.identifier,{eventType:"requestInitialUpdate"}); }
+  getChoiceIndex(){ return Math.round(this.value*(this.properties.choices.length-1)); }
+  setChoiceIndex(i){ const n=this.properties.choices.length; this.value=n>1?i/(n-1):0;
+    window.__JUCE__.backend.emitEvent(this.identifier,{eventType:BasicControl_valueChangedEventId,value:this.value}); }
+  handleEvent(e){ if(e.eventType==BasicControl_valueChangedEventId){ this.value=e.value; this.valueChangedEvent.callListeners(); }
+    if(e.eventType==BasicControl_propertiesChangedId){ let {eventType:_,...rest}=e; this.properties=rest; this.propertiesChangedEvent.callListeners(); } }
+}
+const comboBoxStates=new Map();
+for(const n of window.__JUCE__.initialisationData.__juce__comboBoxes) comboBoxStates.set(n,new ComboBoxState(n));
+function getComboBoxState(n){ if(!comboBoxStates.has(n)) comboBoxStates.set(n,new ComboBoxState(n)); return comboBoxStates.get(n); }
+class ControlParameterIndexUpdater {
+  constructor(attr){ this.attr=attr; this.lastElement=null; this.lastIndex=null; }
+  handleMouseMove(e){ const el=document.elementFromPoint(e.clientX,e.clientY); if(el===this.lastElement) return; this.lastElement=el;
+    let idx=-1; if(el!==null) idx=this.#get(el); if(idx===this.lastIndex) return; this.lastIndex=idx;
+    window.__JUCE__.backend.emitEvent("__juce__controlParameterIndexChanged",idx); }
+  #get(el){ const ok=(e)=>e!==null&&e!==document.documentElement; while(ok(el)){ if(el.hasAttribute(this.attr)) return el.getAttribute(this.attr); el=el.parentElement; } return -1; }
+}
+
+/* ============================================================================
+   TranceEQ application
+   ========================================================================== */
+const NB = 6;
+const TYPE_NAMES = ["High-Pass","Low Shelf","Peak","Notch","High Shelf","Low-Pass"];
+const HAS_GAIN = [false,true,true,false,true,false];           // by type index
+const BAND_COL = ["#6fb6c9","#7e8fd0","#76c79b","#d2b06a","#b89ad6","#d28f9e"];
+const MACRO_LBL = {
+  0:["Low Cut","Warmth","Presence","Air"],
+  1:["Low Cut","Body","Attack","Air"],
+  2:["Low Cut","Punch","Clarity","Definition"],
+};
+
+let SR = 44100, detectedF0 = 0;
+const spec = new Array(96).fill(-120), specSmooth = new Array(96).fill(-120), specPeak = new Array(96).fill(-120);
+
+window.teqUpdate = function(bins, f0, sr){
+  if (sr && sr > 0) SR = sr;
+  detectedF0 = f0 || 0;
+  for (let i=0;i<96 && i<bins.length;i++){
+    const v = bins[i];
+    if (v > specSmooth[i]) specSmooth[i] = v; else specSmooth[i] += (v - specSmooth[i]) * 0.35;
+    if (v > specPeak[i]) specPeak[i] = v; else specPeak[i] -= 0.6;
+    if (specPeak[i] < specSmooth[i]) specPeak[i] = specSmooth[i];
+    spec[i] = v;
+  }
+};
+
+// ---- state handles ----
+const band = [];
+for (let b=0;b<NB;b++) band.push({
+  on:getToggleState("b"+b+"_on"), type:getComboBoxState("b"+b+"_type"),
+  freq:getSliderState("b"+b+"_freq"), gain:getSliderState("b"+b+"_gain"),
+  q:getSliderState("b"+b+"_q"), track:getToggleState("b"+b+"_track"),
+});
+const modeCombo = getComboBoxState("mode");
+const ktOn = getToggleState("kt_on"), ktSrc = getComboBoxState("kt_src");
+const ktAmt = getSliderState("kt_amt"), ktRef = getSliderState("kt_ref");
+const resetParam = getNativeFunction("resetParam");
+const loadMode  = getNativeFunction("loadMode");
+
+// ---- RBJ cookbook (mirror of Source/Biquad.h so the curve == the audio) ----
+function makeCoeffs(type, f, gainDb, q, fs){
+  const nyq = 0.5*fs;
+  if (f<10) f=10; if (f>nyq*0.999) f=nyq*0.999; if (q<0.05) q=0.05;
+  const w0=2*Math.PI*f/fs, c=Math.cos(w0), s=Math.sin(w0), alpha=s/(2*q);
+  const A=Math.pow(10,gainDb/40), sq=Math.sqrt(A);
+  let b0=1,b1=0,b2=0,a0=1,a1=0,a2=0;
+  switch(type){
+    case 5: b0=(1-c)/2; b1=1-c; b2=b0; a0=1+alpha; a1=-2*c; a2=1-alpha; break;
+    case 0: b0=(1+c)/2; b1=-(1+c); b2=b0; a0=1+alpha; a1=-2*c; a2=1-alpha; break;
+    case 3: b0=1; b1=-2*c; b2=1; a0=1+alpha; a1=-2*c; a2=1-alpha; break;
+    case 2: b0=1+alpha*A; b1=-2*c; b2=1-alpha*A; a0=1+alpha/A; a1=-2*c; a2=1-alpha/A; break;
+    case 1: b0=A*((A+1)-(A-1)*c+2*sq*alpha); b1=2*A*((A-1)-(A+1)*c); b2=A*((A+1)-(A-1)*c-2*sq*alpha);
+            a0=(A+1)+(A-1)*c+2*sq*alpha; a1=-2*((A-1)+(A+1)*c); a2=(A+1)+(A-1)*c-2*sq*alpha; break;
+    case 4: b0=A*((A+1)+(A-1)*c+2*sq*alpha); b1=-2*A*((A-1)+(A+1)*c); b2=A*((A+1)+(A-1)*c-2*sq*alpha);
+            a0=(A+1)-(A-1)*c+2*sq*alpha; a1=2*((A-1)-(A+1)*c); a2=(A+1)-(A-1)*c-2*sq*alpha; break;
+  }
+  const inv=1/a0; return [b0*inv,b1*inv,b2*inv,a1*inv,a2*inv];
+}
+function magDb(co, f, fs){
+  const w=2*Math.PI*f/fs, cw=Math.cos(w), sw=Math.sin(w), c2=Math.cos(2*w), s2=Math.sin(2*w);
+  const nr=co[0]+co[1]*cw+co[2]*c2, ni=-(co[1]*sw+co[2]*s2);
+  const dr=1+co[3]*cw+co[4]*c2, di=-(co[3]*sw+co[4]*s2);
+  return 20*Math.log10(Math.sqrt((nr*nr+ni*ni)/(dr*dr+di*di))+1e-9);
+}
+function trackFactor(b){
+  if (ktOn.getValue() && band[b].track.getValue() && detectedF0>0){
+    const ref=ktRef.getScaledValue(); if (ref>0) return Math.pow(detectedF0/ref, ktAmt.getScaledValue());
+  }
+  return 1;
+}
+function effFreq(b){ return Math.min(20000, Math.max(20, band[b].freq.getScaledValue()*trackFactor(b))); }
+
+// ---- canvas ----
+const cv = document.getElementById("eq"), ctx = cv.getContext("2d");
+let W=0,H=0,DPR=1; const padL=48,padR=16,padT=16,padB=24;
+const GR=18, SPEC_TOP=6, SPEC_BOT=-90;
+function resize(){ const r=cv.getBoundingClientRect(); DPR=window.devicePixelRatio||1;
+  W=Math.max(120,r.width); H=Math.max(120,r.height); cv.width=W*DPR; cv.height=H*DPR; ctx.setTransform(DPR,0,0,DPR,0,0); }
+const plotW=()=>W-padL-padR, plotH=()=>H-padT-padB;
+const fToX=(f)=>padL+(Math.log(f/20)/Math.log(1000))*plotW();
+const xToF=(x)=>20*Math.pow(1000,(x-padL)/plotW());
+const gToY=(d)=>padT+((GR-d)/(2*GR))*plotH();
+const yToG=(y)=>GR-((y-padT)/plotH())*2*GR;
+const specY=(d)=>padT+(1-((d-SPEC_BOT)/(SPEC_TOP-SPEC_BOT)))*plotH();
+
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  const pw=plotW(), ph=plotH();
+  // grid
+  ctx.lineWidth=1; ctx.font="9px Segoe UI"; ctx.textBaseline="middle";
+  const fGrid=[30,50,100,200,300,500,1000,2000,3000,5000,10000,20000];
+  const fLbl ={100:"100",1000:"1k",10000:"10k"};
+  fGrid.forEach(f=>{ const x=fToX(f); ctx.strokeStyle=fLbl[f]?"#26324a":"#1a2230"; ctx.beginPath();
+    ctx.moveTo(x,padT); ctx.lineTo(x,padT+ph); ctx.stroke();
+    if(fLbl[f]){ ctx.fillStyle="#5d6a7d"; ctx.textAlign="center"; ctx.fillText(fLbl[f],x,padT+ph+12); } });
+  [-12,-6,0,6,12].forEach(d=>{ const y=gToY(d); ctx.strokeStyle=d===0?"#2c3a52":"#1a2230"; ctx.beginPath();
+    ctx.moveTo(padL,y); ctx.lineTo(padL+pw,y); ctx.stroke();
+    ctx.fillStyle="#5d6a7d"; ctx.textAlign="right"; ctx.fillText((d>0?"+":"")+d,padL-6,y); });
+
+  // spectrum (filled) + peak line
+  ctx.beginPath(); ctx.moveTo(padL,padT+ph);
+  for(let i=0;i<96;i++){ const f=20*Math.pow(1000,i/95); const x=fToX(f); let y=specY(specSmooth[i]); if(y>padT+ph)y=padT+ph; if(y<padT)y=padT; ctx.lineTo(x,y); }
+  ctx.lineTo(padL+pw,padT+ph); ctx.closePath();
+  const grad=ctx.createLinearGradient(0,padT,0,padT+ph); grad.addColorStop(0,"rgba(79,195,176,.34)"); grad.addColorStop(1,"rgba(79,195,176,.02)");
+  ctx.fillStyle=grad; ctx.fill();
+  ctx.beginPath();
+  for(let i=0;i<96;i++){ const f=20*Math.pow(1000,i/95); const x=fToX(f); let y=specY(specPeak[i]); if(y>padT+ph)y=padT+ph; if(y<padT)y=padT; i?ctx.lineTo(x,y):ctx.moveTo(x,y); }
+  ctx.strokeStyle="rgba(120,210,196,.5)"; ctx.lineWidth=1; ctx.stroke();
+
+  // key-track marker
+  if (ktOn.getValue() && detectedF0>0){ const x=fToX(Math.min(20000,Math.max(20,detectedF0)));
+    ctx.strokeStyle="rgba(210,169,106,.55)"; ctx.setLineDash([4,4]); ctx.beginPath(); ctx.moveTo(x,padT); ctx.lineTo(x,padT+ph); ctx.stroke(); ctx.setLineDash([]); }
+
+  // precompute active coeffs
+  const act=[];
+  for(let b=0;b<NB;b++) if(band[b].on.getValue())
+    act.push({b,co:makeCoeffs(band[b].type.getChoiceIndex(), effFreq(b), band[b].gain.getScaledValue(), band[b].q.getScaledValue(), SR)});
+
+  // combined EQ curve
+  ctx.beginPath();
+  for(let px=0; px<=pw; px+=2){ const f=xToF(padL+px); let sum=0; for(const a of act) sum+=magDb(a.co,f,SR);
+    let y=gToY(Math.max(-GR,Math.min(GR,sum))); const x=padL+px; px?ctx.lineTo(x,y):ctx.moveTo(x,y); }
+  ctx.strokeStyle="#74d6c6"; ctx.lineWidth=2; ctx.shadowColor="rgba(79,195,176,.5)"; ctx.shadowBlur=6; ctx.stroke(); ctx.shadowBlur=0;
+
+  // nodes
+  for(let b=0;b<NB;b++){ if(!band[b].on.getValue()) continue;
+    const t=band[b].type.getChoiceIndex(); const x=fToX(effFreq(b));
+    const y=HAS_GAIN[t]?gToY(Math.max(-GR,Math.min(GR,band[b].gain.getScaledValue()))):gToY(0);
+    ctx.beginPath(); ctx.arc(x,y,(dragBand===b?8:6),0,2*Math.PI);
+    ctx.fillStyle=BAND_COL[b]; ctx.globalAlpha=(dragBand===b)?1:.92; ctx.fill(); ctx.globalAlpha=1;
+    ctx.lineWidth=2; ctx.strokeStyle="#0b0e14"; ctx.stroke();
+    ctx.fillStyle="#0b0e14"; ctx.font="bold 9px Segoe UI"; ctx.textAlign="center"; ctx.textBaseline="middle"; ctx.fillText((b+1),x,y+0.5);
+  }
+  requestAnimationFrame(draw);
+}
+
+// ---- node interaction ----
+let dragBand=-1, dragGain=false;
+function nodeAt(mx,my){ for(let b=0;b<NB;b++){ if(!band[b].on.getValue()) continue;
+    const t=band[b].type.getChoiceIndex(); const x=fToX(effFreq(b));
+    const y=HAS_GAIN[t]?gToY(Math.max(-GR,Math.min(GR,band[b].gain.getScaledValue()))):gToY(0);
+    if((mx-x)*(mx-x)+(my-y)*(my-y) <= 100) return b; } return -1; }
+function setScaled(st,v){ const p=st.properties; let nv=Math.pow((v-p.start)/(p.end-p.start),p.skew);
+  st.setNormalisedValue(Math.max(0,Math.min(1,nv))); }
+
+cv.addEventListener("pointerdown",(e)=>{ const r=cv.getBoundingClientRect(); const mx=e.clientX-r.left, my=e.clientY-r.top;
+  const b=nodeAt(mx,my); if(b<0) return;
+  if(e.ctrlKey||e.metaKey){ resetParam("b"+b+"_freq"); if(HAS_GAIN[band[b].type.getChoiceIndex()]) resetParam("b"+b+"_gain"); e.preventDefault(); return; }
+  dragBand=b; dragGain=HAS_GAIN[band[b].type.getChoiceIndex()];
+  band[b].freq.sliderDragStarted(); if(dragGain) band[b].gain.sliderDragStarted();
+  try{ cv.setPointerCapture(e.pointerId); }catch(_){}
+  e.preventDefault(); });
+cv.addEventListener("pointermove",(e)=>{ if(dragBand<0) return; const r=cv.getBoundingClientRect();
+  const mx=Math.max(padL,Math.min(W-padR,e.clientX-r.left)), my=e.clientY-r.top;
+  let f=Math.max(20,Math.min(20000,xToF(mx))); const tf=trackFactor(dragBand); if(tf>0) f=f/tf;  // store base freq
+  setScaled(band[dragBand].freq, Math.max(20,Math.min(20000,f)));
+  if(dragGain) setScaled(band[dragBand].gain, Math.max(-GR,Math.min(GR,yToG(my)))); });
+function endDrag(e){ if(dragBand<0) return; band[dragBand].freq.sliderDragEnded(); if(dragGain) band[dragBand].gain.sliderDragEnded();
+  dragBand=-1; try{ cv.releasePointerCapture(e.pointerId); }catch(_){} }
+cv.addEventListener("pointerup",endDrag); cv.addEventListener("pointercancel",endDrag);
+cv.addEventListener("dblclick",(e)=>{ const r=cv.getBoundingClientRect(); const b=nodeAt(e.clientX-r.left,e.clientY-r.top);
+  if(b>=0) band[b].on.setValue(!band[b].on.getValue()); });
+cv.addEventListener("wheel",(e)=>{ const r=cv.getBoundingClientRect(); const b=nodeAt(e.clientX-r.left,e.clientY-r.top);
+  if(b<0) return; e.preventDefault(); const q=band[b].q.getScaledValue(); const nq=q*(e.deltaY<0?1.12:0.89);
+  setScaled(band[b].q, Math.max(0.1,Math.min(18,nq))); },{passive:false});
+
+// ---- generic DOM bindings ----
+function fmt(id,v){
+  if(id.indexOf("freq")>=0 || id==="kt_ref") return v>=1000?(v/1000).toFixed(2)+" kHz":Math.round(v)+" Hz";
+  if(id.indexOf("gain")>=0 || id==="output") return (v>=0?"+":"")+v.toFixed(1)+" dB";
+  if(id.endsWith("_q")) return "Q "+v.toFixed(2);
+  if(id==="kt_amt") return Math.round(v*100)+" %";
+  return v.toFixed(2);
+}
+function bindSlider(id, el){ const st=getSliderState(id); const thumb=el.querySelector(".thumb"), fill=el.querySelector(".fill");
+  const val=el.parentElement?el.parentElement.querySelector(".val"):null;
+  const upd=()=>{ const n=st.getNormalisedValue(); if(thumb) thumb.style.left=(n*100)+"%"; if(fill) fill.style.width=(n*100)+"%"; if(val) val.textContent=fmt(id,st.getScaledValue()); };
+  st.valueChangedEvent.addListener(upd); st.propertiesChangedEvent.addListener(upd); upd();
+  const setIdx=()=>{ const i=st.properties?st.properties.parameterIndex:-1; if(i>=0) el.setAttribute("controlparameterindex",i); };
+  st.propertiesChangedEvent.addListener(setIdx); setIdx();
+  let drag=false; const fromX=(cx)=>{ const r=el.getBoundingClientRect(); let p=(cx-r.left)/r.width; p=Math.max(0,Math.min(1,p)); st.setNormalisedValue(p); upd(); };
+  el.addEventListener("pointerdown",(e)=>{ if(e.ctrlKey||e.metaKey){ resetParam(id); e.preventDefault(); return; }
+    drag=true; st.sliderDragStarted(); try{el.setPointerCapture(e.pointerId);}catch(_){} fromX(e.clientX); e.preventDefault(); });
+  el.addEventListener("pointermove",(e)=>{ if(drag) fromX(e.clientX); });
+  const up=(e)=>{ if(drag){ drag=false; st.sliderDragEnded(); try{el.releasePointerCapture(e.pointerId);}catch(_){} } };
+  el.addEventListener("pointerup",up); el.addEventListener("pointercancel",up);
+}
+function bindToggle(id, el){ const st=getToggleState(id); const upd=()=>el.classList.toggle("on",st.getValue());
+  st.valueChangedEvent.addListener(upd); upd(); el.addEventListener("click",()=>st.setValue(!st.getValue())); }
+function bindCombo(id, el){ const st=getComboBoxState(id); const upd=()=>el.selectedIndex=st.getChoiceIndex();
+  st.valueChangedEvent.addListener(upd); st.propertiesChangedEvent.addListener(upd); upd();
+  el.addEventListener("change",()=>st.setChoiceIndex(el.selectedIndex)); }
+
+// ---- build advanced band rows ----
+function buildBands(){ const tb=document.getElementById("bandBody");
+  for(let b=0;b<NB;b++){ const tr=document.createElement("tr");
+    let opts=""; for(let t=0;t<TYPE_NAMES.length;t++) opts+="<option>"+TYPE_NAMES[t]+"</option>";
+    tr.innerHTML=
+      '<td><span class="bnum" style="background:'+BAND_COL[b]+'"></span></td>'+
+      '<td><span class="tg" data-toggle="b'+b+'_on">On</span></td>'+
+      '<td><select class="sel" data-combo="b'+b+'_type">'+opts+'</select></td>'+
+      '<td class="cell-sl"><div class="slider" data-param="b'+b+'_freq"><div class="fill"></div><div class="thumb"></div></div><span class="val"></span></td>'+
+      '<td class="cell-sl"><div class="slider" data-param="b'+b+'_gain"><div class="fill"></div><div class="thumb"></div></div><span class="val"></span></td>'+
+      '<td class="cell-sl"><div class="slider" data-param="b'+b+'_q"><div class="fill"></div><div class="thumb"></div></div><span class="val"></span></td>'+
+      '<td><span class="tg" data-toggle="b'+b+'_track">Trk</span></td>';
+    tb.appendChild(tr);
+  }
+}
+
+// ---- mode tabs & focus ----
+function refreshMode(){ const idx=modeCombo.getChoiceIndex();
+  document.querySelectorAll(".mode-tab").forEach((t)=>t.classList.toggle("active",+t.dataset.mode===idx));
+  const L=MACRO_LBL[idx]||MACRO_LBL[0]; for(let i=0;i<4;i++){ const e=document.getElementById("m"+i+"lbl"); if(e) e.textContent=L[i]; } }
+function noteName(f){ if(f<=0) return "—"; const n=Math.round(12*Math.log2(f/440)+69);
+  const nm=["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"]; return nm[((n%12)+12)%12]+(Math.floor(n/12)-1)+" · "+f.toFixed(1)+" Hz"; }
+
+function init(){
+  buildBands();
+  try{ const iu=new ControlParameterIndexUpdater("controlparameterindex"); window.addEventListener("mousemove",(e)=>iu.handleMouseMove(e)); }catch(_){}
+  document.querySelectorAll("[data-param]").forEach(el=>bindSlider(el.getAttribute("data-param"),el));
+  document.querySelectorAll("[data-toggle]").forEach(el=>bindToggle(el.getAttribute("data-toggle"),el));
+  document.querySelectorAll("[data-combo]").forEach(el=>bindCombo(el.getAttribute("data-combo"),el));
+
+  document.querySelectorAll(".mode-tab").forEach(t=>t.addEventListener("click",()=>loadMode(+t.dataset.mode)));
+  modeCombo.valueChangedEvent.addListener(refreshMode); modeCombo.propertiesChangedEvent.addListener(refreshMode); refreshMode();
+
+  const fb=document.getElementById("focusBtn");
+  fb.addEventListener("click",()=>{ const adv=document.body.classList.toggle("advanced"); document.body.classList.toggle("basic",!adv);
+    fb.textContent="Focus: "+(adv?"Full":"Simple"); });
+
+  // detected-note readout
+  setInterval(()=>{ const o=document.getElementById("noteOut"); if(o) o.textContent = ktOn.getValue()? noteName(detectedF0) : "(off)"; }, 120);
+
+  resize(); requestAnimationFrame(draw);
+}
+window.addEventListener("resize",resize);
+if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",init); else init();
+</script>
+</body>
+</html>
