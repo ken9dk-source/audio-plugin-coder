@@ -42,8 +42,9 @@ public:
     juce::MidiKeyboardState keyboardState;   // fed from processBlock, read by the GUI keyboard strip
 
     // ---- test hooks ----
-    int  currentNoteForTest() const  { return voice.curNote; }
-    bool voiceActiveForTest() const  { return voice.isActive(); }
+    int    currentNoteForTest() const  { return voice.curNote; }
+    bool   voiceActiveForTest() const  { return voice.isActive(); }
+    double lfo1HzForTest() const       { return voice.lfo1.curHz; }
 
 private:
     void handleMidiEvent (const juce::MidiMessage& m);
@@ -51,6 +52,7 @@ private:
 
     mb::MbVoice voice;
     juce::Array<int> heldNotes;              // mono note stack (last-note priority)
+    double curBpm = 120.0;                   // last seen host tempo
 
     std::atomic<float>* pRaw (const char* id) { return apvts.getRawParameterValue (id); }
 

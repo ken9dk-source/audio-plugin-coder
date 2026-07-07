@@ -99,6 +99,7 @@ struct OscEngine
     DriftGen drift[3];                       // one per oscillator (independent VCO slop)
     Config   cfg;
     double   pitchHz = 110.0;
+    float    pwMod = 0.0f;      // per-sample PWM offset (mod matrix / LFO), ±0.45 max
 
     // derived per setConfig
     double pitchMul[3]  = { 1.0, 1.0, 1.0 };
@@ -229,6 +230,13 @@ struct OscEngine
         const float fmAmt   = cfg.fm * kMaxFmDepth;
         const float ringAmt = cfg.ring;
 
+        // PWM modulation: recompute the pulse waveshape per sample only when active.
+        double vs[3] = { vazShape[0], vazShape[1], vazShape[2] };
+        if (pwMod != 0.0f)
+            for (int i = 0; i < 3; ++i)
+                if (cfg.osc[i].wave == OscWave::Pulse)
+                    vs[i] = std::clamp (((double) cfg.osc[i].pw + (double) pwMod - 0.05) / 0.9, 0.0, 1.0);
+
         float outL = 0.0f, outR = 0.0f, monoSum = 0.0f;
         for (int i = 0; i < n; ++i)
         {
@@ -237,7 +245,7 @@ struct OscEngine
 
             // osc2 first: it is the sync master and the FM/ring modulator.
             const double ph2 = cp.o2.phase[0];                       // this sample's phase (next() advances it)
-            const float v2 = (float) cp.o2.next (f2 * fd, vazWave[1], vazShape[1]);
+            const float v2 = (float) cp.o2.next (f2 * fd, vazWave[1], vs[1]);
             if (cfg.sync && cp.o2.mainWrapped)
                 cp.o1.hardReset();
 
@@ -246,20 +254,20 @@ struct OscEngine
             double f1eff = f1 * fd;
             if (fmAmt > 0.0f)
             {
-                const float v2m = ringTap (waveTables(), ph2, f2 * fd, cp.o2.sampleRate, vazWave[1], vazShape[1]);
+                const float v2m = ringTap (waveTables(), ph2, f2 * fd, cp.o2.sampleRate, vazWave[1], vs[1]);
                 f1eff *= 1.0 + (double) (fmAmt * v2m);
             }
             const double ph1 = cp.o1.phase[0];                       // after any sync reset, before advance
-            const float v1 = (float) cp.o1.next (f1eff, vazWave[0], vazShape[0]);
-            const float v3 = (float) cp.o3.next (f3 * fd, vazWave[2], vazShape[2]);
+            const float v1 = (float) cp.o1.next (f1eff, vazWave[0], vs[0]);
+            const float v3 = (float) cp.o3.next (f3 * fd, vazWave[2], vs[2]);
 
             float m = v1 * l1 + v2 * l2 + v3 * l3;
             if (ringAmt > 0.0f)
             {
                 const auto& wt = waveTables();
                 const double sr = cp.o1.sampleRate;
-                m += ringAmt * ringTap (wt, ph1, f1eff,   sr, vazWave[0], vazShape[0])
-                             * ringTap (wt, ph2, f2 * fd, sr, vazWave[1], vazShape[1]);
+                m += ringAmt * ringTap (wt, ph1, f1eff,   sr, vazWave[0], vs[0])
+                             * ringTap (wt, ph2, f2 * fd, sr, vazWave[1], vs[1]);
             }
             if (cfg.uniMono) monoSum += m;
             else             { outL += m * gL[i]; outR += m * gR[i]; }

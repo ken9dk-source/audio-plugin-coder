@@ -28,6 +28,7 @@
 //==============================================================================
 #include "MbOscillators.h"
 #include "MbFilter.h"
+#include "MbMod.h"       // LFOs + sync table + 6-slot matrix (Phase 4)
 #include "Envelope.h"    // ta::AdsrEnv — include dir ../TranceAcid/Source (verified port)
 #include <juce_audio_basics/juce_audio_basics.h>
 
@@ -51,7 +52,30 @@ struct MbVoice
         float aA = 0.5f, aD = 300.0f, aS = 100.0f, aR = 10.0f;
         float outGain = 1.0f;
         int   bendRange = 2;
+
+        // ---- modulation (Phase 4) ----
+        struct LfoP { int wave = LfoWave::Sine; bool sync = false; float rateHz = 2.0f;
+                      int rateDiv = 3; float amount = 0.0f; bool retrig = true; int dest = 0; };
+        LfoP        lfo[2];
+        ModMatrix6  matrix;
+        double      bpm = 120.0;
     };
+
+    // Modulation scaling (one place, documented):
+    //  * matrix Cutoff: dst sum 1.0 = kEnvOctaves (5) octaves, total clamped ±10 oct,
+    //    then Hz-clamped [20, 0.45·sr] in the filter (clamp, never wrap — cond. c)
+    //  * matrix Pitch: dst sum 1.0 = ±12 semitones, total clamped ±24 st
+    //  * matrix PWM:   dst sum clamped ±1 → pulse-width offset ±0.45 (pw clamps 5-95 %)
+    //  * matrix Amp:   VCA gain = clamp(1 + sum, 0, 2)
+    //  * matrix Reso:  clamp(base + sum, 0, 1)
+    //  * matrix Drive: CONTROL-RATE (applied once per block in setParams from the
+    //    sources' current values) → pre-drive = clamp(base + sum, 0, 1)
+    //  * dedicated LFO routes (lfoN_dest × amount): Cutoff ±3 oct, Pitch ±12 st,
+    //    PWM ±0.45, Volume ±1 — added into the same dst sums before clamping.
+    static constexpr double kModPitchSemis   = 12.0;
+    static constexpr double kModPitchClamp   = 24.0;
+    static constexpr double kModCutoffClamp  = 10.0;   // octaves
+    static constexpr double kLfoCutoffOct    = 3.0;
 
     // Micro-detune cents per stack unit (symmetric, classic analog-stack spread).
     static constexpr double kStackCents[3][kMaxStack] = {
@@ -62,6 +86,7 @@ struct MbVoice
     OscEngine   eng[kMaxStack];
     MbFilter    fltL, fltR;
     ta::AdsrEnv ampEnv, fltEnv;
+    MbLfo       lfo1, lfo2;
     Params      p;
     double      sr = 44100.0;
     int         units = 1;
@@ -70,6 +95,11 @@ struct MbVoice
     int         curNote = -1;
     double      targetHz = 0.0, glidedHz = 0.0, bendMul = 1.0;
     double      glideStepCents = 0.0;             // per sample
+
+    // mod sources (velocity latched at noteOn; wheel/aftertouch fed by the processor)
+    float       velocity = 1.0f, modWheel = 0.0f, aftertouch = 0.0f;
+    float       lastLfo1 = 0.0f, lastLfo2 = 0.0f;
+    double      lastFc = 0.0, lastHz = 0.0;       // test/analysis hooks (post-clamp)
 
     void prepare (double sampleRate, uint32_t seed = 0x9E3779B9u)
     {
@@ -81,7 +111,9 @@ struct MbVoice
         }
         fltL.prepare (sr); fltR.prepare (sr);
         ampEnv.prepare (sr); fltEnv.prepare (sr);
+        lfo1.prepare (sr, seed ^ 0x1F01u); lfo2.prepare (sr, seed ^ 0x2F02u);
         curNote = -1; targetHz = glidedHz = 0.0; bendMul = 1.0;
+        velocity = 1.0f; modWheel = aftertouch = 0.0f; lastLfo1 = lastLfo2 = 0.0f;
     }
 
     void setParams (const Params& np)
@@ -95,8 +127,26 @@ struct MbVoice
             eng[u].setConfig (p.oscCfg);
         }
         fltL.setMode (p.fltMode);            fltR.setMode (p.fltMode);
-        fltL.setParams (p.reso, p.drivePre, p.drivePost);
-        fltR.setParams (p.reso, p.drivePre, p.drivePost);
+
+        // LFO rates: free Hz, or the sync table against the host BPM (re-evaluated
+        // every setParams call = every block, so BPM changes track mid-note).
+        MbLfo* lfos[2] = { &lfo1, &lfo2 };
+        for (int i = 0; i < 2; ++i)
+        {
+            lfos[i]->setWave (p.lfo[i].wave);
+            lfos[i]->setRateHz (p.lfo[i].sync ? syncHz (p.bpm, p.lfo[i].rateDiv)
+                                              : (double) p.lfo[i].rateHz);
+        }
+
+        // Drive destination is CONTROL-RATE: computed here (once per block) from the
+        // sources' current values, then baked into the drive stages.
+        float src[ModSrc::Count] = { 0.0f, velocity, modWheel, aftertouch, fltEnv.output, lastLfo1, lastLfo2 };
+        float dst[ModDst::Count] = {};
+        p.matrix.apply (src, dst);
+        const float dPre = std::clamp (p.drivePre + dst[ModDst::Drive], 0.0f, 1.0f);
+        fltL.setParams (p.reso, dPre, p.drivePost);
+        fltR.setParams (p.reso, dPre, p.drivePost);
+
         ampEnv.setADSR (p.aA, p.aD, p.aS, p.aR);
         fltEnv.setADSR (p.fA, p.fD, p.fS, p.fR);
         glideStepCents = (p.glideMs >= 1.0f) ? 1200.0 / ((double) p.glideMs * 0.001 * sr) : 0.0;
@@ -108,17 +158,24 @@ struct MbVoice
     }
 
     // overlapping = another note was already held (legato transition).
-    void noteOn (int midiNote, float /*velocity*/, bool overlapping)
+    void noteOn (int midiNote, float vel, bool overlapping)
     {
         curNote  = midiNote;
+        velocity = std::clamp (vel, 0.0f, 1.0f);
         targetHz = juce::MidiMessage::getMidiNoteInHertz (midiNote);
         if (glidedHz <= 0.0)                                   glidedHz = targetHz;  // first note ever
         else if (! overlapping && p.glideLegatoOnly)           glidedHz = targetHz;  // detached → jump
         // else: keep current pitch and glide toward the target
 
-        const bool retrig = (p.voiceMode == 0) || ! overlapping;
-        if (retrig) { ampEnv.noteOn(); fltEnv.noteOn(); }
-        else if (! ampEnv.isActive()) { ampEnv.noteOn(); fltEnv.noteOn(); }          // safety: silent voice always starts
+        const bool retrig = (p.voiceMode == 0) || ! overlapping || ! ampEnv.isActive();
+        if (retrig)
+        {
+            ampEnv.noteOn(); fltEnv.noteOn();
+            // LFO note-on retrigger follows the envelope-retrigger condition
+            // (legato transitions keep the LFO phase running).
+            if (p.lfo[0].retrig) lfo1.retrigger();
+            if (p.lfo[1].retrig) lfo2.retrigger();
+        }
     }
 
     void noteOff() { ampEnv.noteOff(); fltEnv.noteOff(); }
@@ -138,21 +195,59 @@ struct MbVoice
             }
         }
 
-        const double hz = glidedHz * bendMul;
+        // ---- modulation sources ----
+        lastLfo1 = lfo1.process();
+        lastLfo2 = lfo2.process();
+        const float fe = fltEnv.process();
+        float src[ModSrc::Count] = { 0.0f, velocity, modWheel, aftertouch, fe, lastLfo1, lastLfo2 };
+        float dst[ModDst::Count] = {};
+        p.matrix.apply (src, dst);
+
+        // dedicated LFO routes add into the same destination sums (see scaling doc)
+        const float lv[2] = { lastLfo1, lastLfo2 };
+        for (int i = 0; i < 2; ++i)
+        {
+            const float a = p.lfo[i].amount * lv[i];
+            switch (p.lfo[i].dest)
+            {
+                case 0:  dst[ModDst::Cutoff] += a * (float) (kLfoCutoffOct / MbFilter::kEnvOctaves); break;
+                case 1:  dst[ModDst::Pitch]  += a; break;
+                case 2:  dst[ModDst::PWM]    += a; break;
+                default: dst[ModDst::Amp]    += a; break;      // Volume (tremolo)
+            }
+        }
+
+        // ---- apply with CLAMPS (never wrap) ----
+        const double pitchSemis = std::clamp ((double) dst[ModDst::Pitch] * kModPitchSemis,
+                                              -kModPitchClamp, kModPitchClamp);
+        const double hz = glidedHz * bendMul * std::pow (2.0, pitchSemis / 12.0);
+        lastHz = hz;
+
+        const float pwOff = std::clamp (dst[ModDst::PWM], -1.0f, 1.0f) * 0.45f;
+        const float resoNow = std::clamp (p.reso + dst[ModDst::Reso], 0.0f, 1.0f);
+        fltL.reso = resoNow; fltR.reso = resoNow;
+
         float oL = 0.0f, oR = 0.0f;
         for (int u = 0; u < units; ++u)
         {
             float l = 0.0f, r = 0.0f;
+            eng[u].pwMod = pwOff;
             eng[u].setPitch (hz * stackMul[u]);
             eng[u].process (l, r);
             oL += l; oR += r;
         }
         oL *= stackNorm; oR *= stackNorm;
 
-        const float  fe = fltEnv.process();
-        const double fc = MbFilter::modulatedCutoff ((double) p.cutoffHz, curNote < 0 ? 60 : curNote,
-                                                     p.keytrack, p.envAmt, fe);
-        const float ae = ampEnv.process() * p.outGain;
+        const double modOct = std::clamp ((double) dst[ModDst::Cutoff] * MbFilter::kEnvOctaves,
+                                          -kModCutoffClamp, kModCutoffClamp);
+        double fc = MbFilter::modulatedCutoff ((double) p.cutoffHz, curNote < 0 ? 60 : curNote,
+                                               p.keytrack, p.envAmt, fe)
+                    * std::pow (2.0, modOct);
+        fc = std::clamp (fc, 20.0, sr * 0.45);                 // same pin the filter applies
+        lastFc = fc;
+
+        const float ampMul = std::clamp (1.0f + dst[ModDst::Amp], 0.0f, 2.0f);
+        const float ae = ampEnv.process() * p.outGain * ampMul;
         L = fltL.process (oL, fc) * ae;
         R = fltR.process (oR, fc) * ae;
     }

@@ -77,6 +77,35 @@ void MidBassAudioProcessor::updateVoiceParams()
     p.aS = pRaw (pid::aenv_s)->load(); p.aR = pRaw (pid::aenv_r)->load();
 
     p.outGain = juce::Decibels::decibelsToGain (pRaw (pid::output)->load());
+
+    // ---- LFOs (Phase 4) ----
+    struct LfoIds { const char* wave; const char* sync; const char* hz; const char* div; const char* amt; const char* ret; const char* dest; };
+    const LfoIds lfoIds[2] = {
+        { pid::lfo1_wave, pid::lfo1_sync, pid::lfo1_rate_hz, pid::lfo1_rate_div, pid::lfo1_amount, pid::lfo1_retrig, pid::lfo1_dest },
+        { pid::lfo2_wave, pid::lfo2_sync, pid::lfo2_rate_hz, pid::lfo2_rate_div, pid::lfo2_amount, pid::lfo2_retrig, pid::lfo2_dest } };
+    for (int i = 0; i < 2; ++i)
+    {
+        p.lfo[i].wave    = (int) pRaw (lfoIds[i].wave)->load();
+        p.lfo[i].sync    = pRaw (lfoIds[i].sync)->load() > 0.5f;
+        p.lfo[i].rateHz  = pRaw (lfoIds[i].hz)->load();
+        p.lfo[i].rateDiv = (int) pRaw (lfoIds[i].div)->load();
+        p.lfo[i].amount  = pRaw (lfoIds[i].amt)->load() * 0.01f;
+        p.lfo[i].retrig  = pRaw (lfoIds[i].ret)->load() > 0.5f;
+        p.lfo[i].dest    = (int) pRaw (lfoIds[i].dest)->load();
+    }
+
+    // ---- mod matrix ----
+    const char* srcIds[6] = { pid::mod1_src, pid::mod2_src, pid::mod3_src, pid::mod4_src, pid::mod5_src, pid::mod6_src };
+    const char* dstIds[6] = { pid::mod1_dst, pid::mod2_dst, pid::mod3_dst, pid::mod4_dst, pid::mod5_dst, pid::mod6_dst };
+    const char* amtIds[6] = { pid::mod1_amt, pid::mod2_amt, pid::mod3_amt, pid::mod4_amt, pid::mod5_amt, pid::mod6_amt };
+    for (int i = 0; i < 6; ++i)
+    {
+        p.matrix.slot[i].src = (int) pRaw (srcIds[i])->load();
+        p.matrix.slot[i].dst = (int) pRaw (dstIds[i])->load();
+        p.matrix.slot[i].amt = pRaw (amtIds[i])->load() * 0.01f;
+    }
+
+    p.bpm = curBpm;
     voice.setParams (p);
 }
 
@@ -106,6 +135,18 @@ void MidBassAudioProcessor::handleMidiEvent (const juce::MidiMessage& m)
     {
         voice.setPitchBend ((float) (m.getPitchWheelValue() - 8192) / 8192.0f);
     }
+    else if (m.isController() && m.getControllerNumber() == 1)
+    {
+        voice.modWheel = (float) m.getControllerValue() / 127.0f;
+    }
+    else if (m.isChannelPressure())
+    {
+        voice.aftertouch = (float) m.getChannelPressureValue() / 127.0f;
+    }
+    else if (m.isAftertouch())
+    {
+        voice.aftertouch = (float) m.getAfterTouchValue() / 127.0f;
+    }
     else if (m.isAllNotesOff() || m.isAllSoundOff())
     {
         heldNotes.clearQuick();
@@ -118,6 +159,13 @@ void MidBassAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce
     juce::ScopedNoDenormals noDenormals;
     keyboardState.processNextMidiBuffer (midi, 0, buffer.getNumSamples(), true);
     buffer.clear();
+
+    // Host tempo, re-read every block so synced LFOs track BPM changes mid-note.
+    if (auto* ph = getPlayHead())
+        if (auto pos = ph->getPosition())
+            if (pos->getBpm().hasValue() && *pos->getBpm() > 0.0)
+                curBpm = *pos->getBpm();
+
     updateVoiceParams();
 
     const int n = buffer.getNumSamples();
