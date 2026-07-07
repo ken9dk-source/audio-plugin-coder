@@ -181,6 +181,12 @@ TEST_CASE ("osc: fm_alias_floor — folded components only: worst-of-8-seeds < -
     // Folded FM residue interferes constructively/destructively depending on the
     // oscillators' start phases (measured spread −42…−51 dB at C7), so the gate is
     // applied to the WORST case over a fixed deterministic seed sweep.
+    //
+    // NOTE (2026-07-07 review): the C7 case is a STRESS CANARY — worst-of-seeds
+    // margin is only ~1.6 dB, and that is deliberate. The musical register is
+    // guaranteed by the A4 −60 dB gate below; if C7 regresses past −40, the right
+    // response is to investigate what changed in the FM path, NOT to loosen this
+    // gate.
     auto aliasAt = [] (double f0, uint32_t seed)
     {
         mb::OscEngine eng;

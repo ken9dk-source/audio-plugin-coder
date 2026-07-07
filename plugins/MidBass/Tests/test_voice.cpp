@@ -40,6 +40,10 @@ TEST_CASE ("env: attack and decay timing within 5 %")
         INFO ("attack " << aMs << " ms measured " << measuredMs);
         CHECK (measuredMs > aMs * 0.95); CHECK (measuredMs < aMs * 1.05);
     }
+    // Decay lands ~4 % EARLY by design: the EarLevel model aims the exponential at
+    // an asymptote targetRatioDR (0.0001) BELOW the sustain level so the segment
+    // crosses the `output <= sustain` threshold in finite time. The bias is
+    // constant, inherent to that overshoot construction, and not a rate error.
     for (float dMs : { 20.0f, 200.0f })
     {
         ta::AdsrEnv e; e.prepare (kSR);

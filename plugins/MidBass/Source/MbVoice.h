@@ -19,6 +19,12 @@
 // pair (units sum pre-filter). Per-unit filters were considered and rejected:
 // at mid-bass the audible gain is marginal and the CPU cost (8 Type-R instances
 // at 4x stereo) works against the < 5 % CPU product target.
+// SONIC CONSEQUENCE (character decision, 2026-07-07 review): because the units
+// sum BEFORE the filter, the stack's micro-detune beats intermodulate through
+// the filter's feedback saturation instead of layering in parallel — i.e. the
+// beat amplitude pumps the drive slightly, the way a detuned stack behaves in
+// an analog mono synth. Per-unit filters would sound cleaner/wider and less
+// glued; that is exactly what this instrument does not want.
 //==============================================================================
 #include "MbOscillators.h"
 #include "MbFilter.h"
