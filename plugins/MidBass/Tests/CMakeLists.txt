@@ -13,9 +13,12 @@ target_sources(MidBass_Tests PRIVATE
     test_parameters.cpp
     test_state.cpp
     test_processor.cpp
+    test_oscillators.cpp
     ../Source/PluginProcessor.cpp)
 
-target_include_directories(MidBass_Tests PRIVATE ../Source)
+target_include_directories(MidBass_Tests PRIVATE
+    ../Source
+    ../../VAZClone/Source)
 
 target_compile_definitions(MidBass_Tests PRIVATE
     MIDBASS_HEADLESS=1
