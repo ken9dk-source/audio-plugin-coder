@@ -14,11 +14,13 @@ target_sources(MidBass_Tests PRIVATE
     test_state.cpp
     test_processor.cpp
     test_oscillators.cpp
+    test_filter.cpp
     ../Source/PluginProcessor.cpp)
 
 target_include_directories(MidBass_Tests PRIVATE
     ../Source
-    ../../VAZClone/Source)
+    ../../VAZClone/Source
+    ../../TranceEQ/Source)
 
 target_compile_definitions(MidBass_Tests PRIVATE
     MIDBASS_HEADLESS=1
