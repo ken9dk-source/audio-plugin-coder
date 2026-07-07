@@ -18,6 +18,7 @@ target_sources(MidBass_Tests PRIVATE
     test_voice.cpp
     test_mod.cpp
     test_tone.cpp
+    test_fx.cpp
     ../Source/PluginProcessor.cpp)
 
 # MidBass Source FIRST so its ParameterIDs.hpp wins over TranceAcid's.
@@ -25,7 +26,11 @@ target_include_directories(MidBass_Tests PRIVATE
     ../Source
     ../../VAZClone/Source
     ../../TranceAcid/Source
-    ../../TranceEQ/Source)
+    ../../TranceEQ/Source
+    ../../VAZChorus/Source
+    ../../VAZPhaser/Source
+    ../../VAZDelay/Source
+    ../../VAZReverb/Source)
 
 target_compile_definitions(MidBass_Tests PRIVATE
     MIDBASS_HEADLESS=1

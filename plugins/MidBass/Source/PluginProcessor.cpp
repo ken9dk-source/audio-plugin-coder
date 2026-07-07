@@ -15,6 +15,7 @@ void MidBassAudioProcessor::prepareToPlay (double sampleRate, int)
     sat.prepare (sampleRate);
     eq.prepare (sampleRate);
     trans.prepare (sampleRate);
+    fx.prepare (sampleRate);
     heldNotes.clearQuick();
     updateVoiceParams();
     setLatencySamples (mb::MbSaturator::kLatency);   // constant 47-sample OS alignment delay
@@ -122,6 +123,39 @@ void MidBassAudioProcessor::updateVoiceParams()
                   pRaw (pid::eq_hs_freq)->load(),  pRaw (pid::eq_hs_gain)->load());
     trans.setParams (pRaw (pid::trans_attack)->load() * 0.01f,
                      pRaw (pid::trans_sustain)->load() * 0.01f);
+
+    // ---- FX chain (Phase 6) ----
+    fx.onChorus  = pRaw (pid::fx_cho_on)->load() > 0.5f;
+    fx.onPhaser  = pRaw (pid::fx_pha_on)->load() > 0.5f;
+    fx.onFlanger = pRaw (pid::fx_fla_on)->load() > 0.5f;
+    fx.onDelay   = pRaw (pid::fx_dly_on)->load() > 0.5f;
+    fx.onReverb  = pRaw (pid::fx_rev_on)->load() > 0.5f;
+    fx.onComp    = pRaw (pid::fx_cmp_on)->load() > 0.5f;
+    fx.chorus.setParams (pRaw (pid::fx_cho_rate)->load(),
+                         pRaw (pid::fx_cho_depth)->load() * 0.01f,
+                         pRaw (pid::fx_cho_mix)->load() * 0.01f);
+    fx.phaser.setParams (pRaw (pid::fx_pha_rate)->load(),
+                         pRaw (pid::fx_pha_depth)->load() * 0.01f,
+                         pRaw (pid::fx_pha_fb)->load() * 0.01f,
+                         pRaw (pid::fx_pha_mix)->load() * 0.01f);
+    fx.flanger.setParams (pRaw (pid::fx_fla_rate)->load(),
+                          pRaw (pid::fx_fla_depth)->load() * 0.01f,
+                          pRaw (pid::fx_fla_fb)->load() * 0.01f,
+                          pRaw (pid::fx_fla_mix)->load() * 0.01f);
+    fx.delay.setParams (curBpm,
+                        (int) pRaw (pid::fx_dly_div)->load(),
+                        pRaw (pid::fx_dly_fb)->load() * 0.01f,
+                        pRaw (pid::fx_dly_damp)->load() * 0.01f,
+                        pRaw (pid::fx_dly_mix)->load() * 0.01f,
+                        pRaw (pid::fx_dly_ping)->load() > 0.5f);
+    fx.reverb.setParams (pRaw (pid::fx_rev_size)->load() * 0.01f,
+                         pRaw (pid::fx_rev_damp)->load() * 0.01f,
+                         pRaw (pid::fx_rev_mix)->load() * 0.01f);
+    fx.comp.setParams (pRaw (pid::fx_cmp_thresh)->load(),
+                       pRaw (pid::fx_cmp_ratio)->load(),
+                       pRaw (pid::fx_cmp_att)->load(),
+                       pRaw (pid::fx_cmp_rel)->load(),
+                       pRaw (pid::fx_cmp_gain)->load());
 }
 
 void MidBassAudioProcessor::handleMidiEvent (const juce::MidiMessage& m)
@@ -203,6 +237,7 @@ void MidBassAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce
         sat.processSample (l, r);
         eq.processSample (l, r);
         trans.processSample (l, r);
+        fx.processSample (l, r);
         outL[i] = l; outR[i] = r;
     }
 }

@@ -28,7 +28,11 @@ target_include_directories(MidBass PRIVATE
     Source
     ${CMAKE_CURRENT_SOURCE_DIR}/../VAZClone/Source
     ${CMAKE_CURRENT_SOURCE_DIR}/../TranceAcid/Source
-    ${CMAKE_CURRENT_SOURCE_DIR}/../TranceEQ/Source)
+    ${CMAKE_CURRENT_SOURCE_DIR}/../TranceEQ/Source
+    ${CMAKE_CURRENT_SOURCE_DIR}/../VAZChorus/Source
+    ${CMAKE_CURRENT_SOURCE_DIR}/../VAZPhaser/Source
+    ${CMAKE_CURRENT_SOURCE_DIR}/../VAZDelay/Source
+    ${CMAKE_CURRENT_SOURCE_DIR}/../VAZReverb/Source)
 
 target_link_libraries(MidBass
     PRIVATE
