@@ -1,11 +1,13 @@
 #pragma once
 //==============================================================================
-// MidBass — dedicated trance mid-bass synthesizer. Phase 0: full APVTS parameter
-// surface + plugin scaffold; the voice engine arrives in Phases 1-6 (ROADMAP.md).
+// MidBass — dedicated trance mid-bass synthesizer.
+// Phase 3: first audible path — mono voice (stack) → hybrid filter → amp VCA,
+// mono note stack with legato fallback to the previously held note.
 //==============================================================================
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "ParameterIDs.hpp"
 #include "Params.h"
+#include "MbVoice.h"
 
 class MidBassAudioProcessor : public juce::AudioProcessor
 {
@@ -39,6 +41,18 @@ public:
     juce::AudioProcessorValueTreeState apvts;
     juce::MidiKeyboardState keyboardState;   // fed from processBlock, read by the GUI keyboard strip
 
+    // ---- test hooks ----
+    int  currentNoteForTest() const  { return voice.curNote; }
+    bool voiceActiveForTest() const  { return voice.isActive(); }
+
 private:
+    void handleMidiEvent (const juce::MidiMessage& m);
+    void updateVoiceParams();
+
+    mb::MbVoice voice;
+    juce::Array<int> heldNotes;              // mono note stack (last-note priority)
+
+    std::atomic<float>* pRaw (const char* id) { return apvts.getRawParameterValue (id); }
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MidBassAudioProcessor)
 };

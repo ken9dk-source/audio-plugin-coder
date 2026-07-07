@@ -1,8 +1,9 @@
-// Phase 0 — processor scaffold: prepares, runs, stays silent and finite.
+// Processor scaffold: prepares, runs, silent WITHOUT midi (garbage input
+// cleared), finite always. Audible behaviour is covered in test_voice.cpp.
 #include <catch2/catch_test_macros.hpp>
 #include "PluginProcessor.h"
 
-TEST_CASE ("processor: Phase 0 processBlock outputs silence and never NaN")
+TEST_CASE ("processor: silent without notes, clears garbage, never NaN")
 {
     MidBassAudioProcessor p;
     p.setPlayConfigDetails (0, 2, 44100.0, 512);
@@ -10,7 +11,6 @@ TEST_CASE ("processor: Phase 0 processBlock outputs silence and never NaN")
 
     juce::AudioBuffer<float> buf (2, 512);
     juce::MidiBuffer midi;
-    midi.addEvent (juce::MidiMessage::noteOn (1, 48, (juce::uint8) 100), 0);
 
     for (int block = 0; block < 20; ++block)
     {
@@ -20,7 +20,6 @@ TEST_CASE ("processor: Phase 0 processBlock outputs silence and never NaN")
                 buf.setSample (ch, i, 123.0f);
 
         p.processBlock (buf, midi);
-        midi.clear();
 
         for (int ch = 0; ch < 2; ++ch)
             for (int i = 0; i < 512; ++i)

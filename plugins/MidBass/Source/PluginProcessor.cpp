@@ -9,9 +9,11 @@ MidBassAudioProcessor::MidBassAudioProcessor()
 {
 }
 
-void MidBassAudioProcessor::prepareToPlay (double, int)
+void MidBassAudioProcessor::prepareToPlay (double sampleRate, int)
 {
-    // Phase 1+: voice engine prepare goes here.
+    voice.prepare (sampleRate);
+    heldNotes.clearQuick();
+    updateVoiceParams();
 }
 
 bool MidBassAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -19,11 +21,124 @@ bool MidBassAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) 
     return layouts.getMainOutputChannelSet() == juce::AudioChannelSet::stereo();
 }
 
+// Pull the APVTS values used by Phases 1-3 into the voice (once per block).
+// LFOs/matrix arrive in Phase 4; saturation/EQ/transient in Phase 5; FX in 6.
+void MidBassAudioProcessor::updateVoiceParams()
+{
+    namespace pid = mb::pid;
+    mb::MbVoice::Params p;
+    auto& c = p.oscCfg;
+
+    const char* waveIds[3]  = { pid::osc1_wave,  pid::osc2_wave,  pid::osc3_wave };
+    const char* octIds[3]   = { pid::osc1_oct,   pid::osc2_oct,   pid::osc3_oct };
+    const char* semiIds[3]  = { pid::osc1_semi,  pid::osc2_semi,  pid::osc3_semi };
+    const char* fineIds[3]  = { pid::osc1_fine,  pid::osc2_fine,  pid::osc3_fine };
+    const char* pwIds[3]    = { pid::osc1_pw,    pid::osc2_pw,    pid::osc3_pw };
+    const char* levelIds[3] = { pid::osc1_level, pid::osc2_level, pid::osc3_level };
+    for (int i = 0; i < 3; ++i)
+    {
+        c.osc[i].wave      = (int) pRaw (waveIds[i])->load();
+        c.osc[i].oct       = (int) pRaw (octIds[i])->load();
+        c.osc[i].semi      = (int) pRaw (semiIds[i])->load();
+        c.osc[i].fineCents = pRaw (fineIds[i])->load();
+        c.osc[i].pw        = pRaw (pwIds[i])->load() * 0.01f;
+        c.osc[i].level     = pRaw (levelIds[i])->load() * 0.01f;
+    }
+    c.sync       = pRaw (pid::osc_sync)->load() > 0.5f;
+    c.fm         = pRaw (pid::osc_fm)->load() * 0.01f;
+    c.ring       = pRaw (pid::osc_ring)->load() * 0.01f;
+    c.drift      = pRaw (pid::osc_drift)->load() * 0.01f;
+    c.subOn      = pRaw (pid::sub_on)->load() > 0.5f;
+    c.subWave    = (int) pRaw (pid::sub_wave)->load();
+    c.subOctDown = 1 + (int) pRaw (pid::sub_oct)->load();
+    c.subLevel   = pRaw (pid::sub_level)->load() * 0.01f;
+    c.uniVoices  = (int) pRaw (pid::uni_voices)->load();
+    c.uniDetune  = pRaw (pid::uni_detune)->load() * 0.01f;
+    c.uniSpread  = pRaw (pid::uni_spread)->load() * 0.01f;
+    c.uniMono    = pRaw (pid::uni_mono)->load() > 0.5f;
+
+    p.stack           = (int) pRaw (pid::voice_stack)->load();
+    p.voiceMode       = (int) pRaw (pid::voice_mode)->load();
+    p.glideMs         = pRaw (pid::glide_time)->load();
+    p.glideLegatoOnly = pRaw (pid::glide_legato)->load() > 0.5f;
+    p.bendRange       = (int) pRaw (pid::bend_range)->load();
+
+    p.fltMode   = (int) pRaw (pid::flt_mode)->load();
+    p.cutoffHz  = pRaw (pid::flt_cutoff)->load();
+    p.reso      = pRaw (pid::flt_reso)->load() * 0.01f;
+    p.keytrack  = pRaw (pid::flt_keytrack)->load() * 0.01f;
+    p.envAmt    = pRaw (pid::flt_env_amt)->load() * 0.01f;
+    p.drivePre  = pRaw (pid::flt_drive_pre)->load() * 0.01f;
+    p.drivePost = pRaw (pid::flt_drive_post)->load() * 0.01f;
+
+    p.fA = pRaw (pid::fenv_a)->load(); p.fD = pRaw (pid::fenv_d)->load();
+    p.fS = pRaw (pid::fenv_s)->load(); p.fR = pRaw (pid::fenv_r)->load();
+    p.aA = pRaw (pid::aenv_a)->load(); p.aD = pRaw (pid::aenv_d)->load();
+    p.aS = pRaw (pid::aenv_s)->load(); p.aR = pRaw (pid::aenv_r)->load();
+
+    p.outGain = juce::Decibels::decibelsToGain (pRaw (pid::output)->load());
+    voice.setParams (p);
+}
+
+void MidBassAudioProcessor::handleMidiEvent (const juce::MidiMessage& m)
+{
+    if (m.isNoteOn())
+    {
+        const int note = m.getNoteNumber();
+        const bool overlapping = ! heldNotes.isEmpty();
+        heldNotes.removeAllInstancesOf (note);
+        heldNotes.add (note);
+        voice.noteOn (note, m.getFloatVelocity(), overlapping);
+    }
+    else if (m.isNoteOff())
+    {
+        const int note = m.getNoteNumber();
+        heldNotes.removeAllInstancesOf (note);
+        if (note == voice.curNote)
+        {
+            if (! heldNotes.isEmpty())
+                voice.noteOn (heldNotes.getLast(), 1.0f, true);   // fall back to held note, legato
+            else
+                voice.noteOff();
+        }
+    }
+    else if (m.isPitchWheel())
+    {
+        voice.setPitchBend ((float) (m.getPitchWheelValue() - 8192) / 8192.0f);
+    }
+    else if (m.isAllNotesOff() || m.isAllSoundOff())
+    {
+        heldNotes.clearQuick();
+        voice.noteOff();
+    }
+}
+
 void MidBassAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     juce::ScopedNoDenormals noDenormals;
     keyboardState.processNextMidiBuffer (midi, 0, buffer.getNumSamples(), true);
-    buffer.clear();   // Phase 0: no voice engine yet — output silence
+    buffer.clear();
+    updateVoiceParams();
+
+    const int n = buffer.getNumSamples();
+    float* outL = buffer.getWritePointer (0);
+    float* outR = buffer.getNumChannels() > 1 ? buffer.getWritePointer (1) : outL;
+
+    auto it = midi.begin();
+    for (int i = 0; i < n; ++i)
+    {
+        while (it != midi.end() && (*it).samplePosition <= i)
+        {
+            handleMidiEvent ((*it).getMessage());
+            ++it;
+        }
+        if (voice.isActive())
+        {
+            float l = 0.0f, r = 0.0f;
+            voice.process (l, r);
+            outL[i] = l; outR[i] = r;
+        }
+    }
 }
 
 bool MidBassAudioProcessor::hasEditor() const
