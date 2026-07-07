@@ -123,11 +123,20 @@ TEST_CASE ("sat: latency-aligned parallel mix nulls at unity transfer")   // con
                 ref[(size_t) i] = in[(size_t) i];
             }
             BhSpectrum rs (res, sr), is (ref, sr);
-            double worst = -1000.0;
+            // Attribution (2026-07-07 review note): FIR passband droop lives above
+            // ~15 kHz; misalignment would show as BROADBAND comb residue. Gate the
+            // sub-15k region harder so a future regression is attributable.
+            double worst = -1000.0, worstLow = -1000.0;
             for (int b = std::max (1, (int) (20.0 / rs.binHz)); b * rs.binHz <= 20000.0 && b < BhSpectrum::kN / 2; ++b)
-                worst = std::max (worst, dB (rs.mag[(size_t) b], is.mag[(size_t) b]));
-            INFO ("sr " << sr << " seed " << seed << " worst residual " << worst << " dB");
+            {
+                const double d = dB (rs.mag[(size_t) b], is.mag[(size_t) b]);
+                worst = std::max (worst, d);
+                if (b * rs.binHz < 15000.0) worstLow = std::max (worstLow, d);
+            }
+            INFO ("sr " << sr << " seed " << seed << " worst residual " << worst
+                  << " dB (below 15 kHz: " << worstLow << " dB)");
             CHECK (worst < -60.0);
+            CHECK (worstLow < -70.0);          // alignment-clean; residual = HF droop only
         }
 }
 

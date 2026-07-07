@@ -88,6 +88,10 @@ TranceEQ / TranceKick (see `.ideas/vaz-reuse-audit.md`).
 - **Approval condition (2026-07-07):** MacroMap and SweetSpots are data-driven
   tables (single header) with ALL mappings in one place — no macro logic
   scattered in the processor.
+- **Approval condition (2026-07-07, carried from Phase 5):** the Diode/HardClip
+  THD gap at the reference drive is only 0.6 dB — if sweet-spot/macro tuning
+  touches the saturator drive gains, the THD ranking test MUST be re-run and
+  the ranking preserved.
 - 10 factory presets as one-click snapshots: Classic Juno, Choose&F, Tukan, ATN,
   Kandi, Nitrous, Pluck, Bass, Wide, Mono. APVTS-based browser (save/load).
 - Tests: macro math (offset application + clamping), preset load → all params
