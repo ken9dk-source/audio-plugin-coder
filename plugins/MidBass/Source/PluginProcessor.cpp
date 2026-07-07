@@ -12,8 +12,12 @@ MidBassAudioProcessor::MidBassAudioProcessor()
 void MidBassAudioProcessor::prepareToPlay (double sampleRate, int)
 {
     voice.prepare (sampleRate);
+    sat.prepare (sampleRate);
+    eq.prepare (sampleRate);
+    trans.prepare (sampleRate);
     heldNotes.clearQuick();
     updateVoiceParams();
+    setLatencySamples (mb::MbSaturator::kLatency);   // constant 47-sample OS alignment delay
 }
 
 bool MidBassAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -107,6 +111,17 @@ void MidBassAudioProcessor::updateVoiceParams()
 
     p.bpm = curBpm;
     voice.setParams (p);
+
+    // ---- tone chain (Phase 5) ----
+    sat.setParams ((int) pRaw (pid::sat_type)->load(),
+                   pRaw (pid::sat_drive)->load() * 0.01f,
+                   pRaw (pid::sat_mix)->load() * 0.01f);
+    eq.setParams (pRaw (pid::eq_ls_freq)->load(),  pRaw (pid::eq_ls_gain)->load(),
+                  pRaw (pid::eq_mid_freq)->load(), pRaw (pid::eq_mid_gain)->load(),
+                  pRaw (pid::eq_mid_q)->load(),
+                  pRaw (pid::eq_hs_freq)->load(),  pRaw (pid::eq_hs_gain)->load());
+    trans.setParams (pRaw (pid::trans_attack)->load() * 0.01f,
+                     pRaw (pid::trans_sustain)->load() * 0.01f);
 }
 
 void MidBassAudioProcessor::handleMidiEvent (const juce::MidiMessage& m)
@@ -180,12 +195,15 @@ void MidBassAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce
             handleMidiEvent ((*it).getMessage());
             ++it;
         }
+        float l = 0.0f, r = 0.0f;
         if (voice.isActive())
-        {
-            float l = 0.0f, r = 0.0f;
             voice.process (l, r);
-            outL[i] = l; outR[i] = r;
-        }
+
+        // tone chain runs on the full stream (delay lines/EQ tails need it)
+        sat.processSample (l, r);
+        eq.processSample (l, r);
+        trans.processSample (l, r);
+        outL[i] = l; outR[i] = r;
     }
 }
 

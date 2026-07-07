@@ -246,6 +246,30 @@ TEST_CASE ("matrix: superposition sums then clamps — no wraparound at extremes
     }
 }
 
+TEST_CASE ("matrix: Drive destination granularity is host-buffer-independent (<= 128 samples)")
+{
+    // Review note 2 (Phase 4): the control-rate Drive mod is re-derived inside
+    // process() at least every kDriveModInterval samples, so a huge host buffer
+    // cannot coarsen it. Source changes mid-'block' with NO setParams call.
+    mb::MbVoice v;
+    v.prepare (44100.0, 7u);
+    auto p = basicParams();
+    p.drivePre = 0.2f;
+    p.matrix.slot[0] = { mb::ModSrc::ModWheel, mb::ModDst::Drive, 0.8f };
+    v.setParams (p);
+    v.modWheel = 0.0f;
+    v.noteOn (45, 1.0f, false);
+    float l, r;
+    for (int i = 0; i < 200; ++i) v.process (l, r);
+    const float gBefore = v.fltL.pre.g;
+
+    v.modWheel = 1.0f;                                      // source moves, no setParams
+    for (int i = 0; i < mb::MbVoice::kDriveModInterval + 1; ++i) v.process (l, r);
+    const float gAfter = v.fltL.pre.g;
+    INFO ("pre.g " << gBefore << " -> " << gAfter);
+    CHECK (gAfter > gBefore + 1.0f);                        // 0.2 -> 1.0 drive = big gain step
+}
+
 TEST_CASE ("lfo routing: vibrato depth is the documented scaling")   // condition a/c
 {
     mb::MbVoice v;
@@ -317,6 +341,10 @@ TEST_CASE ("mod: square LFO to volume and cutoff is click-free (isolation standa
     //    ~17-cent coefficient steps — VAZ character inherited with the engine,
     //    not a step click). Documented ceiling ≈ -42 dBFS, sitting ~-40 dB under
     //    the passband signal it accompanies.
+    //    DEFERRED (deliberately, 2026-07-07 review): an optional coefficient-
+    //    interpolation "smooth sweep" mode is the known fix if the zipper ever
+    //    becomes audible (fast LFO sweeps + high reso + sparse passband content);
+    //    it would trade bit-exactness under modulation for smoothness.
     const float cutBaseR = maxHf (0, 0.0f), cutModR = maxHf (0, 0.3f);
     INFO ("cutoff/Type-R: baseline HF " << cutBaseR << ", modulated " << cutModR);
     CHECK (cutModR < 0.008f);

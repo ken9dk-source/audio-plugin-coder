@@ -8,6 +8,7 @@
 #include "ParameterIDs.hpp"
 #include "Params.h"
 #include "MbVoice.h"
+#include "MbTone.h"
 
 class MidBassAudioProcessor : public juce::AudioProcessor
 {
@@ -51,6 +52,9 @@ private:
     void updateVoiceParams();
 
     mb::MbVoice voice;
+    mb::MbSaturator sat;                     // post-filter, 2x OS, 47-sample latency (reported)
+    mb::MbToneEq eq;
+    mb::MbTransient trans;
     juce::Array<int> heldNotes;              // mono note stack (last-note priority)
     double curBpm = 120.0;                   // last seen host tempo
 

@@ -17,6 +17,7 @@ target_sources(MidBass_Tests PRIVATE
     test_filter.cpp
     test_voice.cpp
     test_mod.cpp
+    test_tone.cpp
     ../Source/PluginProcessor.cpp)
 
 # MidBass Source FIRST so its ParameterIDs.hpp wins over TranceAcid's.

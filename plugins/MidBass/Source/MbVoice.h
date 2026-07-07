@@ -68,8 +68,10 @@ struct MbVoice
     //  * matrix PWM:   dst sum clamped ±1 → pulse-width offset ±0.45 (pw clamps 5-95 %)
     //  * matrix Amp:   VCA gain = clamp(1 + sum, 0, 2)
     //  * matrix Reso:  clamp(base + sum, 0, 1)
-    //  * matrix Drive: CONTROL-RATE (applied once per block in setParams from the
-    //    sources' current values) → pre-drive = clamp(base + sum, 0, 1)
+    //  * matrix Drive: CONTROL-RATE with an ENFORCED max update interval of
+    //    kDriveModInterval (128) samples (~2.9 ms @44.1k) — re-derived inside
+    //    process() so the granularity does NOT depend on the host buffer size
+    //    (2026-07-07 review note 2) → pre-drive = clamp(base + sum, 0, 1)
     //  * dedicated LFO routes (lfoN_dest × amount): Cutoff ±3 oct, Pitch ±12 st,
     //    PWM ±0.45, Volume ±1 — added into the same dst sums before clamping.
     static constexpr double kModPitchSemis   = 12.0;
@@ -138,14 +140,8 @@ struct MbVoice
                                               : (double) p.lfo[i].rateHz);
         }
 
-        // Drive destination is CONTROL-RATE: computed here (once per block) from the
-        // sources' current values, then baked into the drive stages.
-        float src[ModSrc::Count] = { 0.0f, velocity, modWheel, aftertouch, fltEnv.output, lastLfo1, lastLfo2 };
-        float dst[ModDst::Count] = {};
-        p.matrix.apply (src, dst);
-        const float dPre = std::clamp (p.drivePre + dst[ModDst::Drive], 0.0f, 1.0f);
-        fltL.setParams (p.reso, dPre, p.drivePost);
-        fltR.setParams (p.reso, dPre, p.drivePost);
+        updateDriveMod();
+        driveModCountdown = 0;                   // param change → re-derive immediately
 
         ampEnv.setADSR (p.aA, p.aD, p.aS, p.aR);
         fltEnv.setADSR (p.fA, p.fD, p.fS, p.fR);
@@ -155,6 +151,21 @@ struct MbVoice
     void setPitchBend (float wheel01)             // -1..+1
     {
         bendMul = std::pow (2.0, (double) wheel01 * (double) p.bendRange / 12.0);
+    }
+
+    // Control-rate Drive destination, re-derived at least every kDriveModInterval
+    // samples inside process() (host-buffer-independent granularity).
+    static constexpr int kDriveModInterval = 128;
+    int driveModCountdown = 0;
+
+    void updateDriveMod()
+    {
+        float src[ModSrc::Count] = { 0.0f, velocity, modWheel, aftertouch, fltEnv.output, lastLfo1, lastLfo2 };
+        float dst[ModDst::Count] = {};
+        p.matrix.apply (src, dst);
+        const float dPre = std::clamp (p.drivePre + dst[ModDst::Drive], 0.0f, 1.0f);
+        fltL.setParams (p.reso, dPre, p.drivePost);
+        fltR.setParams (p.reso, dPre, p.drivePost);
     }
 
     // overlapping = another note was already held (legato transition).
@@ -198,6 +209,11 @@ struct MbVoice
         // ---- modulation sources ----
         lastLfo1 = lfo1.process();
         lastLfo2 = lfo2.process();
+        if (--driveModCountdown <= 0)
+        {
+            driveModCountdown = kDriveModInterval;
+            updateDriveMod();
+        }
         const float fe = fltEnv.process();
         float src[ModSrc::Count] = { 0.0f, velocity, modWheel, aftertouch, fe, lastLfo1, lastLfo2 };
         float dst[ModDst::Count] = {};
