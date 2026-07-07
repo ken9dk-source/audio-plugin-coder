@@ -88,6 +88,11 @@ bash scripts/system-check.sh   # verify your environment
 
 **All platforms:** An LLM coding agent (Claude Code, Antigravity, Kilo, Cursor)
 
+**Optional (plugin validation):** pluginval — fetch the pinned version with
+`powershell -File scripts/fetch-pluginval.ps1` (Windows) or `bash scripts/fetch-pluginval.sh`
+(macOS/Linux). The binary lands in `_tools/pluginval/` (gitignored); the build script
+skips validation with a warning when it is missing.
+
 ### Bridge Templates (FFGL & Max/MSP)
 
 If you are specifically interested in building **FFGL Visual Plugins** or **Max for Live Externals**, use the included One-Click Setup script for Windows:

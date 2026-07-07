@@ -8,6 +8,8 @@ plugins/XENON
 
 # _tools folder
 _tools/DebugView/
+# pluginval binary — restore with scripts/fetch-pluginval.ps1 (or .sh)
+_tools/pluginval/
 
 # Design Libraries (examples)
 design_library/_exclude/
