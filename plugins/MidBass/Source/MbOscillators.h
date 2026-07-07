@@ -119,6 +119,22 @@ struct OscEngine
         for (int i = 0; i < 3; ++i) drift[i].prepare (sr, seed + (uint32_t) i * 0x85EBCA6Bu);
     }
 
+    // Deterministic start phases (tests + reproducible renders). prepare() leaves
+    // OscBlock with system-random phases; alias measurements interfere differently
+    // per phase set, so tests sweep FIXED seeds instead of trusting one lucky run.
+    void seedPhases (uint32_t seed)
+    {
+        auto next01 = [&seed]()
+        {
+            seed ^= seed << 13; seed ^= seed >> 17; seed ^= seed << 5;
+            return (double) seed / 4294967296.0;
+        };
+        for (auto& c : copies)
+            for (OscBlock* o : { &c.o1, &c.o2, &c.o3 })
+                for (double& p : o->phase) p = next01();
+        for (double& p : sub.phase) p = next01();
+    }
+
     void setPitch (double hz) { pitchHz = hz > 0.0 ? hz : 1.0; }
 
     static void mapWave (int wave, float pw, int& vw, double& vs)
@@ -172,10 +188,16 @@ struct OscEngine
     // For the true-bypass test: the sub phase must not advance while subOn == false.
     double subPhaseForTest() const { return sub.phase[0]; }
 
-    // Ring-mod input tap: reads the oscillator's CURRENT phase from the wavetable
+    // Ring/FM modulator tap: reads the oscillator's CURRENT phase from the wavetable
     // one mip level higher (mipFor(2·hz) = half the harmonics). The product of two
     // half-band signals stays under Nyquist, so ring mod doesn't alias the way a
-    // plain v1·v2 of full-band saws does (measured −36 dB → below the test floor).
+    // plain v1·v2 of full-band saws does (measured −36 dB → −89 dB; FM −38 → −51 dB).
+    //
+    // INTENTIONAL CHARACTER DECISION (approved 2026-07-07): halving the harmonic
+    // content slightly darkens the FM/ring timbre vs feeding them the full-band
+    // signals. That trade is deliberate — the alias floor is the priority for a
+    // mid-bass instrument — so do NOT "fix" this back to v1/v2 without re-running
+    // the *_alias_floor tests in Tests/test_oscillators.cpp.
     static float ringTap (const WaveTables& wt, double phase, double hz, double sr, int vw, double vs)
     {
         const int mip = wt.mipFor (hz * 2.0, sr);

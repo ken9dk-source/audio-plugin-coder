@@ -135,10 +135,22 @@ TEST_CASE ("osc: octave/semi/fine offsets are exact")
     REQUIRE (std::abs (cents) < 0.5);
 }
 
-TEST_CASE ("osc: saw alias floor below -60 dB at high pitch")
+// ---------------------------------------------------------------------------
+// ALIAS-FLOOR tests. maxNonHarmonic() measures FOLDED (aliased) energy only:
+// every legitimate component — oscillator harmonics, and FM/ring sidebands
+// (modulator pitched identically to the carrier, so f1 ± k·f2 lands ON the
+// harmonic grid) — sits in excluded harmonic bins. Gates are per-test and the
+// measured value must sit BELOW its own gate; they differ because plain
+// wavetable playback (saw, ring taps) can be near-perfect (measured ≈ −89 dB)
+// while FM inherently folds a residual of its infinite sideband series
+// (measured ≈ −51 dB at the C7 stress pitch — inaudible, and far below the
+// instrument's working register; at A4 it must clear the full −60 dB gate).
+// ---------------------------------------------------------------------------
+TEST_CASE ("osc: saw_alias_floor < -60 dB @ C7")
 {
     mb::OscEngine eng;
     eng.prepare (kSR);
+    eng.seedPhases (0xC0FFEEu);              // deterministic measurement
     eng.setConfig (sawOnly());
     const double f0 = 2093.0;               // ~C7
     eng.setPitch (f0);
@@ -147,43 +159,72 @@ TEST_CASE ("osc: saw alias floor below -60 dB at high pitch")
     REQUIRE (dB (s.maxNonHarmonic (f0), s.magAt (f0)) < -60.0);
 }
 
-TEST_CASE ("osc: FM depth stays in the subtle range and FM output stays clean")
+TEST_CASE ("osc: fm_subtle_range — depth cap + fundamental unmoved")
 {
     // Approval condition #5: subtle = peak frequency deviation capped well below a fifth.
     REQUIRE (mb::kMaxFmDepth <= 0.25f);
 
-    mb::OscEngine eng;
-    eng.prepare (kSR);
-    auto c = sawOnly();
-    c.osc[1].wave = mb::OscWave::Saw;       // modulator runs at the same pitch → harmonic sidebands
-    c.fm = 1.0f;
-    eng.setConfig (c);
-    const double f0 = 2093.0;
-    eng.setPitch (f0);
-
-    Spectrum s (renderMono (eng, Spectrum::kN + 1024));
-    REQUIRE (dB (s.maxNonHarmonic (f0), s.magAt (f0)) < -40.0);
-
     // Average pitch is unchanged by symmetric FM: fundamental still dominates at f0.
-    mb::OscEngine low; low.prepare (kSR); low.setConfig (c); low.setPitch (110.0);
-    auto x = renderMono (low, Spectrum::kN + 1024);
-    Spectrum sl (x);
+    mb::OscEngine low;
+    low.prepare (kSR);
+    auto c = sawOnly();
+    c.osc[1].wave = mb::OscWave::Saw;
+    c.fm = 1.0f;
+    low.setConfig (c);
+    low.setPitch (110.0);
+    Spectrum sl (renderMono (low, Spectrum::kN + 1024));
     REQUIRE (sl.magAt (110.0) > 0.5f * sl.maxNonHarmonic (110.0, 1));
 }
 
-TEST_CASE ("osc: ring mod output stays clean at high pitch")
+TEST_CASE ("osc: fm_alias_floor — folded components only: worst-of-8-seeds < -40 dB @ C7, < -60 dB @ A4")
 {
-    mb::OscEngine eng;
-    eng.prepare (kSR);
-    auto c = sawOnly();
-    c.osc[1].wave = mb::OscWave::Saw;
-    c.ring = 1.0f;
-    eng.setConfig (c);
-    const double f0 = 2093.0;
-    eng.setPitch (f0);
+    // Folded FM residue interferes constructively/destructively depending on the
+    // oscillators' start phases (measured spread −42…−51 dB at C7), so the gate is
+    // applied to the WORST case over a fixed deterministic seed sweep.
+    auto aliasAt = [] (double f0, uint32_t seed)
+    {
+        mb::OscEngine eng;
+        eng.prepare (kSR);
+        eng.seedPhases (seed);
+        auto c = sawOnly();
+        c.osc[1].wave = mb::OscWave::Saw;   // modulator at the carrier pitch → sidebands are harmonic
+        c.fm = 1.0f;
+        eng.setConfig (c);
+        eng.setPitch (f0);
+        Spectrum s (renderMono (eng, Spectrum::kN + 1024));
+        return dB (s.maxNonHarmonic (f0), s.magAt (f0));
+    };
 
-    Spectrum s (renderMono (eng, Spectrum::kN + 1024));
-    REQUIRE (dB (s.maxNonHarmonic (f0), s.magAt (f0)) < -40.0);
+    double worstC7 = -1000.0, worstA4 = -1000.0;
+    for (uint32_t seed = 1; seed <= 8; ++seed)
+    {
+        worstC7 = std::max (worstC7, aliasAt (2093.0, seed * 2654435761u));
+        worstA4 = std::max (worstA4, aliasAt (440.0,  seed * 2654435761u));
+    }
+    INFO ("worst C7: " << worstC7 << " dB, worst A4: " << worstA4 << " dB");
+    CHECK (worstC7 < -40.0);                // C7 stress pitch, worst phase alignment
+    CHECK (worstA4 < -60.0);                // top of the instrument's musical register
+}
+
+TEST_CASE ("osc: ring_alias_floor — folded components only: worst-of-8-seeds < -60 dB @ C7")
+{
+    double worst = -1000.0;
+    for (uint32_t seed = 1; seed <= 8; ++seed)
+    {
+        mb::OscEngine eng;
+        eng.prepare (kSR);
+        eng.seedPhases (seed * 2654435761u);
+        auto c = sawOnly();
+        c.osc[1].wave = mb::OscWave::Saw;
+        c.ring = 1.0f;
+        eng.setConfig (c);
+        const double f0 = 2093.0;
+        eng.setPitch (f0);
+        Spectrum s (renderMono (eng, Spectrum::kN + 1024));
+        worst = std::max (worst, dB (s.maxNonHarmonic (f0), s.magAt (f0)));
+    }
+    INFO ("worst: " << worst << " dB");
+    CHECK (worst < -60.0);                   // measured ≈ −89 dB
 }
 
 TEST_CASE ("osc: hard sync locks osc1 to the osc2 period")
@@ -260,15 +301,19 @@ TEST_CASE ("unison: mono mode sums to identical channels with detune still activ
 
 TEST_CASE ("unison: toggling mono changes perceived level by no more than ~1 dB")
 {
-    auto rmsOf = [] (bool mono)
+    // Detuned copies beat at sub-Hz rates, so the two renders MUST share identical
+    // start phases (seedPhases) and average over several beat cycles — otherwise
+    // this measures the beat envelope, not the mono/stereo summing difference.
+    auto rmsOf = [] (bool mono, uint32_t seed)
     {
         mb::OscEngine eng;
         eng.prepare (kSR);
+        eng.seedPhases (seed);
         auto c = sawOnly();
         c.uniVoices = 8; c.uniDetune = 0.5f; c.uniSpread = 1.0f; c.uniMono = mono;
         eng.setConfig (c);
         eng.setPitch (110.0);
-        double acc = 0.0; const int n = (int) kSR;
+        double acc = 0.0; const int n = (int) (4.0 * kSR);
         for (int i = 0; i < n; ++i)
         {
             float l = 0.0f, r = 0.0f;
@@ -277,8 +322,16 @@ TEST_CASE ("unison: toggling mono changes perceived level by no more than ~1 dB"
         }
         return std::sqrt (acc / n);
     };
-    const double diffDb = 20.0 * std::log10 (rmsOf (true) / rmsOf (false));
-    REQUIRE (std::abs (diffDb) <= 1.0);
+
+    double worst = 0.0;
+    for (uint32_t seed = 1; seed <= 4; ++seed)
+    {
+        const double diffDb = 20.0 * std::log10 (rmsOf (true, seed * 2654435761u)
+                                               / rmsOf (false, seed * 2654435761u));
+        worst = std::max (worst, std::abs (diffDb));
+    }
+    INFO ("worst |delta|: " << worst << " dB");
+    CHECK (worst <= 1.0);
 }
 
 TEST_CASE ("drift: bounded, seed-stable at zero, and actually moving at full amount")
