@@ -7,12 +7,17 @@
 //                 self-oscillating. This is the hero character of the instrument.
 // HP12 / BP12  →  ZDF/TPT SVF core derived from TranceAcid's verified SvfFilter,
 //                 with the drive structure matched to Type-R (approval condition):
-//                 an ALWAYS-ON tanh saturator on the feedback integrator whose
-//                 strength tracks pre-drive + resonance, so HP/BP saturate and
-//                 bound self-oscillation like the Type-R modes instead of being
-//                 sterile. INTENTIONAL DIFFERENCE (documented): the SVF clips with
-//                 a smooth tanh, Type-R with VAZ's integer cubic — at extreme
-//                 drive Type-R bites slightly harder; character, not a bug.
+//                 an ALWAYS-ON gentle cubic on the feedback integrator (same
+//                 x−c·x³ family as Type-R's v−v³≫sh), calibrated like-for-like so
+//                 the saturator sits within 6 dB of Type-R's at matched levels
+//                 (drive 0: gap 5.5 dB) and adds ≤ 3.8 dB over the SVF's own
+//                 linear floor when driven. INTENTIONAL DIFFERENCE (measured,
+//                 kept): the engines' LINEAR knee shapes differ — Type-R's
+//                 2x-oversampled cascade attenuates the 2-4x fc region ~5-6 dB
+//                 more steeply than a textbook TPT SVF — so a driven signal keeps
+//                 marginally more harmonic content in HP12/BP12. That is knee
+//                 topology, not saturation, and it is the character trade of
+//                 having the exact VAZ cascade on the LP side.
 //
 // Shared, engine-independent structure (approval conditions):
 //  * ONE cutoff law — modulatedCutoff() — computes the Hz value fed to whichever
@@ -58,14 +63,27 @@ struct MbSvfCore
     double sr = 44100.0;
     float  ic1 = 0.0f, ic2 = 0.0f;
     float  g = 0.0f, k = 2.0f, a1 = 0.0f, a2 = 0.0f, a3 = 0.0f;
-    float  satS = 1.0f;
+    float  satC = 0.03f, satL = 3.33f;
 
     void prepare (double sampleRate) { sr = sampleRate > 0.0 ? sampleRate : 44100.0; reset(); }
     void reset()                     { ic1 = ic2 = 0.0f; }
 
-    // Feedback-saturation strength tracks pre-drive and resonance so the HP/BP
-    // path "hears" drive the way Type-R's cubic feedback does.
-    void setSat (float drivePre01, float reso01) { satS = 1.0f + 0.6f * drivePre01 + 0.4f * reso01; }
+    // Feedback saturation matched STRUCTURALLY to Type-R's cubic (v − v³≫sh):
+    // gentle x·(1 − c·x²) on the integrator state, hard-clamped at the curve's
+    // monotonic limit L = 1/√(3c) — so normal levels get the same mild cubic
+    // character as Type-R while self-oscillation stays bounded (|state| ≤ 2L/3).
+    // A tanh here was measured 13-17 dB hotter than Type-R like-for-like (it
+    // clips deeply once states exceed ~1) — see Phase 2 review item 2, option a.
+    // c tracks pre-drive + resonance; coefficients calibrated by the
+    // "filter: svf_drive_absolute" test (gap gate ±6 dB at drive 0/0.4/0.8).
+    void setSat (float drivePre01, float reso01)
+    {
+        // Drive reaches this loop mostly through hotter input states (as in Type-R),
+        // so c itself tracks the knobs only lightly — heavier tracking double-counted
+        // the drive and measured ~10 dB hot at drive 0.4-0.8.
+        satC = 0.015f + 0.01f * drivePre01 + 0.03f * reso01;
+        satL = 1.0f / std::sqrt (3.0f * satC);
+    }
 
     void set (double fcHz, float reso01)
     {
@@ -84,7 +102,8 @@ struct MbSvfCore
         const float v2 = ic2 + a2 * ic1 + a3 * v3;
         ic1 = 2.0f * v1 - ic1;
         ic2 = 2.0f * v2 - ic2;
-        ic1 = std::tanh (ic1 * satS) / satS;      // always-on (Type-R parity), bounds self-osc
+        const float xs = std::clamp (ic1, -satL, satL);   // always-on cubic (Type-R parity)
+        ic1 = xs * (1.0f - satC * xs * xs);
         lp = v2; bp = v1; hp = v0 - k * v1 - v2;
     }
 };
