@@ -128,7 +128,7 @@ void MidBassAudioProcessor::updateVoiceParams (int blockSamples)
         macroChoMix    = o.choMix;
     }
 
-    p.outGain = juce::Decibels::decibelsToGain (pRaw (pid::output)->load());
+    masterGain = juce::Decibels::decibelsToGain (pRaw (pid::output)->load());   // POST-chain master
 
     // ---- LFOs (Phase 4) ----
     struct LfoIds { const char* wave; const char* sync; const char* hz; const char* div; const char* amt; const char* ret; const char* dest; };
@@ -291,7 +291,7 @@ void MidBassAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce
         eq.processSample (l, r);
         trans.processSample (l, r);
         fx.processSample (l, r);
-        outL[i] = l; outR[i] = r;
+        outL[i] = l * masterGain; outR[i] = r * masterGain;
 
         if (vizTapEnabled)
         {
@@ -330,7 +330,18 @@ void MidBassAudioProcessor::setStateInformation (const void* data, int sizeInByt
 {
     if (auto xml = getXmlFromBinary (data, sizeInBytes))
         if (xml->hasTagName (apvts.state.getType()))
+        {
             apvts.replaceState (juce::ValueTree::fromXml (*xml));
+            // Force every parameter's RAW value to match the restored tree.
+            // Discrete params (bool/choice) can hold a fractional raw value that
+            // snaps to the same stored plain value — replaceState then sees "no
+            // change" and never corrects the raw, which pluginval strictness 10
+            // rightly flags as state not restored.
+            for (auto* rp : getParameters())
+                if (auto* p = dynamic_cast<juce::RangedAudioParameter*> (rp))
+                    if (auto* raw = apvts.getRawParameterValue (p->paramID))
+                        p->setValueNotifyingHost (p->convertTo0to1 (raw->load()));
+        }
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()

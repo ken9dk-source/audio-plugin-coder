@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     APC Master Builder with Enhanced Error Detection and Testing
 #>
@@ -48,7 +48,10 @@ if ($state.current_phase -ne "code_complete" -and -not $SkipTests) {
 # 1. Configure with error monitoring
 Write-Host "Configuring build..." -ForegroundColor Yellow
 $visageFlag = if ($UseVisage) { "-DAPC_ENABLE_VISAGE:BOOL=ON" } else { "" }
-$configureCommand = "cmake -S `"$RootPath`" -B `"$BuildDir`" -G `"Visual Studio 17 2022`" -A x64 --fresh $visageFlag"
+# APC_BUILD_TESTS stays ON so a --fresh reconfigure does not silently drop the
+# Catch2/snapshot targets from the build tree (MidBass Phase 9 mandatory fix:
+# a later test run would otherwise execute a STALE binary and pass on old code).
+$configureCommand = "cmake -S `"$RootPath`" -B `"$BuildDir`" -G `"Visual Studio 17 2022`" -A x64 --fresh -DAPC_BUILD_TESTS=ON $visageFlag"
 $configResult = Invoke-MonitoredCommand -Command $configureCommand -ShowOutput -ThrowOnError
 
 if ($configResult.Errors.Count -gt 0) {

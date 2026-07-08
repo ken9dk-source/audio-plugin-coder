@@ -216,7 +216,7 @@ public:
         g.fillRoundedRectangle (r, 6.0f);
 
         auto xOf = [&r] (double hz) { return r.getX() + (float) (std::log (hz / 20.0) / std::log (1000.0)) * r.getWidth(); };
-        g.setColour (juce::Colour (MbLookAndFeel::kOrange).withAlpha (0.10f));       // mid-bass home
+        g.setColour (juce::Colour (MbLookAndFeel::kTeal).withAlpha (0.10f));         // mid-bass home (teal per spec, 8b review)
         g.fillRect (juce::Rectangle<float> (xOf (100.0), r.getY(), xOf (900.0) - xOf (100.0), r.getHeight()));
         g.setColour (juce::Colour (0xff26282c));
         for (double hz : { 100.0, 1000.0, 10000.0 })

@@ -459,8 +459,10 @@ struct MbFxChain
     inline void runOne (Fx& fxUnit, bool on, float& r, float& L, float& R)
     {
         if (rampsDisabledForTest) { if (on) fxUnit.processSample (L, R); return; }
+        if (on && r >= 1.0f) { fxUnit.processSample (L, R); return; }   // steady engaged: no mix math
         if (on && r <= 0.0f) fxUnit.reset();                 // fresh engage = clean state
         r += ((on ? 1.0f : 0.0f) - r) * rampCoef;
+        if (on && r > 0.9995f) r = 1.0f;                     // snap: the crossfade exists only in transitions
         if (! on && r < 1.0e-4f) { r = 0.0f; return; }       // fully bypassed: untouched
         float l = L, rr = R;
         fxUnit.processSample (l, rr);

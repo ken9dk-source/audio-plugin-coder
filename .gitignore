@@ -55,3 +55,7 @@ cloudwash_crash_log.txt
 # Backups
 _backups/
 dist/
+
+# MidBass audition renders (Phase 9, listened-to locally, never committed)
+plugins/MidBass/Renders/
+

@@ -80,6 +80,7 @@ private:
     mb::MbFxChain fx;                        // Chorus→Phaser→Flanger→Delay→Reverb→Comp
     juce::Array<int> heldNotes;              // mono note stack (last-note priority)
     double curBpm = 120.0;                   // last seen host tempo
+    float masterGain = 1.0f;                 // OUTPUT param, applied POST-chain
     int curProgram = 0;
     float macroSmooth[mb::Macro::Count] = {};  // ~45 ms macro slew (zipper standard)
     float macroSatDrive = 0, macroSatMix = 0, macroTransAtk = 0, macroChoMix = 0;

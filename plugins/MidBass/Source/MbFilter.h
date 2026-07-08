@@ -85,10 +85,29 @@ struct MbSvfCore
         satL = 1.0f / std::sqrt (3.0f * satC);
     }
 
+    // Phase 9: per-sample tan() replaced by a 4096-entry LUT over w = fc/sr with
+    // linear interpolation (max relative error < 1e-3 across the audio band —
+    // far inside every response-tolerance gate). Built once, thread-safe.
+    static float tanLut (double w)                 // w in [0, 0.49]
+    {
+        static const auto table = []
+        {
+            std::array<float, 4098> t {};
+            for (int i = 0; i < 4098; ++i)
+                t[(size_t) i] = (float) std::tan (3.14159265358979323846
+                                                  * std::min (0.49, (double) i * (0.49 / 4096.0)));
+            return t;
+        }();
+        const double x = std::clamp (w, 0.0, 0.49) * (4096.0 / 0.49);
+        const int i = (int) x;
+        const float f = (float) (x - i);
+        return table[(size_t) i] + f * (table[(size_t) i + 1] - table[(size_t) i]);
+    }
+
     void set (double fcHz, float reso01)
     {
         const double fc = std::clamp (fcHz, 20.0, sr * 0.49);
-        g  = (float) std::tan (3.14159265358979323846 * fc / sr);
+        g  = tanLut (fc / sr);
         k  = 2.0f * (1.0f - std::clamp (reso01, 0.0f, 1.0f) * 0.985f);
         a1 = 1.0f / (1.0f + g * (g + k));
         a2 = g * a1;
@@ -175,12 +194,14 @@ struct MbFilter
     // THE one cutoff law (approval condition): every engine receives Hz from here,
     // so keytrack and filter-env scaling are engine-independent by construction.
     // note 60 (C4) is the keytrack pivot. Returns unclamped Hz; process() clamps.
+    // extraOctaves folds any additional octave-domain modulation (matrix/LFO sum)
+    // into the SAME single pow() — one law, one transcendental per sample.
     static double modulatedCutoff (double baseHz, int midiNote, float keytrack01,
-                                   float envAmount, float envValue)
+                                   float envAmount, float envValue, double extraOctaves = 0.0)
     {
         const double kt  = (double) keytrack01 * (double) (midiNote - 60) / 12.0;
         const double env = (double) envAmount * (double) envValue * kEnvOctaves;
-        return baseHz * std::pow (2.0, kt + env);
+        return baseHz * std::pow (2.0, kt + env + extraOctaves);
     }
 
     inline float engineOut (int m, float x, double fc, float svfBp, float svfHp)

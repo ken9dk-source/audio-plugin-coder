@@ -1,7 +1,7 @@
 {
   "plugin_name": "MidBass",
   "version": "v0.0.0",
-  "current_phase": "code_phase8_complete",
+  "current_phase": "code_complete",
   "ui_framework": "native",
   "complexity_score": 9,
   "created_at": "2026-07-07T00:00:00Z",
@@ -72,6 +72,12 @@
       "completed_at": "2026-07-07T00:00:00Z",
       "framework_selected": "native",
       "notes": "Phase 8b: rack LookAndFeel (alu knobs, orange value arcs/LEDs, teal sweet-spot arcs DATA-TIED to kSweetSpots: 10/10 asserted), MbAnalyzer (lock-free ring, 30 Hz message-thread FFT, log 20-20k, 100-900 highlight), stepped scaling 100/125/150% (content transform, persisted guiScale, snapshots at all 3), keyboard styling. 8a markup incorporated (hero filter 52w, matrix +60px, analyzer 46w, macro row 124h). Audio-thread: FIFO tap = 1 store/sample + 1 atomic/block; measured same-batch: FIFO 0.146%, crossfades 0.235%; median 6.68% (cross-session variance finding recorded in ROADMAP: same-batch A/B only). 131/131 attachments; lifecycle 3x clean. 67 cases green; pluginval PASSED. AWAITING 8b aesthetic approval."
+    },
+    {
+      "phase": "code_complete",
+      "completed_at": "2026-07-08T00:00:00Z",
+      "framework_selected": "native",
+      "notes": "Phase 9: CPU gate PASSED 43.2% same-batch reduction vs frozen Phase 8 ref (6.568 -> 3.733 median; gate >=40%) via TRUE polyphase half-band OS (2x contiguous 64-tap dots vs 4x branchy gathers), pow-merge into the single cutoff law, silent-osc skip, crossfade snap; absolute sanity 3.75% (median-of-5, warm session, idle background, AC). pluginval strictness 10 SUCCESS after fixing APVTS discrete-param raw/tree desync in setStateInformation. Denormal sweep + state stress tests (69 cases). build-and-install keeps APC_BUILD_TESTS; run-tests staleness guard. OUTPUT moved POST-chain (pre-sat trims get re-normalized away); presets gain-staged to 0.81-0.86 peak. 10 audition WAVs in plugins/MidBass/Renders/ for ear sign-off. Teal analyzer band (8b markup)."
     }
   ],
   "validation": {
@@ -80,7 +86,7 @@
     "architecture_defined": true,
     "ui_framework_selected": true,
     "design_complete": true,
-    "code_complete": false,
+    "code_complete": true,
     "tests_passed": true,
     "ship_ready": false
   },

@@ -547,6 +547,64 @@ TEST_CASE ("fx: compressor static curve, timing, and zipper")   // condition g
     }
 }
 
+TEST_CASE ("fx: cpu_profile — per-component decomposition", "[.cpuprofile]")   // hidden; Phase 9 tool
+{
+    auto measureCfg = [] (const char* label, std::function<void (MidBassAudioProcessor&)> cfg)
+    {
+        MidBassAudioProcessor proc;
+        proc.setPlayConfigDetails (0, 2, 44100.0, 512);
+        proc.prepareToPlay (44100.0, 512);
+        auto set = [&proc] (const char* id, float plain)
+        {
+            auto* par = proc.apvts.getParameter (id);
+            par->setValueNotifyingHost (par->convertTo0to1 (plain));
+        };
+        set (mb::pid::uni_voices, 8.0f);
+        set (mb::pid::uni_detune, 50.0f);
+        set (mb::pid::sat_drive, 60.0f);
+        set (mb::pid::trans_attack, 50.0f);
+        for (const char* id : { mb::pid::fx_cho_on, mb::pid::fx_pha_on, mb::pid::fx_fla_on,
+                                mb::pid::fx_dly_on, mb::pid::fx_rev_on, mb::pid::fx_cmp_on })
+            set (id, 1.0f);
+        cfg (proc);
+
+        juce::AudioBuffer<float> buf (2, 512);
+        juce::MidiBuffer midi;
+        midi.addEvent (juce::MidiMessage::noteOn (1, 45, (juce::uint8) 100), 0);
+        proc.processBlock (buf, midi); midi.clear();
+        double r[5];
+        for (auto& v : r)
+        {
+            const int blocks = (int) (1.0 * 44100.0 / 512.0);
+            const auto t0 = std::chrono::steady_clock::now();
+            for (int b = 0; b < blocks; ++b) proc.processBlock (buf, midi);
+            const auto t1 = std::chrono::steady_clock::now();
+            v = 100.0 * std::chrono::duration<double> (t1 - t0).count() / (blocks * 512.0 / 44100.0);
+        }
+        std::sort (r, r + 5);
+        WARN (label << ": " << r[2] << "% (min " << r[0] << ")");
+    };
+
+    auto set2 = [] (MidBassAudioProcessor& proc, const char* id, float plain)
+    {
+        auto* par = proc.apvts.getParameter (id);
+        par->setValueNotifyingHost (par->convertTo0to1 (plain));
+    };
+    measureCfg ("full (reference)", [] (MidBassAudioProcessor&) {});
+    measureCfg ("fx all OFF", [&set2] (MidBassAudioProcessor& p) {
+        for (const char* id : { mb::pid::fx_cho_on, mb::pid::fx_pha_on, mb::pid::fx_fla_on,
+                                mb::pid::fx_dly_on, mb::pid::fx_rev_on, mb::pid::fx_cmp_on })
+            set2 (p, id, 0.0f); });
+    measureCfg ("sat drive 0 (OS off)", [&set2] (MidBassAudioProcessor& p) { set2 (p, mb::pid::sat_drive, 0.0f); });
+    measureCfg ("unison 1", [&set2] (MidBassAudioProcessor& p) { set2 (p, mb::pid::uni_voices, 1.0f); });
+    measureCfg ("transient off", [&set2] (MidBassAudioProcessor& p) { set2 (p, mb::pid::trans_attack, 0.0f); });
+    measureCfg ("no note (idle chain)", [] (MidBassAudioProcessor& p) {
+        juce::MidiBuffer m2;
+        m2.addEvent (juce::MidiMessage::noteOff (1, 45), 0);
+        juce::AudioBuffer<float> b2 (2, 512);
+        for (int i = 0; i < 200; ++i) { b2.clear(); p.processBlock (b2, m2); m2.clear(); } });
+}
+
 TEST_CASE ("fx: CPU spot check — full chain + 8-voice unison vs the 5% target")   // condition h
 {
     MidBassAudioProcessor proc;

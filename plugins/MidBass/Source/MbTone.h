@@ -33,6 +33,8 @@ struct HalfBandFir
 {
     std::vector<float> h;
     std::vector<float> z;
+    std::vector<int>   nzOff;      // offsets of NONZERO taps (Phase 9: polyphase — a
+    std::vector<float> nzCoef;     // half-band has zeros at every even offset but centre)
     int pos = 0;
 
     static double besselI0 (double x)
@@ -65,6 +67,9 @@ struct HalfBandFir
             h[(size_t) n] = (float) (v * w);
         }
         z.assign ((size_t) numTaps, 0.0f);
+        nzOff.clear(); nzCoef.clear();
+        for (int n = 0; n < numTaps; ++n)          // ~half the taps are exactly zero
+            if (h[(size_t) n] != 0.0f) { nzOff.push_back (n); nzCoef.push_back (h[(size_t) n]); }
         pos = 0;
     }
 
@@ -72,14 +77,14 @@ struct HalfBandFir
 
     inline float process (float x)
     {
-        z[(size_t) pos] = x;
         const int n = (int) h.size();
+        z[(size_t) pos] = x;
         float acc = 0.0f;
-        int idx = pos;
-        for (int t = 0; t < n; ++t)
-        {
-            acc += h[(size_t) t] * z[(size_t) idx];
-            idx = (idx == 0) ? n - 1 : idx - 1;
+        for (size_t t = 0; t < nzOff.size(); ++t)  // 65 MACs instead of 127 (identical sum:
+        {                                          //  the skipped terms were exact zeros)
+            int idx = pos - nzOff[t];
+            if (idx < 0) idx += n;
+            acc += nzCoef[t] * z[(size_t) idx];
         }
         pos = (pos + 1 == n) ? 0 : pos + 1;
         return acc;
@@ -96,21 +101,50 @@ struct MbSaturator
     static constexpr int kTaps    = 127;
     static constexpr int kLatency = (kTaps - 1) / 2;      // 63 samples @ base rate
 
+    // TRUE POLYPHASE half-band (Phase 9): with h zero at every odd offset except
+    // the centre (0.5 @ M=63), the 2x up/down pair collapses to, per base-rate
+    // sample and channel, TWO contiguous 64-tap dot products plus two delayed
+    // taps — measured against the gathered-ring form this was the single largest
+    // cost in the plugin (1.68 % of 4.58 %). Latency stays exactly kLatency:
+    //   up:   y[2t] = 2·Σ c_j·x[t−j]        y[2t+1] = x[t−31]
+    //   down: y[t]  = Σ c_j·wE[t−j] + 0.5·wO[t−32]
+    // Double-written rings keep the dot windows contiguous (vectorizable).
     struct Channel
     {
-        HalfBandFir up, down;
-        std::vector<float> dry;                            // 47-sample dry delay
-        int dryPos = 0;
+        static constexpr int kHalf = (kTaps + 1) / 2;      // 64 nonzero even taps
+        float cRev[kHalf];                                 // reversed even-phase coefficients
+        float xh[kHalf * 2] = {}, we[kHalf * 2] = {};      // double-written histories
+        float wo[40] = {};                                 // odd-phase down delay (needs 33)
+        int   idx = 0, woPos = 0;
+        std::vector<float> dry;                            // kLatency dry delay
+        int   dryPos = 0;
         float dcX = 0.0f, dcY = 0.0f;                      // wet-path DC blocker state
 
         void prepare()
         {
-            up.design (kTaps, 8.0);
-            down.design (kTaps, 8.0);
+            HalfBandFir proto;
+            proto.design (kTaps, 8.0);                     // same Kaiser design as validated
+            for (int j = 0; j < kHalf; ++j)
+                cRev[kHalf - 1 - j] = proto.h[(size_t) (2 * j)];
+            reset();
             dry.assign ((size_t) kLatency, 0.0f);
-            dryPos = 0; dcX = dcY = 0.0f;
+            dryPos = 0;
         }
-        void reset() { up.reset(); down.reset(); std::fill (dry.begin(), dry.end(), 0.0f); dryPos = 0; dcX = dcY = 0.0f; }
+        void reset()
+        {
+            std::fill (std::begin (xh), std::end (xh), 0.0f);
+            std::fill (std::begin (we), std::end (we), 0.0f);
+            std::fill (std::begin (wo), std::end (wo), 0.0f);
+            std::fill (dry.begin(), dry.end(), 0.0f);
+            idx = 0; woPos = 0; dryPos = 0; dcX = dcY = 0.0f;
+        }
+
+        static inline float dot64 (const float* a, const float* b)
+        {
+            float acc = 0.0f;
+            for (int i = 0; i < kHalf; ++i) acc += a[i] * b[i];
+            return acc;
+        }
     };
 
     Channel ch[2];
@@ -184,9 +218,13 @@ struct MbSaturator
 
             if (wetRamp == 0.0f) { out[c] = delayed; continue; }   // dry-only, still latency-aligned
 
-            // up (zero-stuff x2, gain 2) → shape at 2fs → down (decimate even phase)
-            float a = cc.up.process (2.0f * in[c]);
-            float b = cc.up.process (0.0f);
+            // polyphase up: even = 64-tap dot (gain 2 folded into the dot input),
+            // odd = the centre-tap passthrough x[t-31] (free from the window)
+            cc.xh[cc.idx] = cc.xh[cc.idx + Channel::kHalf] = 2.0f * in[c];
+            const float* xwin = cc.xh + cc.idx + 1;                 // x[t-63..t]
+            float a = Channel::dot64 (cc.cRev, xwin);               // y[2t]
+            float b = 0.5f * xwin[Channel::kHalf - 1 - 31];         // y[2t+1] = x[t-31] (2x·0.5)
+
             if (drive > 1.0e-4f)
             {
                 a = shape (a * gain);
@@ -201,8 +239,15 @@ struct MbSaturator
                     cc.dcX = b; cc.dcY = yb; b = yb;
                 }
             }
-            const float wet = cc.down.process (a);
-            cc.down.process (b);
+
+            // polyphase down: even-phase dot + delayed odd-phase centre tap
+            cc.we[cc.idx] = cc.we[cc.idx + Channel::kHalf] = a;
+            const float wet = Channel::dot64 (cc.cRev, cc.we + cc.idx + 1)
+                            + 0.5f * cc.wo[(cc.woPos - 32 + 40) % 40];
+            cc.wo[cc.woPos] = b;
+            cc.woPos = (cc.woPos + 1) % 40;
+            cc.idx = (cc.idx + 1) & (Channel::kHalf - 1);
+
             out[c] = delayed + (wet - delayed) * (mix * wetRamp);
         }
         L = out[0]; R = out[1];

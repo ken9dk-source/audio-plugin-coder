@@ -20,6 +20,7 @@ target_sources(MidBass_Tests PRIVATE
     test_tone.cpp
     test_fx.cpp
     test_macros.cpp
+    test_integration.cpp
     ../Source/PluginProcessor.cpp)
 
 # MidBass Source FIRST so its ParameterIDs.hpp wins over TranceAcid's.
@@ -57,6 +58,19 @@ list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
 include(CTest)
 include(Catch)
 catch_discover_tests(MidBass_Tests)
+
+# Phase 9 audition renderer: all 10 factory presets to WAV (ear sign-off).
+juce_add_console_app(MidBass_Render PRODUCT_NAME "MidBass_Render")
+target_sources(MidBass_Render PRIVATE render_main.cpp ../Source/PluginProcessor.cpp)
+target_include_directories(MidBass_Render PRIVATE
+    ../Source ../../VAZClone/Source ../../TranceAcid/Source ../../TranceEQ/Source
+    ../../VAZChorus/Source ../../VAZPhaser/Source ../../VAZDelay/Source ../../VAZReverb/Source)
+target_compile_definitions(MidBass_Render PRIVATE
+    MIDBASS_HEADLESS=1 JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_MODAL_LOOPS_PERMITTED=0 _USE_MATH_DEFINES=1)
+target_link_libraries(MidBass_Render PRIVATE
+    juce::juce_audio_basics juce::juce_audio_formats juce::juce_audio_processors
+    juce::juce_core juce::juce_data_structures juce::juce_dsp juce::juce_events
+    juce::juce_graphics juce::juce_gui_basics juce::juce_recommended_config_flags)
 
 # Offscreen GUI snapshot / lifecycle tool (Phase 8) — compiles the REAL editor
 # (no MIDBASS_HEADLESS), renders the panel to PNG for layout review.

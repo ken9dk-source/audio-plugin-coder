@@ -237,6 +237,12 @@ struct OscEngine
                 if (cfg.osc[i].wave == OscWave::Pulse)
                     vs[i] = std::clamp (((double) cfg.osc[i].pw + (double) pwMod - 0.05) / 0.9, 0.0, 1.0);
 
+        // Phase 9: an oscillator with level 0 and NO routing duty (sync/FM/ring
+        // need osc2; nothing needs osc3) contributes exactly 0 — skip it. Output
+        // is identical under any static config; only the idle phase differs.
+        const bool need2 = l2 != 0.0f || cfg.sync || fmAmt > 0.0f || ringAmt > 0.0f;
+        const bool need3 = l3 != 0.0f;
+
         float outL = 0.0f, outR = 0.0f, monoSum = 0.0f;
         for (int i = 0; i < n; ++i)
         {
@@ -244,8 +250,8 @@ struct OscEngine
             const double fd = detuneMul[i];
 
             // osc2 first: it is the sync master and the FM/ring modulator.
-            const double ph2 = cp.o2.phase[0];                       // this sample's phase (next() advances it)
-            const float v2 = (float) cp.o2.next (f2 * fd, vazWave[1], vs[1]);
+            const double ph2 = need2 ? cp.o2.phase[0] : 0.0;         // this sample's phase (next() advances it)
+            const float v2 = need2 ? (float) cp.o2.next (f2 * fd, vazWave[1], vs[1]) : 0.0f;
             if (cfg.sync && cp.o2.mainWrapped)
                 cp.o1.hardReset();
 
@@ -259,7 +265,7 @@ struct OscEngine
             }
             const double ph1 = cp.o1.phase[0];                       // after any sync reset, before advance
             const float v1 = (float) cp.o1.next (f1eff, vazWave[0], vs[0]);
-            const float v3 = (float) cp.o3.next (f3 * fd, vazWave[2], vs[2]);
+            const float v3 = need3 ? (float) cp.o3.next (f3 * fd, vazWave[2], vs[2]) : 0.0f;
 
             float m = v1 * l1 + v2 * l2 + v3 * l3;
             if (ringAmt > 0.0f)

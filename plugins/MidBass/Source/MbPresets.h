@@ -21,6 +21,7 @@ namespace pid = mb::pid;
 // Classic Juno — the 80s-polysynth mid-bass: saw + square sub, mild LP24,
 // slow chorus, mono. The "warm classic uplifting" starting point.
 inline constexpr PresetValue kClassicJuno[] = {
+    { pid::output, -1.5f },   // gain discipline: pattern-render peak ~0.85
     { pid::sub_on, 1 }, { pid::sub_wave, 2 }, { pid::sub_level, 45 },
     { pid::flt_cutoff, 520 }, { pid::flt_reso, 15 }, { pid::flt_env_amt, 45 },
     { pid::fenv_d, 140 }, { pid::aenv_r, 25 },
@@ -30,6 +31,7 @@ inline constexpr PresetValue kClassicJuno[] = {
 // Choose&F — driven, forward off-beat bass: detuned saw pair, hot pre-drive,
 // short pluck decay. The "hard uplifting 2006" starting point.
 inline constexpr PresetValue kChooseF[] = {
+    { pid::output, -4.5f },   // gain discipline: pattern-render peak ~0.85
     { pid::osc2_level, 80 }, { pid::osc2_fine, 8 }, { pid::osc1_fine, -8 },
     { pid::flt_cutoff, 340 }, { pid::flt_reso, 22 }, { pid::flt_env_amt, 55 },
     { pid::flt_drive_pre, 30 }, { pid::fenv_d, 95 },
@@ -39,6 +41,7 @@ inline constexpr PresetValue kChooseF[] = {
 // Tukan — brighter, hollow pulse flavour: pulse + saw, higher cutoff, a bit of
 // resonance. The "melodic Dutch trance" starting point.
 inline constexpr PresetValue kTukan[] = {
+    { pid::output, -3.5f },   // gain discipline: pattern-render peak ~0.85
     { pid::osc1_wave, 1 }, { pid::osc1_pw, 38 }, { pid::osc2_level, 60 },
     { pid::flt_cutoff, 880 }, { pid::flt_reso, 30 }, { pid::flt_env_amt, 40 },
     { pid::fenv_d, 120 }, { pid::eq_mid_gain, 2.5f },
@@ -47,6 +50,7 @@ inline constexpr PresetValue kTukan[] = {
 // ATN — tight and aggressive: diode saturation, post-drive, very short decay.
 // The "hard trance stab-bass" starting point.
 inline constexpr PresetValue kATN[] = {
+    { pid::output, -7.5f },   // gain discipline: pattern-render peak ~0.85
     { pid::flt_cutoff, 300 }, { pid::flt_reso, 18 }, { pid::flt_env_amt, 60 },
     { pid::flt_drive_post, 35 }, { pid::fenv_d, 70 }, { pid::fenv_a, 0.05f },
     { pid::sat_type, 2 }, { pid::sat_drive, 30 }, { pid::sat_mix, 80 },
@@ -55,6 +59,7 @@ inline constexpr PresetValue kATN[] = {
 // Kandi — soft and warm: tube density, gentle EQ tilt, slower envelope.
 // The "euphoric mid-tempo" starting point.
 inline constexpr PresetValue kKandi[] = {
+    { pid::output, -5.0f },   // gain discipline: pattern-render peak ~0.85
     { pid::flt_cutoff, 450 }, { pid::flt_reso, 12 }, { pid::flt_env_amt, 35 },
     { pid::fenv_d, 180 }, { pid::aenv_a, 2.0f },
     { pid::sat_type, 1 }, { pid::sat_drive, 22 }, { pid::sat_mix, 60 },
@@ -64,6 +69,7 @@ inline constexpr PresetValue kKandi[] = {
 // Nitrous — sync growl: osc2 a fifth up as hard-sync master, big filter env.
 // The "aggressive lead-bass" starting point.
 inline constexpr PresetValue kNitrous[] = {
+    { pid::output, -2.0f },   // gain discipline: pattern-render peak ~0.85
     { pid::osc2_level, 0 }, { pid::osc2_semi, 7 }, { pid::osc_sync, 1 },
     { pid::flt_cutoff, 400 }, { pid::flt_reso, 28 }, { pid::flt_env_amt, 65 },
     { pid::fenv_d, 110 }, { pid::flt_drive_pre, 20 },
@@ -73,6 +79,7 @@ inline constexpr PresetValue kNitrous[] = {
 // Pluck — the pure percussive pluck: zero sustain everywhere, fast attack,
 // filter does all the movement. The "off-beat pluck-bass" starting point.
 inline constexpr PresetValue kPluck[] = {
+    { pid::output, -10.0f },   // gain discipline: pattern-render peak ~0.85
     { pid::flt_cutoff, 250 }, { pid::flt_reso, 25 }, { pid::flt_env_amt, 70 },
     { pid::fenv_a, 0.05f }, { pid::fenv_d, 60 }, { pid::fenv_s, 0 },
     { pid::aenv_s, 70 }, { pid::aenv_d, 220 },
@@ -82,6 +89,7 @@ inline constexpr PresetValue kPluck[] = {
 // Bass — deep and plain: sub on, dark filter, no FX. The "layer under a lead"
 // starting point.
 inline constexpr PresetValue kBass[] = {
+    { pid::output, -4.5f },   // gain discipline: pattern-render peak ~0.85
     { pid::sub_on, 1 }, { pid::sub_wave, 0 }, { pid::sub_level, 60 },
     { pid::flt_cutoff, 330 }, { pid::flt_reso, 8 }, { pid::flt_env_amt, 30 },
     { pid::fenv_d, 130 }, { pid::eq_ls_gain, 2.0f },
@@ -89,6 +97,7 @@ inline constexpr PresetValue kBass[] = {
 // Wide — stereo ensemble: 6-voice unison, spread open (mono-unison OFF),
 // chorus. The "breakdown/FX-section" starting point (NOT for the mono drop).
 inline constexpr PresetValue kWide[] = {
+    { pid::output, -3.5f },   // gain discipline: pattern-render peak ~0.85
     { pid::uni_voices, 6 }, { pid::uni_detune, 30 }, { pid::uni_spread, 80 },
     { pid::uni_mono, 0 },
     { pid::flt_cutoff, 600 }, { pid::flt_env_amt, 40 }, { pid::fenv_d, 150 },
@@ -98,6 +107,7 @@ inline constexpr PresetValue kWide[] = {
 // Mono — the drop workhorse: 4-voice mono-unison (detune beats, zero width),
 // tight decay. The "mainroom mono mid-bass" starting point.
 inline constexpr PresetValue kMono[] = {
+    { pid::output, -1.5f },   // gain discipline: pattern-render peak ~0.85
     { pid::uni_voices, 4 }, { pid::uni_detune, 25 }, { pid::uni_mono, 1 },
     { pid::flt_cutoff, 380 }, { pid::flt_reso, 20 }, { pid::flt_env_amt, 50 },
     { pid::fenv_d, 100 }, { pid::flt_drive_pre, 15 },

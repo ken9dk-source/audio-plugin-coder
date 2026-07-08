@@ -50,7 +50,10 @@ struct MbVoice
         float drivePre = 0.0f, drivePost = 0.0f;
         float fA = 0.1f, fD = 120.0f, fS = 0.0f,   fR = 50.0f;   // ms/%
         float aA = 0.5f, aD = 300.0f, aS = 100.0f, aR = 10.0f;
-        float outGain = 1.0f;
+        // NOTE: the OUTPUT parameter is a POST-CHAIN master in the processor, not
+        // a voice gain — a pre-saturation trim gets re-normalized away by the
+        // self-limiting stages and cannot set the instrument's final level
+        // (Phase 9 finding while gain-staging the factory presets).
         int   bendRange = 2;
 
         // ---- modulation (Phase 4) ----
@@ -257,13 +260,12 @@ struct MbVoice
         const double modOct = std::clamp ((double) dst[ModDst::Cutoff] * MbFilter::kEnvOctaves,
                                           -kModCutoffClamp, kModCutoffClamp);
         double fc = MbFilter::modulatedCutoff ((double) p.cutoffHz, curNote < 0 ? 60 : curNote,
-                                               p.keytrack, p.envAmt, fe)
-                    * std::pow (2.0, modOct);
+                                               p.keytrack, p.envAmt, fe, modOct);
         fc = std::clamp (fc, 20.0, sr * 0.45);                 // same pin the filter applies
         lastFc = fc;
 
         const float ampMul = std::clamp (1.0f + dst[ModDst::Amp], 0.0f, 2.0f);
-        const float ae = ampEnv.process() * p.outGain * ampMul;
+        const float ae = ampEnv.process() * ampMul;
         L = fltL.process (oL, fc) * ae;
         R = fltR.process (oR, fc) * ae;
     }

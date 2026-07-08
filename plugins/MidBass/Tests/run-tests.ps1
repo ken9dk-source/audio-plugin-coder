@@ -21,6 +21,20 @@ if ($LASTEXITCODE -ne 0) { throw "Build failed" }
 $exe = Join-Path $Build "plugins\MidBass\Tests\MidBass_Tests_artefacts\Release\MidBass_Tests.exe"
 if (-not (Test-Path $exe)) { throw "Test executable not found: $exe" }
 
+# STALENESS GUARD (Phase 9 mandatory): a test binary older than any MidBass
+# source (or the reused DSP headers) must FAIL LOUDLY, never pass stale.
+$exeTime = (Get-Item $exe).LastWriteTimeUtc
+$srcDirs = @("plugins\MidBass\Source", "plugins\MidBass\Tests",
+             "plugins\VAZClone\Source", "plugins\TranceAcid\Source", "plugins\TranceEQ\Source",
+             "plugins\VAZChorus\Source", "plugins\VAZPhaser\Source", "plugins\VAZDelay\Source",
+             "plugins\VAZReverb\Source")
+$newest = $srcDirs | ForEach-Object {
+    Get-ChildItem -Path (Join-Path $Root $_) -Recurse -Include *.cpp, *.h, *.hpp -ErrorAction SilentlyContinue
+} | Where-Object { $_.Name -notlike "snapshot_main*" } | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+if ($newest -and $newest.LastWriteTimeUtc -gt $exeTime) {
+    throw "STALE TEST BINARY: $($newest.FullName) is newer than the test exe ($($newest.LastWriteTimeUtc) > $exeTime). The build silently skipped it - reconfigure/rebuild before trusting results."
+}
+
 Write-Host "== Run $exe ==" -ForegroundColor Cyan
 & $exe @CatchArgs
 $rc = $LASTEXITCODE
