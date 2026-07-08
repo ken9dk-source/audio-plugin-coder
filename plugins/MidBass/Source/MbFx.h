@@ -44,6 +44,14 @@ inline constexpr double kQ23 = 8388608.0;      // VAZ fixed-point full scale
 // EXACTLY, so routing only the hp band through a modulated effect leaves the
 // low end bit-perfect and mono-proof while the effect works above the corner.
 // out = lp + effect(hp): the effect's internal dry/wet applies to hp only.
+//
+// INTENTIONAL CHARACTER DECISION (approved 2026-07-07): MidBass's modulated FX
+// deliberately DIVERGE from the raw VAZ engines below 250 Hz — a mid-bass
+// instrument that will be mono-summed constantly must keep its fundamentals
+// unmodulated. The parity flags (bassSafe=false) restore original VAZ
+// behavior; do not "fix" the split away without re-running the mono-
+// compatibility gates in test_fx.cpp. This corner is also the SINGLE authority
+// for the Width macro's low-frequency mono rule (see MbMacros.h).
 struct BassSplit
 {
     static constexpr double kCornerHz = 250.0;
@@ -141,8 +149,18 @@ struct MbPhaser
                      inc);
     }
 
+    // Same cleanup story as delay/reverb: the integer allpass FEEDBACK sustains
+    // a multi-LSB limit cycle (measured ~42 LSB ≈ -106 dBFS) that would keep
+    // every downstream silence gate from engaging. dcBlock flag = parity off.
+    bool  dcBlock = true;
+    float dcxL = 0, dcyL = 0, dcxR = 0, dcyR = 0, dcK = 0.9993f;
+    int   quiet = 0;
+
     inline void processSample (float& L, float& R)
     {
+        const bool inSilent = std::abs (L) + std::abs (R) < 1.0e-9f;
+        quiet = inSilent ? quiet + 1 : 0;
+
         float lowL = 0.0f, lowR = 0.0f;
         if (bassSafe) bass.split (L, R, lowL, lowR);
         int32_t li = (int32_t) std::llround ((double) L * kQ23);
@@ -150,6 +168,15 @@ struct MbPhaser
         e.processFrame (li, ri);
         L = lowL + (float) ((double) li / kQ23);
         R = lowR + (float) ((double) ri / kQ23);
+        if (dcBlock)
+        {
+            float y = L - dcxL + dcK * dcyL; if (std::abs (y) < 1.0e-20f) y = 0.0f;
+            dcxL = L; dcyL = y; L = y;
+            y = R - dcxR + dcK * dcyR; if (std::abs (y) < 1.0e-20f) y = 0.0f;
+            dcxR = R; dcyR = y; R = y;
+            if (quiet > (int) sr && std::abs (L) < 1.0e-6f && std::abs (R) < 1.0e-6f)
+                L = R = 0.0f;
+        }
     }
 };
 
@@ -404,25 +431,49 @@ struct MbFxChain
     bool onChorus = false, onPhaser = false, onFlanger = false,
          onDelay = false, onReverb = false, onComp = false;
 
+    // ENGAGE/DISENGAGE crossfade (~30 ms) per effect: switching a cold effect
+    // straight into the path steps its (empty-buffer) output into the mix — an
+    // audible click found by the Phase 7 Width-macro sweep gate, and equally
+    // reachable by any user bypass toggle. A fully-off effect (ramp 0) is not
+    // called at all → bypass stays bit-exact; a fresh engage resets the effect
+    // first. Parity tests call the wrappers directly and never see this.
+    float ramp[6] = {};
+    float rampCoef = 0.0008f;
+
     void prepare (double sr)
     {
         chorus.prepare (sr); phaser.prepare (sr); flanger.prepare (sr);
         delay.prepare (sr);  reverb.prepare (sr); comp.prepare (sr);
+        rampCoef = 1.0f - (float) std::exp (-1.0 / (0.030 * (sr > 0.0 ? sr : 44100.0)));
+        for (float& r : ramp) r = 0.0f;
     }
     void reset()
     {
         chorus.reset(); phaser.reset(); flanger.reset();
         delay.reset(); reverb.reset(); comp.reset();
+        for (float& r : ramp) r = 0.0f;
+    }
+
+    template <typename Fx>
+    inline void runOne (Fx& fxUnit, bool on, float& r, float& L, float& R)
+    {
+        if (on && r <= 0.0f) fxUnit.reset();                 // fresh engage = clean state
+        r += ((on ? 1.0f : 0.0f) - r) * rampCoef;
+        if (! on && r < 1.0e-4f) { r = 0.0f; return; }       // fully bypassed: untouched
+        float l = L, rr = R;
+        fxUnit.processSample (l, rr);
+        L += (l - L) * r;
+        R += (rr - R) * r;
     }
 
     inline void processSample (float& L, float& R)
     {
-        if (onChorus)  chorus.processSample (L, R);
-        if (onPhaser)  phaser.processSample (L, R);
-        if (onFlanger) flanger.processSample (L, R);
-        if (onDelay)   delay.processSample (L, R);
-        if (onReverb)  reverb.processSample (L, R);
-        if (onComp)    comp.processSample (L, R);
+        runOne (chorus,  onChorus,  ramp[0], L, R);
+        runOne (phaser,  onPhaser,  ramp[1], L, R);
+        runOne (flanger, onFlanger, ramp[2], L, R);
+        runOne (delay,   onDelay,   ramp[3], L, R);
+        runOne (reverb,  onReverb,  ramp[4], L, R);
+        runOne (comp,    onComp,    ramp[5], L, R);
     }
 };
 } // namespace mb

@@ -1,7 +1,7 @@
 {
   "plugin_name": "MidBass",
   "version": "v0.0.0",
-  "current_phase": "code_phase6_complete",
+  "current_phase": "code_phase7_complete",
   "ui_framework": "native",
   "complexity_score": 9,
   "created_at": "2026-07-07T00:00:00Z",
@@ -54,6 +54,12 @@
       "completed_at": "2026-07-07T00:00:00Z",
       "framework_selected": "native",
       "notes": "Phase 6: MbFx.h \u2014 Chorus/Phaser/Delay/Reverb = bit-exact VAZ engines (parity REQUIREd bit-for-bit); Flanger/Comp adapted (lifted loops, parity bit-exact vs reference copies). Bass-safe complementary split (250 Hz) on chorus/phaser/flanger: mono dips -6.4/-4.5/-4.0 -> -2.6/-1.2/-1.7 dB (gate -3). Delay retime = VAZDelay 20 ms tap glide (retimed HF 0.0058 < baseline). Integer-engine DC bias + LSB limit cycles cleaned by wrapper DC blockers + silence gates: chain tail exact 0.0f at 5.85 s (bound 10 s). Comp: curve within 0.48 dB, t63 19.98/149.9 ms, no zipper. Zero added latency (63 total). CPU 8.74% vs 5% target -> Phase 9 optimization debt flagged. 61 cases green 3x; pluginval PASSED."
+    },
+    {
+      "phase": "code_phase7_complete",
+      "completed_at": "2026-07-07T00:00:00Z",
+      "framework_selected": "native",
+      "notes": "Phase 7: MbMacros.h (MacroMap via computeMacroOffsets + orthogonality statement + SweetSpots table) + MbPresets.h (10 factory presets as JUCE programs w/ intent comments) + processor macro block (45 ms slew, single application point, all clamps). Fixed two REAL engage glitches found by the sweep gate: saturator drive-0 wet path now ramps in (2 ms), FX chain got per-effect 30 ms engage/disengage crossfades; phaser integer limit cycle (42 LSB) got the dc-block+silence-gate cleanup (was blocking downstream gates). All 6 macro fast-vs-slow sweeps within gate; 64 corners legal+pinned; sweet spots validated; presets round-trip (values 1.5e-6 + state byte-idempotent), all audible (rms 0.30-0.85), mid-note switches survive. Tail exact zero at 5.06 s. CPU 10.65% (was 8.74) - Phase 9 debt. 67 cases green 3x; pluginval PASSED (exercises programs)."
     }
   ],
   "validation": {

@@ -75,6 +75,7 @@ TEST_CASE ("fx: parity — wrappers are bit-exact against the raw VAZ engines") 
     {
         mb::MbPhaser w;
         w.bassSafe = false;
+        w.dcBlock = false;                      // parity = raw engine path
         w.prepare (kSR);
         w.setParams (0.5f, 0.6f, 0.3f, 0.5f);
 
@@ -344,10 +345,21 @@ TEST_CASE ("fx: tails decay to exact zero under FTZ; finite at extremes")   // c
         if (zeroAt < 0 && l == 0.0f && r == 0.0f) zeroAt = i;
         else if (l != 0.0f || r != 0.0f) zeroAt = -1;       // must STAY zero
     }
-    INFO ("tail reached exact zero at " << (zeroAt / kSR) << " s");
-    CHECK (l == 0.0f);
-    CHECK (r == 0.0f);
-    CHECK (zeroAt >= 0);
+    {
+        float sl[6][2];
+        auto probe = [&] (int idx, auto& fxu) { float a = 0, b = 0; fxu.processSample (a, b); sl[idx][0] = a; sl[idx][1] = b; };
+        probe (0, chain.chorus); probe (1, chain.phaser); probe (2, chain.flanger);
+        probe (3, chain.delay);  probe (4, chain.reverb); probe (5, chain.comp);
+        char diag[256];
+        std::snprintf (diag, sizeof (diag),
+            "final l=%.9e r=%.9e zeroAt=%d | cho %.3e pha %.3e fla %.3e dly %.3e rev %.3e cmp %.3e",
+            (double) l, (double) r, zeroAt, (double) sl[0][0], (double) sl[1][0], (double) sl[2][0],
+            (double) sl[3][0], (double) sl[4][0], (double) sl[5][0]);
+        INFO (diag);
+        CHECK (l == 0.0f);
+        CHECK (r == 0.0f);
+        CHECK (zeroAt >= 0);
+    }
 
     // extremes: everything maxed, hot input → finite
     chain.reset();

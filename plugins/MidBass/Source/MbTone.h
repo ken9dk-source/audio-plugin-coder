@@ -118,12 +118,20 @@ struct MbSaturator
     int     type = SatType::Tape;
     float   drive = 0.0f, mix = 1.0f, gain = 1.0f;
     float   dcCoef = 0.9993f;
+    // Wet-path engagement ramp (~2 ms): the drive-0 bypass may not switch the
+    // OS path in instantly — a cold FIR state stepping into the mix is an
+    // audible glitch (found by the Phase 7 macro-sweep gate when Bite/Warmth
+    // sweep sat_drive through zero). While drive stays exactly 0 the path is
+    // never engaged, so drive-0 transparency remains bit-exact.
+    float   wetRamp = 0.0f, wetRampCoef = 0.011f;
     bool    forceWetForTest = false;                        // OS path w/ unity transfer (null test)
 
     void prepare (double sampleRate)
     {
         sr = sampleRate > 0.0 ? sampleRate : 44100.0;
         dcCoef = (float) std::exp (-2.0 * 3.14159265358979323846 * 5.0 / (sr * 2.0));
+        wetRampCoef = 1.0f - (float) std::exp (-1.0 / (0.002 * sr));
+        wetRamp = 0.0f;
         ch[0].prepare(); ch[1].prepare();
     }
     void reset() { ch[0].reset(); ch[1].reset(); }
@@ -161,6 +169,10 @@ struct MbSaturator
     inline void processSample (float& L, float& R)
     {
         const bool wetOn = forceWetForTest || drive > 1.0e-4f;
+        if (forceWetForTest) wetRamp = 1.0f;                // null test measures the settled path
+        else wetRamp += ((wetOn ? 1.0f : 0.0f) - wetRamp) * wetRampCoef;
+        if (! wetOn && wetRamp < 1.0e-4f) wetRamp = 0.0f;
+
         float in[2] = { L, R };
         float out[2];
         for (int c = 0; c < 2; ++c)
@@ -170,7 +182,7 @@ struct MbSaturator
             cc.dry[(size_t) cc.dryPos] = in[c];
             cc.dryPos = (cc.dryPos + 1 == kLatency) ? 0 : cc.dryPos + 1;
 
-            if (! wetOn) { out[c] = delayed; continue; }    // dry-only, still latency-aligned
+            if (wetRamp == 0.0f) { out[c] = delayed; continue; }   // dry-only, still latency-aligned
 
             // up (zero-stuff x2, gain 2) → shape at 2fs → down (decimate even phase)
             float a = cc.up.process (2.0f * in[c]);
@@ -191,7 +203,7 @@ struct MbSaturator
             }
             const float wet = cc.down.process (a);
             cc.down.process (b);
-            out[c] = delayed + (wet - delayed) * mix;
+            out[c] = delayed + (wet - delayed) * (mix * wetRamp);
         }
         L = out[0]; R = out[1];
     }

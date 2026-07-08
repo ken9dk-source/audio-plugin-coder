@@ -10,6 +10,8 @@
 #include "MbVoice.h"
 #include "MbTone.h"
 #include "MbFx.h"
+#include "MbMacros.h"
+#include "MbPresets.h"
 
 class MidBassAudioProcessor : public juce::AudioProcessor
 {
@@ -31,10 +33,16 @@ public:
     bool isMidiEffect() const override          { return false; }
     double getTailLengthSeconds() const override { return 0.0; }
 
-    int getNumPrograms() override                              { return 1; }
-    int getCurrentProgram() override                           { return 0; }
-    void setCurrentProgram (int) override                      {}
-    const juce::String getProgramName (int) override           { return {}; }
+    // Factory presets as JUCE programs (Phase 7): hosts and the Phase 8 quick
+    // buttons share this one entry point.
+    int getNumPrograms() override                              { return mb::kNumFactoryPresets; }
+    int getCurrentProgram() override                           { return curProgram; }
+    void setCurrentProgram (int index) override;
+    const juce::String getProgramName (int index) override
+    {
+        return juce::isPositiveAndBelow (index, mb::kNumFactoryPresets)
+             ? juce::String (mb::kFactoryPresets[index].name) : juce::String();
+    }
     void changeProgramName (int, const juce::String&) override {}
 
     void getStateInformation (juce::MemoryBlock& destData) override;
@@ -47,10 +55,13 @@ public:
     int    currentNoteForTest() const  { return voice.curNote; }
     bool   voiceActiveForTest() const  { return voice.isActive(); }
     double lfo1HzForTest() const       { return voice.lfo1.curHz; }
+    const mb::MbVoice& voiceForTest() const         { return voice; }
+    const mb::MbSaturator& satForTest() const       { return sat; }
+    const mb::MbTransient& transForTest() const     { return trans; }
 
 private:
     void handleMidiEvent (const juce::MidiMessage& m);
-    void updateVoiceParams();
+    void updateVoiceParams (int blockSamples);
 
     mb::MbVoice voice;
     mb::MbSaturator sat;                     // post-filter, 2x OS, 47-sample latency (reported)
@@ -59,6 +70,10 @@ private:
     mb::MbFxChain fx;                        // Chorus→Phaser→Flanger→Delay→Reverb→Comp
     juce::Array<int> heldNotes;              // mono note stack (last-note priority)
     double curBpm = 120.0;                   // last seen host tempo
+    int curProgram = 0;
+    float macroSmooth[mb::Macro::Count] = {};  // ~45 ms macro slew (zipper standard)
+    float macroSatDrive = 0, macroSatMix = 0, macroTransAtk = 0, macroChoMix = 0;
+    float macroEq[3] = {};
 
     std::atomic<float>* pRaw (const char* id) { return apvts.getRawParameterValue (id); }
 
