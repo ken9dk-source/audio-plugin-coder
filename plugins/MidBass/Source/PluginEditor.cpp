@@ -7,14 +7,32 @@ namespace pid = mb::pid;
 MbSection& MidBassAudioProcessorEditor::section (const juce::String& title, int cols)
 {
     auto* s = sections.add (new MbSection (title, cols));
-    addAndMakeVisible (s);
+    content.addAndMakeVisible (s);
     return *s;
+}
+
+// Condition e (data tie): arc extents are COMPUTED from mb::kSweetSpots and
+// counted; construction asserts every table row landed on exactly one knob.
+void MidBassAudioProcessorEditor::wireSweetSpot (juce::Slider& s, const char* pidStr)
+{
+    for (int i = 0; i < mb::kNumSweetSpots; ++i)
+    {
+        const auto& ss = mb::kSweetSpots[i];
+        if (std::strcmp (ss.paramID, pidStr) != 0) continue;
+        if (auto* rp = proc.apvts.getParameter (pidStr))
+        {
+            s.getProperties().set ("ssLo", (double) rp->convertTo0to1 (ss.lo));
+            s.getProperties().set ("ssHi", (double) rp->convertTo0to1 (ss.hi));
+            ++sweetSpotArcs;
+        }
+    }
 }
 
 MbLabeled* MidBassAudioProcessorEditor::makeKnob (MbSection& sec, const char* pidStr, const juce::String& caption)
 {
     auto sl = std::make_unique<juce::Slider> (juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::NoTextBox);
-    sl->setPopupDisplayEnabled (true, true, this);
+    sl->setPopupDisplayEnabled (true, true, this);          // value readout on touch
+    wireSweetSpot (*sl, pidStr);
     sliderAtts.push_back (std::make_unique<APVTS::SliderAttachment> (proc.apvts, pidStr, *sl));
     auto* lc = labeled.add (new MbLabeled (std::move (sl), caption));
     sec.add (lc);
@@ -50,19 +68,28 @@ int MidBassAudioProcessorEditor::attachedParameterCountForTest() const
 
 //==============================================================================
 MidBassAudioProcessorEditor::MidBassAudioProcessorEditor (MidBassAudioProcessor& p)
-    : AudioProcessorEditor (p), proc (p),
+    : AudioProcessorEditor (p), proc (p), analyzer (p),
       keyboard (p.keyboardState, juce::MidiKeyboardComponent::horizontalKeyboard)
 {
+    setLookAndFeel (&lnf);
+    addAndMakeVisible (content);
+
     logo.setText ("MIDBASS", juce::dontSendNotification);
     logo.setFont (juce::FontOptions (20.0f, juce::Font::bold));
-    logo.setColour (juce::Label::textColourId, juce::Colour (0xffd08a2e));
-    addAndMakeVisible (logo);
+    logo.setColour (juce::Label::textColourId, juce::Colour (MbLookAndFeel::kOrange));
+    content.addAndMakeVisible (logo);
+
+    scaleButton.onClick = [this]
+    {
+        applyScale (uiScale >= 1.45f ? 1.0f : uiScale >= 1.2f ? 1.5f : 1.25f);
+    };
+    content.addAndMakeVisible (scaleButton);
 
     for (int i = 0; i < mb::kNumFactoryPresets; ++i)
     {
         auto* b = presetButtons.add (new juce::TextButton (mb::kFactoryPresets[i].name));
         b->onClick = [this, i] { proc.setCurrentProgram (i); proc.updateHostDisplay(); };
-        addAndMakeVisible (b);
+        content.addAndMakeVisible (b);
     }
 
     // ---- row 1: sound generation ----
@@ -105,9 +132,16 @@ MidBassAudioProcessorEditor::MidBassAudioProcessorEditor (MidBassAudioProcessor&
 
     // ---- row 2: hero — filter + envelopes ----
     {
-        auto& f = section ("FILTER", 4);
+        auto& f = section ("FILTER", 3);
+        {   // HERO: the large cutoff knob owns the left of the section
+            auto sl = std::make_unique<juce::Slider> (juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::NoTextBox);
+            sl->setPopupDisplayEnabled (true, true, this);
+            wireSweetSpot (*sl, pid::flt_cutoff);
+            sliderAtts.push_back (std::make_unique<APVTS::SliderAttachment> (proc.apvts, pid::flt_cutoff, *sl));
+            auto* lc = labeled.add (new MbLabeled (std::move (sl), "CUTOFF"));
+            f.setHero (lc);
+        }
         makeCombo (f, pid::flt_mode, "MODE");
-        makeKnob (f, pid::flt_cutoff, "CUTOFF");        // hero knob: enlarged in resized()
         makeKnob (f, pid::flt_reso, "RESO");
         makeKnob (f, pid::flt_keytrack, "KEYTRK");
         makeKnob (f, pid::flt_env_amt, "ENV AMT");
@@ -149,7 +183,7 @@ MidBassAudioProcessorEditor::MidBassAudioProcessorEditor (MidBassAudioProcessor&
         const char* srcs[6] = { pid::mod1_src, pid::mod2_src, pid::mod3_src, pid::mod4_src, pid::mod5_src, pid::mod6_src };
         const char* dsts[6] = { pid::mod1_dst, pid::mod2_dst, pid::mod3_dst, pid::mod4_dst, pid::mod5_dst, pid::mod6_dst };
         const char* amts[6] = { pid::mod1_amt, pid::mod2_amt, pid::mod3_amt, pid::mod4_amt, pid::mod5_amt, pid::mod6_amt };
-        for (int i = 0; i < 6; ++i)     // 6 columns x 3 rows: src / dst / amount per slot
+        for (int i = 0; i < 6; ++i)
             makeCombo (mm, srcs[i], "SRC " + juce::String (i + 1));
         for (int i = 0; i < 6; ++i)
             makeCombo (mm, dsts[i], "DST " + juce::String (i + 1));
@@ -198,7 +232,7 @@ MidBassAudioProcessorEditor::MidBassAudioProcessorEditor (MidBassAudioProcessor&
     }
 
     // ---- row 6: analyzer + FX strip ----
-    addAndMakeVisible (analyzer);
+    content.addAndMakeVisible (analyzer);
     {
         auto& ch = section ("CHORUS", 2);
         makeToggle (ch, pid::fx_cho_on, "ON");
@@ -243,30 +277,55 @@ MidBassAudioProcessorEditor::MidBassAudioProcessorEditor (MidBassAudioProcessor&
         makeKnob (cp, pid::fx_cmp_gain, "MAKEUP");
     }
 
-    addAndMakeVisible (keyboard);
+    content.addAndMakeVisible (keyboard);
     keyboard.setAvailableRange (24, 72);        // C1..C5 — the mid-bass playground
+    keyboard.setColour (juce::MidiKeyboardComponent::keyDownOverlayColourId,
+                        juce::Colour (MbLookAndFeel::kTeal).withAlpha (0.8f));
+    keyboard.setColour (juce::MidiKeyboardComponent::mouseOverKeyOverlayColourId,
+                        juce::Colour (MbLookAndFeel::kTeal).withAlpha (0.35f));
+    keyboard.setColour (juce::MidiKeyboardComponent::shadowColourId, juce::Colours::black);
 
-    // condition d: every parameter reachable — hard assertion at construction
+    // conditions d + e, hard-asserted at construction
     jassert (attachedParameterCountForTest() == mb::pid::kExpectedParamCount);
+    jassert (sweetSpotArcs == mb::kNumSweetSpots);
 
-    setSize (1400, 980);
+    applyScale ((float) (double) proc.apvts.state.getProperty ("guiScale", 1.0));
 }
 
-MidBassAudioProcessorEditor::~MidBassAudioProcessorEditor() = default;
+MidBassAudioProcessorEditor::~MidBassAudioProcessorEditor()
+{
+    setLookAndFeel (nullptr);
+}
+
+void MidBassAudioProcessorEditor::applyScale (float s)
+{
+    uiScale = (s >= 1.45f) ? 1.5f : (s >= 1.2f) ? 1.25f : 1.0f;      // stepped, never free
+    proc.apvts.state.setProperty ("guiScale", (double) uiScale, nullptr);
+    scaleButton.setButtonText (juce::String ((int) std::lround (uiScale * 100.0f)) + "%");
+    setSize ((int) std::lround (kW * uiScale), (int) std::lround (kH * uiScale));
+}
 
 void MidBassAudioProcessorEditor::paint (juce::Graphics& g)
 {
-    g.fillAll (juce::Colour (0xff17181b));      // rack backdrop (brushed alu comes in 8b)
+    g.fillAll (juce::Colour (MbLookAndFeel::kBg));
 }
 
 void MidBassAudioProcessorEditor::resized()
 {
-    auto b = getLocalBounds().reduced (8);
+    content.setTransform (juce::AffineTransform::scale (uiScale));
+    content.setBounds (0, 0, kW, kH);
+    layoutContent();
+}
+
+void MidBassAudioProcessorEditor::layoutContent()
+{
+    auto b = juce::Rectangle<int> (0, 0, kW, kH).reduced (8);
 
     // header
     auto header = b.removeFromTop (30);
-    logo.setBounds (header.removeFromLeft (130));
-    header.removeFromLeft (8);
+    logo.setBounds (header.removeFromLeft (120));
+    scaleButton.setBounds (header.removeFromRight (54).reduced (2));
+    header.removeFromLeft (6);
     const int bw = header.getWidth() / presetButtons.size();
     for (auto* pb : presetButtons)
         pb->setBounds (header.removeFromLeft (bw).reduced (2, 2));
@@ -287,7 +346,6 @@ void MidBassAudioProcessorEditor::resized()
         }
     };
 
-    // section pointers in creation order
     int i = 0;
     auto* osc1 = sections[i++]; auto* osc2 = sections[i++]; auto* osc3 = sections[i++];
     auto* sub  = sections[i++]; auto* omod = sections[i++]; auto* uni  = sections[i++];
@@ -298,12 +356,14 @@ void MidBassAudioProcessorEditor::resized()
     auto* cho  = sections[i++]; auto* pha  = sections[i++]; auto* fla  = sections[i++];
     auto* dly  = sections[i++]; auto* rev  = sections[i++]; auto* cmp  = sections[i++];
 
+    // 8a markup incorporated: FILTER hero widened (52), matrix +60 px from the
+    // LFOs (25/25/50), analyzer wider vs narrower FX (46/9x6), taller macro row.
     layoutRow ({ { osc1, 23 }, { osc2, 23 }, { osc3, 23 }, { sub, 15 }, { omod, 15 }, { uni, 15 } }, 148);
-    layoutRow ({ { flt, 46 }, { fenv, 27 }, { aenv, 27 } }, 128);
-    layoutRow ({ { lfo1, 27 }, { lfo2, 27 }, { mtx, 46 } }, 158);
-    layoutRow ({ { sat, 20 }, { eqs, 40 }, { trs, 12 }, { vout, 28 } }, 128);
-    layoutRow ({ { mac, 100 } }, 108);
-    layoutRow ({ { &analyzer, 40 }, { cho, 10 }, { pha, 10 }, { fla, 10 }, { dly, 10 }, { rev, 10 }, { cmp, 10 } }, 168);
+    layoutRow ({ { flt, 52 }, { fenv, 24 }, { aenv, 24 } }, 134);
+    layoutRow ({ { lfo1, 25 }, { lfo2, 25 }, { mtx, 50 } }, 148);
+    layoutRow ({ { sat, 20 }, { eqs, 40 }, { trs, 12 }, { vout, 28 } }, 120);
+    layoutRow ({ { mac, 100 } }, 124);
+    layoutRow ({ { &analyzer, 46 }, { cho, 9 }, { pha, 9 }, { fla, 9 }, { dly, 9 }, { rev, 9 }, { cmp, 9 } }, 150);
 
     b.removeFromTop (6);
     auto kb = b.removeFromTop (64);

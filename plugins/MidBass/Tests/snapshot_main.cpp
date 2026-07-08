@@ -29,17 +29,26 @@ int main (int argc, char** argv)
         if (cycle == 2)
         {
             auto* mbe = dynamic_cast<MidBassAudioProcessorEditor*> (ed.get());
-            std::cout << "attached parameters: " << (mbe != nullptr ? mbe->attachedParameterCountForTest() : -1)
-                      << " / " << mb::pid::kExpectedParamCount << "\n";
+            if (mbe == nullptr) { std::cout << "FAIL: editor type\n"; return 1; }
+            std::cout << "attached parameters: " << mbe->attachedParameterCountForTest()
+                      << " / " << mb::pid::kExpectedParamCount << "\n"
+                      << "sweet-spot arcs: " << mbe->sweetSpotArcCountForTest()
+                      << " / " << mb::kNumSweetSpots << "\n";
 
-            auto img = ed->createComponentSnapshot (ed->getLocalBounds(), false, 1.0f);
-            const juce::File out = juce::File::getCurrentWorkingDirectory()
-                                       .getChildFile (argc > 1 ? argv[1] : "midbass_gui.png");
-            out.deleteFile();
-            juce::FileOutputStream os (out);
-            juce::PNGImageFormat png;
-            if (! os.openedOk() || ! png.writeImageToStream (img, os)) { std::cout << "FAIL: png write\n"; return 1; }
-            std::cout << "snapshot: " << out.getFullPathName() << " (" << img.getWidth() << "x" << img.getHeight() << ")\n";
+            const juce::String base = argc > 1 ? juce::String (argv[1]) : juce::String ("midbass_gui");
+            for (float sc : { 1.0f, 1.25f, 1.5f })          // all scale steps rendered for review
+            {
+                mbe->applyScale (sc);
+                auto img = ed->createComponentSnapshot (ed->getLocalBounds(), false, 1.0f);
+                const juce::File out = juce::File::getCurrentWorkingDirectory()
+                    .getChildFile (base + "_" + juce::String ((int) std::lround (sc * 100)) + ".png");
+                out.deleteFile();
+                juce::FileOutputStream os (out);
+                juce::PNGImageFormat png;
+                if (! os.openedOk() || ! png.writeImageToStream (img, os)) { std::cout << "FAIL: png write\n"; return 1; }
+                std::cout << "snapshot: " << out.getFullPathName() << " (" << img.getWidth() << "x" << img.getHeight() << ")\n";
+            }
+            mbe->applyScale (1.0f);
         }
     }
     std::cout << "lifecycle: 3x open/close OK\n";

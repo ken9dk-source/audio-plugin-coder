@@ -274,6 +274,7 @@ void MidBassAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce
     float* outR = buffer.getNumChannels() > 1 ? buffer.getWritePointer (1) : outL;
 
     auto it = midi.begin();
+    int vizPos = vizWritePos.load (std::memory_order_relaxed);
     for (int i = 0; i < n; ++i)
     {
         while (it != midi.end() && (*it).samplePosition <= i)
@@ -291,7 +292,14 @@ void MidBassAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce
         trans.processSample (l, r);
         fx.processSample (l, r);
         outL[i] = l; outR[i] = r;
+
+        if (vizTapEnabled)
+        {
+            vizRing[vizPos & (kVizSize - 1)] = 0.5f * (l + r);   // analyzer tap
+            ++vizPos;
+        }
     }
+    vizWritePos.store (vizPos, std::memory_order_release);
 }
 
 bool MidBassAudioProcessor::hasEditor() const

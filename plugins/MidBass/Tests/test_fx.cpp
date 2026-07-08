@@ -595,8 +595,17 @@ TEST_CASE ("fx: CPU spot check — full chain + 8-voice unison vs the 5% target"
     juce::ignoreUnused (mn2, mx2);
     proc.fxChainForTest().rampsDisabledForTest = false;
 
+    // Analyzer FIFO push cost (Phase 8 condition c): same-batch A/B — absolute
+    // medians vary with machine state ACROSS sessions (observed 6.5-10.7 %), so
+    // only same-batch deltas are meaningful.
+    proc.vizTapEnabled = false;
+    auto [medNoViz, mn3, mx3] = median5();
+    juce::ignoreUnused (mn3, mx3);
+    proc.vizTapEnabled = true;
+
     INFO ("CPU median " << med << "% (min " << mn << " max " << mx
           << "), crossfades disabled " << medNoRamp << "% -> crossfade steady-state cost "
-          << (med - medNoRamp) << "% (target < 5% overall, Phase 9 debt)");
+          << (med - medNoRamp) << "%; analyzer tap disabled " << medNoViz
+          << "% -> FIFO push cost " << (med - medNoViz) << "% (target < 5% overall, Phase 9 debt)");
     CHECK (med < 50.0);                                     // loose CI gate; value reported
 }

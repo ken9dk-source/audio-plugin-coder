@@ -51,6 +51,15 @@ public:
     juce::AudioProcessorValueTreeState apvts;
     juce::MidiKeyboardState keyboardState;   // fed from processBlock, read by the GUI keyboard strip
 
+    // Analyzer capture (Phase 8b): single-writer lock-free ring. The audio
+    // thread does ONE float store per sample + ONE relaxed atomic publish per
+    // block — no locks, no allocations (condition c). The editor's timer pulls
+    // and does windowing/FFT entirely on the message thread.
+    static constexpr int kVizSize = 2048;    // power of two
+    float vizRing[kVizSize] = {};
+    std::atomic<int> vizWritePos { 0 };
+    bool vizTapEnabled = true;               // test-only A/B for the FIFO cost measurement
+
     // ---- test hooks ----
     int    currentNoteForTest() const  { return voice.curNote; }
     bool   voiceActiveForTest() const  { return voice.isActive(); }

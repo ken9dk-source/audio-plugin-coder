@@ -106,6 +106,10 @@ footnoted. Methodology hardened from Phase 8 on: 5 runs, median reported (with
 min/max spread once to establish the measurement noise floor), and the
 crossfade steady-state cost decomposed with a force-disable flag; if it costs
 > 0.5 % steady-state it is a NAMED Phase 9 target, not "variance".
+Phase 8 finding: ABSOLUTE medians swing with machine state across sessions
+(observed 6.5-10.7 % for identical code) while within-batch spread stays
+±0.3 % — therefore cost attributions are only ever made from SAME-BATCH A/B
+toggles (crossfade flag, analyzer-tap flag), never from cross-session medians.
 
 ## Phase 8 — GUI
 - Custom LookAndFeel: dark grey/brushed aluminium, orange LEDs, teal highlights,
