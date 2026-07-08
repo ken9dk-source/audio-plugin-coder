@@ -439,6 +439,7 @@ struct MbFxChain
     // first. Parity tests call the wrappers directly and never see this.
     float ramp[6] = {};
     float rampCoef = 0.0008f;
+    bool  rampsDisabledForTest = false;   // CPU decomposition: skip crossfade math entirely
 
     void prepare (double sr)
     {
@@ -457,6 +458,7 @@ struct MbFxChain
     template <typename Fx>
     inline void runOne (Fx& fxUnit, bool on, float& r, float& L, float& R)
     {
+        if (rampsDisabledForTest) { if (on) fxUnit.processSample (L, R); return; }
         if (on && r <= 0.0f) fxUnit.reset();                 // fresh engage = clean state
         r += ((on ? 1.0f : 0.0f) - r) * rampCoef;
         if (! on && r < 1.0e-4f) { r = 0.0f; return; }       // fully bypassed: untouched

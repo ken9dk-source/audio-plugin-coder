@@ -228,6 +228,10 @@ TEST_CASE ("fx: parity — wrappers are bit-exact against the raw VAZ engines") 
 
 TEST_CASE ("fx: bypass is bit-exact; all-bypassed chain transparent; zero added latency")   // conditions b + c
 {
+    // Bypass semantics (Phase 8 tightening 2): STEADY-STATE bypass is bit-exact
+    // pass-through; the 30 ms crossfade exists only during engage/disengage
+    // transitions; the parity flags/paths bypass the crossfade entirely (parity
+    // tests call the wrappers directly — the ramp lives only in MbFxChain).
     mb::MbFxChain chain;
     chain.prepare (kSR);                        // everything defaults to off
     const auto in = noiseBuf (8192, 7u);
@@ -236,6 +240,23 @@ TEST_CASE ("fx: bypass is bit-exact; all-bypassed chain transparent; zero added 
         float l = s, r = -s;
         chain.processSample (l, r);
         REQUIRE (l == s);                       // untouched, sample for sample
+        REQUIRE (r == -s);
+    }
+
+    // transition semantics: engage settles the ramp at ~1; disengage returns it
+    // to exactly 0 and steady bypass is bit-exact again afterwards.
+    chain.onChorus = true;
+    chain.chorus.setParams (0.6f, 0.3f, 0.3f);
+    for (int i = 0; i < (int) kSR; ++i) { float l = 0.1f, r = 0.1f; chain.processSample (l, r); }
+    CHECK (chain.ramp[0] > 0.999f);
+    chain.onChorus = false;
+    for (int i = 0; i < (int) kSR; ++i) { float l = 0.1f, r = 0.1f; chain.processSample (l, r); }
+    CHECK (chain.ramp[0] == 0.0f);
+    for (float s : in)
+    {
+        float l = s, r = -s;
+        chain.processSample (l, r);
+        REQUIRE (l == s);                       // steady bypass regained, bit-exact
         REQUIRE (r == -s);
     }
 
@@ -549,13 +570,33 @@ TEST_CASE ("fx: CPU spot check — full chain + 8-voice unison vs the 5% target"
     midi.addEvent (juce::MidiMessage::noteOn (1, 45, (juce::uint8) 100), 0);
     proc.processBlock (buf, midi); midi.clear();
 
-    const int blocks = (int) (2.0 * 44100.0 / 512.0);
-    const auto t0 = std::chrono::steady_clock::now();
-    for (int b = 0; b < blocks; ++b) { proc.processBlock (buf, midi); }
-    const auto t1 = std::chrono::steady_clock::now();
-    const double wall = std::chrono::duration<double> (t1 - t0).count();
-    const double audio = blocks * 512.0 / 44100.0;
-    const double pct = 100.0 * wall / audio;
-    INFO ("CPU: " << pct << "% of one core (target < 5%), audio " << audio << " s in " << wall << " s");
-    CHECK (pct < 50.0);                                     // loose CI gate; actual value reported
+    // Hardened methodology (Phase 8): 5 runs, median reported, min/max spread
+    // stated once (measurement noise floor), plus the crossfade steady-state
+    // cost decomposed with the force-disable flag.
+    auto measure = [&]()
+    {
+        const int blocks = (int) (2.0 * 44100.0 / 512.0);
+        const auto t0 = std::chrono::steady_clock::now();
+        for (int b = 0; b < blocks; ++b) { proc.processBlock (buf, midi); }
+        const auto t1 = std::chrono::steady_clock::now();
+        return 100.0 * std::chrono::duration<double> (t1 - t0).count() / (blocks * 512.0 / 44100.0);
+    };
+    auto median5 = [&measure]()
+    {
+        double r[5];
+        for (auto& v : r) v = measure();
+        std::sort (r, r + 5);
+        return std::make_tuple (r[2], r[0], r[4]);
+    };
+
+    auto [med, mn, mx] = median5();
+    proc.fxChainForTest().rampsDisabledForTest = true;
+    auto [medNoRamp, mn2, mx2] = median5();
+    juce::ignoreUnused (mn2, mx2);
+    proc.fxChainForTest().rampsDisabledForTest = false;
+
+    INFO ("CPU median " << med << "% (min " << mn << " max " << mx
+          << "), crossfades disabled " << medNoRamp << "% -> crossfade steady-state cost "
+          << (med - medNoRamp) << "% (target < 5% overall, Phase 9 debt)");
+    CHECK (med < 50.0);                                     // loose CI gate; value reported
 }

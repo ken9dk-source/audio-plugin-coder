@@ -20,7 +20,7 @@ juce_add_plugin(MidBass
     VST3_CATEGORIES Instrument Synth
 )
 
-target_sources(MidBass PRIVATE Source/PluginProcessor.cpp)
+target_sources(MidBass PRIVATE Source/PluginProcessor.cpp Source/PluginEditor.cpp)
 
 # Source first so MidBass headers win; VAZClone/Source supplies the reused VAZ
 # oscillator + filter engines from Phase 1 on (header-only, no VAZClone .cpp).

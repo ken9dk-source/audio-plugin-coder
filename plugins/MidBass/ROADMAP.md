@@ -97,6 +97,16 @@ TranceEQ / TranceKick (see `.ideas/vaz-reuse-audit.md`).
 - Tests: macro math (offset application + clamping), preset load → all params
   land, state versioning.
 
+### CPU-rule breach acknowledgment (2026-07-07)
+The Phase 6 deferral condition "Phases 7-8 must not increase audio-thread cost"
+was BROKEN in Phase 7: the CPU spot moved 8.74 % → 10.65 %. The additions were
+correctness fixes (per-effect engage crossfades, saturator wet ramp, phaser
+limit-cycle cleanup) and correctness wins — but the breach is stated here, not
+footnoted. Methodology hardened from Phase 8 on: 5 runs, median reported (with
+min/max spread once to establish the measurement noise floor), and the
+crossfade steady-state cost decomposed with a force-disable flag; if it costs
+> 0.5 % steady-state it is a NAMED Phase 9 target, not "variance".
+
 ## Phase 8 — GUI
 - Custom LookAndFeel: dark grey/brushed aluminium, orange LEDs, teal highlights,
   large round knobs. ONE fixed panel, zones: header/presets · osc row · filter+env

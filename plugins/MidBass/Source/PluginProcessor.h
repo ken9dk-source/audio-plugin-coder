@@ -58,6 +58,7 @@ public:
     const mb::MbVoice& voiceForTest() const         { return voice; }
     const mb::MbSaturator& satForTest() const       { return sat; }
     const mb::MbTransient& transForTest() const     { return trans; }
+    mb::MbFxChain& fxChainForTest()                 { return fx; }
 
 private:
     void handleMidiEvent (const juce::MidiMessage& m);

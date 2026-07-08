@@ -57,3 +57,38 @@ list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
 include(CTest)
 include(Catch)
 catch_discover_tests(MidBass_Tests)
+
+# Offscreen GUI snapshot / lifecycle tool (Phase 8) — compiles the REAL editor
+# (no MIDBASS_HEADLESS), renders the panel to PNG for layout review.
+juce_add_console_app(MidBass_Snapshot PRODUCT_NAME "MidBass_Snapshot")
+target_sources(MidBass_Snapshot PRIVATE
+    snapshot_main.cpp
+    ../Source/PluginProcessor.cpp
+    ../Source/PluginEditor.cpp)
+target_include_directories(MidBass_Snapshot PRIVATE
+    ../Source
+    ../../VAZClone/Source
+    ../../TranceAcid/Source
+    ../../TranceEQ/Source
+    ../../VAZChorus/Source
+    ../../VAZPhaser/Source
+    ../../VAZDelay/Source
+    ../../VAZReverb/Source)
+target_compile_definitions(MidBass_Snapshot PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_MODAL_LOOPS_PERMITTED=0
+    _USE_MATH_DEFINES=1)
+target_link_libraries(MidBass_Snapshot PRIVATE
+    juce::juce_audio_basics
+    juce::juce_audio_formats
+    juce::juce_audio_processors
+    juce::juce_audio_utils
+    juce::juce_core
+    juce::juce_data_structures
+    juce::juce_dsp
+    juce::juce_events
+    juce::juce_graphics
+    juce::juce_gui_basics
+    juce::juce_gui_extra
+    juce::juce_recommended_config_flags)
