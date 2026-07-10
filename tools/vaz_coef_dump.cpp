@@ -67,6 +67,17 @@ static void phaserBuildLut (void* self)
         call f
     }
 }
+// FUN_0051c298(this=EAX, EDX=toneParam): delay tone→damp setter (reads [+0x1c] ** for SR, 80-bit). Set [+0x264]=0
+// first so the trailing recursive host-notify branch is skipped.
+static void delayToneDamp (void* self, int tone)
+{
+    void* f = fnv (0x51c298);
+    __asm {
+        mov eax, self
+        mov edx, tone
+        call f
+    }
+}
 // NOTE: the chorus/phaser/autopan LFO-rate INCS (leaf setters FUN_00518ffc/FUN_00519098/FUN_005208f0/FUN_0051a5fc)
 // are NOT dumpable — 80-bit AND they divide by DllMain-initialised global/object state = 0 standalone (int div-by-0).
 // Only self-contained setup methods (reverb FUN_00522c60, phaser FUN_00521aa0 — SR from the object) work.
@@ -113,6 +124,15 @@ int main ()
         phaserBuildLut (obj);
         printf ("PVALID inGain[+0x298]=%08X mix[+0x288]=%08X\n", *(uint32_t*) (obj + 0x298), *(uint32_t*) (obj + 0x288));
         for (int i = 0; i < 512; ++i) printf ("P,%d,%08X\n", i, *(uint32_t*) (obj + 0x310 + i * 4));
+    }
+    // Delay tone→damp curve (FUN_0051c298 @0x51c298): [+0x2a8] = 80-bit(tone [+0x280], SR). tone 0..255. sr=44100.
+    for (int t = 0; t <= 255; ++t)
+    {
+        memset (obj, 0, 0x40000);
+        *(void**) (obj + 0x1c) = &g_srPtr;   // ** double indirection (delay uses it)
+        *(int*) (obj + 0x264) = 0;           // skip the recursive host-notify branch
+        delayToneDamp (obj, t);
+        printf ("T,%d,%08X\n", t, *(uint32_t*) (obj + 0x2a8));
     }
     for (int p = 0; p <= 255; ++p)
     {

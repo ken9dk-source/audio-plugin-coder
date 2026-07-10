@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <vector>
 #include <cmath>
+#include "../../VAZClone/reference/vaz_delay_damp_lut.h"   // EXACT runtime-dumped tone→damp curve (Q28, sr=44100)
 
 struct VazDelayEngine
 {
@@ -24,13 +25,29 @@ struct VazDelayEngine
     int32_t  dryL = 0, dryR = 0;              // +0x2c0 / +0x2c4  (Q30)
     int32_t  wetL = 0, wetR = 0;              // +0x2b8 / +0x2bc  (Q30)
 
+    int32_t  dampLut[256];                    // SR-adjusted tone→damp (built in prepare)
+    int      samplesPerMs = 44;               // [+0x2d4] = SR/1000 (FUN_0051bf78); used by the delay-time map
+
     void prepare (double sr)                  // buffer sizing (FUN_0051bf78): next pow2 ≥ sr·2550/1000, min 0x8000
     {
         int need = (int) ((double) sr * 2550.0 / 1000.0);
         int n = 0x8000; while (n < need) n <<= 1;
         buf.assign ((size_t) n * 2, 0);
         mask = n - 1; wpos = 0; stateL = stateR = 0;
+        samplesPerMs = (int) sr / 1000;       // integer, exactly as VAZ
+        const double adj = 44100.0 / sr;      // k_sr = 2^28·(k_44k/2^28)^(44100/sr)
+        for (int i = 0; i < 256; ++i)
+        {
+            const double k44 = (double) vazfx::kDelayDampLUT[i] / (double) 0x10000000;
+            const double k   = (sr == 44100.0) ? k44 : std::pow (k44, adj);
+            dampLut[i] = (int32_t) std::llround (k * (double) 0x10000000);
+        }
     }
+    // Delay-time (FREE): VAZ delayL = ms·(SR/1000) + ((SR/1000)>>4)  (LINEAR in ms; FUN_0051c1cc @0x51c1cc).
+    int32_t delaySamplesFromMs (double ms) const noexcept
+    { return (int32_t) std::llround (ms * (double) samplesPerMs) + (samplesPerMs >> 4); }
+    void setTone (int toneL, int toneR) noexcept
+    { dampL = dampLut[toneL < 0 ? 0 : toneL > 255 ? 255 : toneL]; dampR = dampLut[toneR < 0 ? 0 : toneR > 255 ? 255 : toneR]; }
     void reset () { std::fill (buf.begin(), buf.end(), 0); wpos = 0; stateL = stateR = 0; }
 
     static inline int32_t mh (int32_t a, int32_t b) noexcept { return (int32_t) (((int64_t) a * (int64_t) b) >> 32); }

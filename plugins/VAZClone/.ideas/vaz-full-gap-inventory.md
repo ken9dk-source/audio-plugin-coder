@@ -250,9 +250,11 @@ Clone now ships `VazDelayEngine` (fixed-point port; render bit-exact vs an indep
 |---|---|---|---|
 | Engine | stereo circular buf (int taps), damped feedback 1-pole, sep L/R | now identical (fixed-point transcription) | ✅ FIXED — `fx_delay_render` BIT-EXACT |
 | Modes [+0x260] | 0 Stereo (self fb) · 1 Ping-Pong (**cross** fb: L←tapR, R←tapL) · **≥2 = serial Double** (mono → L-delay → R-delay → dual-mono) | now all 3 identical | ✅ FIXED — *(corrects my earlier audit: mode 2 is a **serial double**, not simple mono; the clone's "Double" was close but the exact chaining differed)* |
-| Feedback damping | 1-pole `w = x + (state−x)·k`, k = damp/2^28 (Q28), states +0x2b0/+0x2b4 | now identical (Q28 damping); tone→k = exp(−2π·fc/sr) | ✅ FIXED (was float); tone→damp curve TILNÆRMET (80-bit) |
+| Feedback damping | 1-pole `w = x + (state−x)·k`, k = damp/2^28 (Q28, FUN_0051c298 80-bit) | now uses the **runtime-dumped** tone→damp LUT (`vaz_delay_damp_lut.h`, 256 vals, SR-adjusted) | ✅ **FIXED** — `fx_delay_maps` VERIFIED (was a too-bright approx: VAZ k=0.989..0.9999, always dark) |
 | Q-formats | feedback tap·fb/256 (fb 0..255), dry/wet Q30 (v·g/2^30) | now identical | ✅ ported exactly |
-| Delay-time map | integer taps; buffer = next_pow2(sr·2550/1000) (FUN_0051bf78) | buffer exact; tap = round(smoothed samples); free 5·1200^p / sync note-table | buffer ✅ exact; **time-map TILNÆRMET-ACCEPTERET** (VAZ delay-time setter 80-bit, sub-audible) |
+| Delay-time (free) | **LINEAR** in ms: delayL = ms·(SR/1000)+((SR/1000)>>4) (FUN_0051c1cc @0x51c1cc, INTEGER) | now exact (was logarithmic 5·1200^p) | ✅ **FIXED** — `fx_delay_maps` VERIFIED (extracted, not dumped — it's integer) |
+| Delay-time (sync) | 80-bit BPM (FUN_0051b9b0 @0x51b9b0, FUN_00402bf4) | note-table × musical mult | TILNÆRMET-ACCEPTERET (80-bit BPM, like flanger/phaser sync) |
+| Buffer | next_pow2(sr·2550/1000) (FUN_0051bf78) | now identical | ✅ exact |
 
 ### FX-F — Autopan (`TFXAutopan`, render `FUN_00517d34` @0x517d34) — AUDITED · fixed-point · **cleanest match**
 

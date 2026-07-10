@@ -107,30 +107,24 @@ void VAZDelayAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
     };
     auto delSamples = [&] (float p, int noteIdx) -> double
     {
-        if (sync)   // tempo-synced: exact note value × musical multiplier (grid-locked)
+        if (sync)   // tempo-synced: exact note value × musical multiplier (grid-locked). VAZ sync = 80-bit (approx).
         {
             const double beats = noteBeats[juce::jlimit (0, 13, noteIdx)];
             return beats * syncMult ((double) p) * (60.0 / bpm) * sr;
         }
-        return 5.0 * std::pow (1200.0, (double) p) * 0.001 * sr;       // free: 5 ms .. 6 s (log)
+        // FREE: VAZ delay is LINEAR in ms — delayL = ms·(SR/1000) + ((SR/1000)>>4) (FUN_0051c1cc @0x51c1cc). Was log.
+        const double ms = 1.0 + (double) p * 1999.0;              // knob → 1..2000 ms (linear)
+        return (double) engine.delaySamplesFromMs (ms);
     };
     const int    maxTap = engine.mask - 2;
     const double tgtL = juce::jlimit (1.0, (double) maxTap, delSamples (dL, noteL));
     const double tgtR = juce::jlimit (1.0, (double) maxTap, delSamples (dR, noteR));
 
-    // VAZ damping one-pole (render @0x51bba8:54-56): w = x + (state−x)·k, k = damp/2^28 (feedback retention).
-    // Match the clone's tone (fc = 150·66^t): k = 1 − tc = exp(−2π·fc/sr). ⚠ exact VAZ tone→damp is 80-bit (approx).
-    auto dampCoef = [&] (float t) -> int32_t
-    {
-        const double fc = 150.0 * std::pow (66.0, (double) t);
-        const double k  = std::exp (-juce::MathConstants<double>::twoPi * fc / sr);
-        return (int32_t) juce::jlimit ((long long) 0, (long long) 0x0FFFFFFF, std::llround (k * (double) 0x10000000));
-    };
-
     engine.mode = juce::jlimit (0, 2, mode);
     engine.fbL  = juce::jlimit (0, 255, (int) std::lround (fbL * 255.0f));   // feedback (fb/256)
     engine.fbR  = juce::jlimit (0, 255, (int) std::lround (fbR * 255.0f));
-    engine.dampL = dampCoef (tnL);  engine.dampR = dampCoef (tnR);
+    // Tone → damping: EXACT runtime-dumped curve (FUN_0051c298, vaz_delay_damp_lut.h) — was a too-bright approx.
+    engine.setTone ((int) std::lround (tnL * 255.0f), (int) std::lround (tnR * 255.0f));
     engine.dryL = (int32_t) std::llround ((double) dryL * (double) 0x40000000);   // Q30
     engine.dryR = (int32_t) std::llround ((double) dryR * (double) 0x40000000);
     engine.wetL = (int32_t) std::llround ((double) wL   * (double) 0x40000000);   // Q30

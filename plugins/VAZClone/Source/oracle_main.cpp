@@ -616,6 +616,15 @@ int main()
              "clone VazDelayEngine vs independent transcription of FUN_0051bba8 (stereo/ping-pong/serial-double + damped fb), 3 modes, impulse+noise");
     }
 
+    // ── FX 10b. Delay tone→damp LUT (dumped) + linear-ms delay-time (both extracted, replace approximations) ──
+    {
+        VazDelayEngine e; e.prepare (44100.0);
+        const bool okD = ((uint32_t) e.dampLut[0] == 0x0FFFBA21u) && ((uint32_t) e.dampLut[255] == 0x0FD37981u);
+        const bool okT = (e.delaySamplesFromMs (100.0) == 4402) && (e.delaySamplesFromMs (500.0) == 22002);   // ms·44+2
+        row ("fx_delay_maps", (okD && okT) ? "VERIFIED (dumped damp + linear ms)" : "DEVIATION",
+             "tone→damp runtime-dumped k[0]=0x0FFFBA21 k[255]=0x0FD37981 (FUN_0051c298); delay-time LINEAR ms·(sr/1000)+((sr/1000)>>4) (FUN_0051c1cc)");
+    }
+
     std::printf ("\n  Constants sourced: cutoff-smooth DAT_006d45e4, detune DAT_0052b168/0x52b0ec, env-rate DAT_006db7e8, stage0 DAT_006dc0bc, flanger delay 0x52076c, chorus delay 0x518fbc.\n");
     std::printf ("=== oracle complete ===\n");
     return 0;
