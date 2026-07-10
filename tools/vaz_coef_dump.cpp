@@ -78,6 +78,17 @@ static void delayToneDamp (void* self, int tone)
         call f
     }
 }
+// FUN_00521d44(this=EAX, EDX=gainByte): phaser output gain. inGain[+0x298] = 2^((b−255)/60)·2^30 (self-contained
+// x87: fld2/fldln2/fyl2x→ln2, (b−255)·ln2/60, exp, ·2^30). No SR, no globals → dumpable. Validates the disasm read.
+static void phaserGain (void* self, int b)
+{
+    void* f = fnv (0x521d44);
+    __asm {
+        mov eax, self
+        mov edx, b
+        call f
+    }
+}
 // NOTE: the chorus/phaser/autopan LFO-rate INCS (leaf setters FUN_00518ffc/FUN_00519098/FUN_005208f0/FUN_0051a5fc)
 // are NOT dumpable — 80-bit AND they divide by DllMain-initialised global/object state = 0 standalone (int div-by-0).
 // Only self-contained setup methods (reverb FUN_00522c60, phaser FUN_00521aa0 — SR from the object) work.
@@ -133,6 +144,13 @@ int main ()
         *(int*) (obj + 0x264) = 0;           // skip the recursive host-notify branch
         delayToneDamp (obj, t);
         printf ("T,%d,%08X\n", t, *(uint32_t*) (obj + 0x2a8));
+    }
+    // Phaser output-gain curve (FUN_00521d44 @0x521d44): inGain[+0x298] = round(2^((b−255)/60)·2^30). gain byte 0..255.
+    for (int b = 0; b <= 255; ++b)
+    {
+        memset (obj, 0, 0x40000);
+        phaserGain (obj, b);
+        printf ("G,%d,%08X\n", b, *(uint32_t*) (obj + 0x298));
     }
     for (int p = 0; p <= 255; ++p)
     {

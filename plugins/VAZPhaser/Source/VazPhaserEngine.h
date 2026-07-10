@@ -10,6 +10,7 @@
 #include <cstring>
 #include <cmath>
 #include "../../VAZClone/reference/vaz_phaser_coef_lut.h"
+#include "../../VAZClone/reference/vaz_phaser_gain_lut.h"
 
 struct VazPhaserEngine
 {
@@ -21,7 +22,7 @@ struct VazPhaserEngine
     // per-block params:
     uint32_t inc = 0;                                     // +0x294 (LFO rate; 80-bit → approximate)
     int32_t  depth = 128, center = 96, numStages = 4;     // +0x280 / +0x264 / +0x2a0
-    int32_t  fbGain = 0, inGain = 0x40000000, mix = 0;    // +0x29c (Q30) / +0x298 (Q30, unity) / +0x288 (0..255)
+    int32_t  fbGain = 0, inGain = 0x40000000, mix = 0;    // +0x29c (Q30) / +0x298 (Q30 gain, LUT) / +0x288 (0..255)
     int32_t  lrPhase = 0;                                 // +0x284
 
     void clearBuffers () noexcept { std::memset (apL, 0, sizeof apL); std::memset (apR, 0, sizeof apR); fbL = fbR = 0; phase = 0; }
@@ -77,8 +78,9 @@ struct VazPhaserEngine
     // ── param mapping ────────────────────────────────────────────────────────────────────────────────────
     // stages (FUN_00521b68): N = (stagesParam+1)·2 → 2..12.  feedback (FUN_00521bf4): fbGain = clamp(p,±100)<<23
     //   (Q30 → max ±0.78125).  depth[+0x280]/center[+0x264]/lrPhase[+0x284]/mix[+0x288] = raw params (0..255).
-    //   inGain = unity 2^30 (no setter writes +0x298 → input passes at unity).  rate/inc = 80-bit (approximate).
-    void setParams (int stagesParam, int fbParam, bool fbInvert, int depthP, int centerP, int lrP, int mixP, uint32_t incPhase) noexcept
+    //   gain[+0x298] (FUN_00521d44): inGain = kPhaserGainLUT[gainByte] = 2^((b−255)/60)·2^30 = −25.6dB(0)…0dB(255),
+    //   default b=225 → −3dB; applied to the INPUT (dry+wet scale equally). rate/inc = 80-bit (approximate).
+    void setParams (int stagesParam, int fbParam, bool fbInvert, int depthP, int centerP, int lrP, int mixP, int gainByte, uint32_t incPhase) noexcept
     {
         if (stagesParam < 0) stagesParam = 0; if (stagesParam > 5) stagesParam = 5;
         numStages = (stagesParam + 1) * 2;
@@ -88,7 +90,8 @@ struct VazPhaserEngine
         center  = centerP < 0 ? 0 : centerP > 511 ? 511 : centerP;
         lrPhase = lrP;
         mix     = mixP < 0 ? 0 : mixP > 255 ? 255 : mixP;
-        inGain  = 0x40000000;                                        // unity Q30
+        gainByte = gainByte < 0 ? 0 : gainByte > 255 ? 255 : gainByte;
+        inGain  = (int32_t) vazfx::kPhaserGainLUT[gainByte];         // exact dumped gain curve (Q30, replaces linear)
         inc     = incPhase;
     }
 };

@@ -566,7 +566,7 @@ int main()
         auto runStages = [] (int stagesParam, int depthP, int centerP, int mixP, int fbP, std::vector<double>& out)
         {
             VazPhaserEngine e; e.clearBuffers(); e.setSampleRate (44100.0);
-            e.setParams (stagesParam, fbP, false, depthP, centerP, 64, mixP, 175284u);   // rate≈1.8 Hz
+            e.setParams (stagesParam, fbP, false, depthP, centerP, 64, mixP, 255, 175284u);   // rate≈1.8 Hz, gain 0 dB
             uint32_t rng = 0x1357u; out.clear();
             for (int i = 0; i < 40000; ++i)
             {
@@ -586,6 +586,68 @@ int main()
         row ("fx_phaser_stages_diag", (def > 0.02) ? "OK (audible at default)" : "WEAK at default (VAZ coef≈1 → narrow low-freq notches)",
              "RMS(st2−st12)/RMS: default=" + std::to_string (def) + "  strong=" + std::to_string (str)
              + "  (engine responds; low default = coef-LUT is 0.88..0.9999 = low-freq allpass)");
+    }
+
+    // ── FX. Phaser gain curve — engine gain LUT (FUN_00521d44) == the runtime-dumped anchors ─────────────────
+    {
+        VazPhaserEngine e;
+        e.setParams (1, 0, false, 200, 90, 64, 200, 255, 0u); const uint32_t g255 = (uint32_t) e.inGain;
+        e.setParams (1, 0, false, 200, 90, 64, 200, 225, 0u); const uint32_t g225 = (uint32_t) e.inGain;
+        e.setParams (1, 0, false, 200, 90, 64, 200,   0, 0u); const uint32_t g0   = (uint32_t) e.inGain;
+        const bool ok = (g255 == 0x40000000u) && (g225 == 0x2D413CCDu) && (g0 == 0x035D13F3u);
+        row ("fx_phaser_gain_curve", ok ? "VERIFIED (dumped LUT)" : "DEVIATION",
+             "gain FUN_00521d44: inGain=2^((b−255)/60)·2^30 — b=255→0dB(0x40000000), b=225→−3dB(0x2D413CCD), b=0→−25.6dB(0x035D13F3)");
+    }
+
+    // ── DIAG. Phaser param sweep — feedback/depth/mix/gain RESPONSE across the full range (not just default),
+    //    each point bit-exact vs the independent FUN_005218d8 transcription so the numbers reflect VAZ's render. ──
+    {
+        // render steady noise through a fresh engine + RefPhaser (same params); collect engine L after settling,
+        // track engine-vs-ref bit-exactness (maxd). stages=4, rate≈1.8 Hz, moving LFO so the notch sweeps.
+        auto render = [] (int fbP, int depthP, int centerP, int mixP, int gainB, long& maxdOut) -> std::vector<double>
+        {
+            VazPhaserEngine e; RefPhaser r; e.clearBuffers(); e.setSampleRate (44100.0); r.loadLut();
+            e.setParams (1, fbP, false, depthP, centerP, 64, mixP, gainB, 175284u);
+            r.numStages = e.numStages; r.fbGain = e.fbGain; r.depth = e.depth; r.center = e.center;
+            r.lrPhase = e.lrPhase; r.mix = e.mix; r.inGain = e.inGain; r.inc = e.inc;
+            uint32_t rng = 0x1357u; std::vector<double> out; long maxd = 0;
+            for (int i = 0; i < 40000; ++i)
+            {
+                int32_t s = (int32_t) ((rng = rng * 1664525u + 1013904223u) >> 9) - (1 << 21);
+                int32_t eL = s, eR = s, rL = s, rR = s;
+                e.processFrame (eL, eR); r.frame (rL, rR);
+                long d = (long) eL - (long) rL; if (d < 0) d = -d; if (d > maxd) maxd = d;
+                if (i >= 2000) out.push_back ((double) eL / 8388608.0);
+            }
+            if (maxd > maxdOut) maxdOut = maxd;
+            return out;
+        };
+        auto rel = [] (const std::vector<double>& a, const std::vector<double>& b) -> std::string
+        {
+            double sd = 0, ss = 0; for (size_t i = 0; i < a.size() && i < b.size(); ++i) { const double d = a[i]-b[i]; sd += d*d; ss += b[i]*b[i]; }
+            return std::to_string (ss > 0 ? std::sqrt (sd/ss) : 0.0).substr (0, 5);
+        };
+        auto rmsRatio = [] (const std::vector<double>& v, double ref) -> std::string
+        {
+            double r = 0; for (double x : v) r += x*x; r = v.empty() ? 0 : std::sqrt (r / (double) v.size());
+            return std::to_string (ref > 0 ? r/ref : 0.0).substr (0, 5);
+        };
+        long maxd = 0;
+        // feedback: deviation from fb=0 as feedback rises (depth/center/mix fixed, gain 0 dB)
+        const auto fb0 = render (0, 200, 90, 200, 255, maxd);
+        std::string fbs; for (int fb : { 25, 50, 75, 100 }) fbs += rel (render (fb, 200, 90, 200, 255, maxd), fb0) + " ";
+        // depth: deviation from depth=0 (static notch) as the LFO sweep widens
+        const auto dp0 = render (60, 0, 90, 200, 255, maxd);
+        std::string dps; for (int dp : { 64, 128, 192, 255 }) dps += rel (render (60, dp, 90, 200, 255, maxd), dp0) + " ";
+        // mix: deviation from mix=0 (pure dry) as wet rises
+        const auto mx0 = render (60, 200, 90, 0, 255, maxd);
+        std::string mxs; for (int mx : { 64, 128, 192, 255 }) mxs += rel (render (60, 200, 90, mx, 255, maxd), mx0) + " ";
+        // gain: output RMS ratio vs 0 dB — should track 2^((b−255)/60) = {0.231, 0.483, 0.707, 1.0}
+        const auto g255 = render (60, 200, 90, 200, 255, maxd);
+        double rms255 = 0; for (double x : g255) rms255 += x*x; rms255 = std::sqrt (rms255 / (double) g255.size());
+        std::string gns; for (int gb : { 128, 192, 225, 255 }) gns += rmsRatio (render (60, 200, 90, 200, gb, maxd), rms255) + " ";
+        row ("fx_phaser_param_sweep", maxd == 0 ? "BIT-EXACT + full range" : "DEVIATION (max=" + std::to_string (maxd) + ")",
+             "vs ref @every point maxd=" + std::to_string (maxd) + "; fb{25,50,75,100}=" + fbs + "| depth=" + dps + "| mix=" + mxs + "| gainRMS=" + gns);
     }
 
     // ── FX 10. Delay render — clone VazDelayEngine vs independent transcription of FUN_0051bba8, all 3 modes ──
