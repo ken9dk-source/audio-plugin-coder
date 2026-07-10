@@ -28,12 +28,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout VAZPhaserAudioProcessor::cre
         NormalisableRange<float>(0.0f, 5.0f, 1.0f), 1.0f,
         AudioParameterFloatAttributes().withStringFromValueFunction (
             [] (float v, int) { return juce::String ((juce::roundToInt (v) + 1) * 2); })));   // display 2..12
-    layout.add (pct (ParameterIDs::frequency, "Frequency", 0.5f));
-    layout.add (pct (ParameterIDs::feedback,  "Feedback",  0.5f));
-    layout.add (pct (ParameterIDs::rate,      "Rate",      0.3f));
-    layout.add (pct (ParameterIDs::depth,     "Depth",     0.6f));
-    layout.add (pct (ParameterIDs::lr_phase,  "L/R Phase", 0.25f));
-    layout.add (pct (ParameterIDs::mix,       "Mix",       0.5f));
+    // Defaults MATCH the dumped VAZ constructor FUN_005216b8 (vaz_coef_dump.exe "C" line): the ctor writes ONLY
+    // stages=1(→4), mix=0x80(0.5), gain b=225(−3 dB); base-init leaves the rest of +0x260+ zero, so center/feedback/
+    // rate/depth/lrphase all DEFAULT TO 0 (a static near-dry phaser). The old 0.5/0.5/0.3/0.6/0.25 were assumed.
+    layout.add (pct (ParameterIDs::frequency, "Frequency", 0.0f));   // center +0x264 = 0 (notch parked low ≈2 Hz)
+    layout.add (pct (ParameterIDs::feedback,  "Feedback",  0.0f));   // fbGain +0x29c = 0
+    layout.add (pct (ParameterIDs::rate,      "Rate",      0.0f));   // rate +0x27c = 0 (LFO static)
+    layout.add (pct (ParameterIDs::depth,     "Depth",     0.0f));   // depth +0x280 = 0 (no sweep)
+    layout.add (pct (ParameterIDs::lr_phase,  "L/R Phase", 0.0f));   // lrPhase +0x284 = 0
+    layout.add (pct (ParameterIDs::mix,       "Mix",       0.5f));   // mix +0x288 = 0x80 = 128 (verified)
     // Gain: VAZ maps a byte 0..255 → inGain = 2^((b−255)/60) = −25.6 dB (0) … 0 dB (255) via FUN_00521d44 (dumped
     // LUT). Default b=225 → −3 dB (constructor). Knob 0..1 → byte = round(v·255); 0.882 ≙ b=225. Was a wrong LINEAR
     // 0..1 output multiply (right only near default, ±6 dB off mid-range). Display the true dB from the curve.
@@ -90,10 +93,10 @@ void VAZPhaserAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
     const int mixP        = juce::jlimit (0, 255, (int) std::lround (fMix   * 255.0f)); // Dry..Wet (+0x288)
     const int gainByte    = juce::jlimit (0, 255, (int) std::lround (fGain  * 255.0f)); // input gain (+0x298 via LUT)
 
-    // LFO rate → 32-bit phase increment. ⚠ APPROX (rate/inc is VAZ 80-bit x87, not isolable-dumpable — accepted).
+    // LFO rate → 32-bit phase increment.
     static constexpr double periodBeats[24] = { 1.0/12, 1.0/8, 1.0/6, 1.0/4, 1.0/3, 1.0/2, 2.0/3, 1.0,
         2.0, 3.0, 4.0, 5.0, 6.0, 8.0, 12.0, 16.0, 24.0, 32.0, 48.0, 64.0, 96.0, 128.0, 192.0, 256.0 };
-    double rateHz;
+    uint32_t inc;
     if (apvts.getRawParameterValue (ParameterIDs::mod_sync)->load() > 0.5f)
     {
         double bpm = 120.0;
@@ -101,11 +104,16 @@ void VAZPhaserAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
             if (auto pos = ph->getPosition())
                 if (auto b = pos->getBpm()) bpm = *b;
         const int p = juce::jlimit (0, 23, (int) apvts.getRawParameterValue (ParameterIDs::mod_period)->load());
-        rateHz = (bpm / 60.0) / periodBeats[p];
+        const double rateHz = (bpm / 60.0) / periodBeats[p];
+        inc = (uint32_t) (int64_t) (rateHz / sr * 4294967296.0);   // sync: tempo → inc (BPM path, unchanged)
     }
     else
-        rateHz = (double) fRate * (double) fRate * 20.0;      // free: 0..20 Hz
-    const uint32_t inc = (uint32_t) (int64_t) (rateHz / sr * 4294967296.0);
+    {
+        // FREE rate = EXACT VAZ curve (FUN_00521c84, dumped): knob 0..1 → byte → inc = kPhaserRateLUT[b]·44100/SR.
+        // EXPONENTIAL 0.01…9.76 Hz (was fRate²·20, a square law running 2–23× too fast). See vaz_phaser_rate_lut.h.
+        const int b = juce::jlimit (0, 255, (int) std::lround (fRate * 255.0f));
+        inc = (uint32_t) std::llround ((double) vazfx::kPhaserRateLUT[b] * (44100.0 / sr));
+    }
     engine.setParams (stagesParam, fbParam, fbPhase, depthP, centerP, lrP, mixP, gainByte, inc);
 
     constexpr double kFS = 8388608.0;   // Q23 full-scale

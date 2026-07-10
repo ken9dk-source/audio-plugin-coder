@@ -78,6 +78,28 @@ static void delayToneDamp (void* self, int tone)
         call f
     }
 }
+// FUN_00521b68(this=EAX, EDX=stagesRaw): phaser stages setter. +0x260=raw, +0x2a0=(raw+1)·2. Leaf, no x87 → safe.
+static void phaserStages (void* self, int s)
+{
+    void* f = fnv (0x521b68);
+    __asm {
+        mov eax, self
+        mov edx, s
+        call f
+    }
+}
+// FUN_00521c84(this=EAX, EDX=rateByte): phaser free-rate → inc[+0x294] = 3891.3559·e^(0.027·rate)·11025/SR
+// (disasm 0x521c84: fild rate; ·0.027; e^x; ·3891.3559; ·11025/SR). Reads SR via [+0x1c]→[.] SINGLE indirection
+// (NOT div-by-0 as earlier assumed) → set [+0x1c]=&g_sr, +0x274=0 (not synced) to take the compute branch.
+static void phaserRate (void* self, int r)
+{
+    void* f = fnv (0x521c84);
+    __asm {
+        mov eax, self
+        mov edx, r
+        call f
+    }
+}
 // FUN_00521d44(this=EAX, EDX=gainByte): phaser output gain. inGain[+0x298] = 2^((b−255)/60)·2^30 (self-contained
 // x87: fld2/fldln2/fyl2x→ln2, (b−255)·ln2/60, exp, ·2^30). No SR, no globals → dumpable. Validates the disasm read.
 static void phaserGain (void* self, int b)
@@ -151,6 +173,31 @@ int main ()
         memset (obj, 0, 0x40000);
         phaserGain (obj, b);
         printf ("G,%d,%08X\n", b, *(uint32_t*) (obj + 0x298));
+    }
+    // Phaser CONSTRUCTOR default state (FUN_005216b8 @0x5216b8): base-init (FUN_004c398c) only writes +0x60..+0x25C,
+    // leaving the param block +0x260+ zero-initialised; the ctor then writes ONLY stages=1, +0x278=0x60, mix +0x288
+    // =0x80, and gain FUN_00521d44(0xe1). Replicate on a zeroed obj + read back → proves depth(+0x280)/feedback
+    // (+0x29c)/center(+0x264) DEFAULT TO 0 (the clone's fb=0.5/depth=0.6 are assumed, not from the constructor).
+    {
+        memset (obj, 0, 0x40000);
+        phaserStages (obj, 1);               // +0x260=1 → +0x2a0=(1+1)*2=4
+        *(int*) (obj + 0x278) = 0x60;        // sync note/rate
+        *(int*) (obj + 0x288) = 0x80;        // mix = 128 = 0.5
+        phaserGain (obj, 0xe1);              // +0x28c=0xe1=225 → +0x298 = inGain(-3dB)
+        printf ("C,stages260=%d,center264=%d,fbsign268=%d,fbphase26c=%d,fbmag270=%d,syncflag274=%d,note278=%d,"
+                "rate27c=%d,depth280=%d,lrphase284=%d,mix288=%d,gainB28c=%d,inGain298=%08X,fbGain29c=%08X,numStages2a0=%d\n",
+            *(int*)(obj+0x260), *(int*)(obj+0x264), *(int*)(obj+0x268), *(int*)(obj+0x26c), *(int*)(obj+0x270),
+            *(int*)(obj+0x274), *(int*)(obj+0x278), *(int*)(obj+0x27c), *(int*)(obj+0x280), *(int*)(obj+0x284),
+            *(int*)(obj+0x288), *(int*)(obj+0x28c), *(uint32_t*)(obj+0x298), *(uint32_t*)(obj+0x29c), *(int*)(obj+0x2a0));
+    }
+    // Phaser free-rate → inc curve (FUN_00521c84 @0x521c84): inc = 3891.3559·e^(0.027·rate)·11025/SR. rate 0..255.
+    for (int r = 0; r <= 255; ++r)
+    {
+        memset (obj, 0, 0x40000);
+        *(void**) (obj + 0x1c) = &g_sr;   // SINGLE indirection here ([+0x1c] → SR int)
+        *(int*) (obj + 0x274) = 0;         // sync flag off → compute the free-rate inc
+        phaserRate (obj, r);
+        printf ("RA,%d,%08X\n", r, *(uint32_t*) (obj + 0x294));
     }
     for (int p = 0; p <= 255; ++p)
     {

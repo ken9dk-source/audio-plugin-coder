@@ -599,6 +599,18 @@ int main()
              "gain FUN_00521d44: inGain=2^((b−255)/60)·2^30 — b=255→0dB(0x40000000), b=225→−3dB(0x2D413CCD), b=0→−25.6dB(0x035D13F3)");
     }
 
+    // ── FX. Phaser free-rate curve — engine rate LUT (FUN_00521c84) == dumped; quantify vs the old fRate²·20 ──
+    {
+        const bool ok = (vazfx::kPhaserRateLUT[0] == 0x000003CDu) && (vazfx::kPhaserRateLUT[255] == 0x000E82A8u);
+        auto vf = [] (int b) { return (double) vazfx::kPhaserRateLUT[b] * 44100.0 / 4294967296.0; };   // VAZ Hz
+        auto of = [] (int b) { const double f = b / 255.0; return f * f * 20.0; };                       // old clone Hz
+        auto s = [] (double x) { return std::to_string (x).substr (0, 5); };
+        row ("fx_phaser_rate_curve", ok ? "VERIFIED (dumped LUT)" : "DEVIATION",
+             "VAZ free rate EXPONENTIAL 0.010..9.76 Hz (was fRate²·20). b{64,128,192}: VAZ " + s (vf (64)) + "/" + s (vf (128))
+             + "/" + s (vf (192)) + " vs old " + s (of (64)) + "/" + s (of (128)) + "/" + s (of (192)) + " Hz ("
+             + s (of (64) / vf (64)) + "/" + s (of (128) / vf (128)) + "/" + s (of (192) / vf (192)) + "x too fast)");
+    }
+
     // ── DIAG. Phaser param sweep — feedback/depth/mix/gain RESPONSE across the full range (not just default),
     //    each point bit-exact vs the independent FUN_005218d8 transcription so the numbers reflect VAZ's render. ──
     {

@@ -11,6 +11,7 @@
 #include <cmath>
 #include "../../VAZClone/reference/vaz_phaser_coef_lut.h"
 #include "../../VAZClone/reference/vaz_phaser_gain_lut.h"
+#include "../../VAZClone/reference/vaz_phaser_rate_lut.h"
 
 struct VazPhaserEngine
 {
