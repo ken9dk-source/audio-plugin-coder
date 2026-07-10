@@ -341,4 +341,23 @@ approximate maps (structure+addresses documented); status TILNÆRMET, not VERIFI
 > **Scope:** all 7 requested effects audited (Flanger, Reverb, Chorus, Phaser, Delay, Autopan, Decimator).
 > Render loops for the 6 non-Flanger effects were force-decompiled from the virtual methods (`vaz_reverb_render.c`,
 > `vaz_fx_render4.c`, `vaz_delay_render.c`; `vaz_fx_all.c` for Chorus). Constants → `reference/vaz_fx_constants.h`.
-> Collection phase — **no DSP fixes applied.** EQ + TFXComp remain for a later pass.
+
+## 12. DEAD-ZONE AUDIT (continuous→discrete param mapping errors, all 7 FX)
+
+A dead zone = a continuous 0..1 float param that maps (via `round(f·N)`) to a **small** discrete set, so a range of
+the knob lands on the same value and "does nothing". Threshold: N ≲ 30 is perceptible; N ≥ ~256 (`round(f·255)`) is
+effectively continuous (≈0.4 %/step) and fine. Checked EVERY param in all 7 FX:
+
+| FX | Params → discrete-N | Verdict |
+|---|---|---|
+| **Phaser** | **Stages → 6** (2/4/6/8/10/12) | ⚠️→✅ **FIXED** — was continuous float (the reported bug); now a 6-step param |
+| **Decimator** | **Bit Depth → 16** (1..16-bit) | ⚠️→✅ **FIXED** — was continuous float (same class); now a 16-step param. sample_rate→256 = fine |
+| Reverb | size/damp/mix → 256 each | ✅ fine (smooth) |
+| Chorus | delay→256; rate/rate2/depth/lr/mix/gain → continuous fields | ✅ fine |
+| Flanger | delay/fb/rate/depth/lr/mix/gain → continuous; period → Choice | ✅ fine |
+| Delay | fb/tone→256; delay→ms, wet/dry→Q30 continuous; mode/note → Choice | ✅ fine |
+| Autopan | left/right/rate → continuous; waveform/sync → Bool | ✅ fine |
+
+Only two params had dead zones (Stages, Bit Depth) — both now discrete stepped params. All other small selectors were
+already `AudioParameterChoice`/`Bool`; all knobs map to ≥256 steps or continuous fields. Oracle: `fx_phaser_stages_diag`
+(guards Stages), `fx_decimator_render` (Bit Depth unchanged in DSP). — EQ + TFXComp remain for a later pass.

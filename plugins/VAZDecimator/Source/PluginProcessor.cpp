@@ -22,8 +22,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout VAZDecimatorAudioProcessor::
         return std::make_unique<AudioParameterFloat>(
             ParameterID { id, 1 }, name, NormalisableRange<float>(0.0f, 1.0f), def);
     };
-    layout.add (pct (ParameterIDs::sample_rate, "Sample Rate", 1.0f));   // 1 = full SR (transparent)
-    layout.add (pct (ParameterIDs::bit_depth,   "Bit Depth",   1.0f));   // 1 = 16-bit (transparent)
+    layout.add (pct (ParameterIDs::sample_rate, "Sample Rate", 1.0f));   // continuous → 256 rate steps (smooth)
+    // Bit Depth: DISCRETE 16-step control (was a continuous float → bits=round(1+bitP·15) = 16 values with dead
+    // zones, same class as the Phaser Stages bug). Now snaps to 1..16 bits directly.
+    layout.add (std::make_unique<AudioParameterFloat>(
+        ParameterID { ParameterIDs::bit_depth, 1 }, "Bit Depth",
+        NormalisableRange<float>(1.0f, 16.0f, 1.0f), 16.0f,
+        AudioParameterFloatAttributes().withStringFromValueFunction (
+            [] (float v, int) { return juce::String (juce::roundToInt (v)) + "-bit"; })));
     return layout;
 }
 
@@ -51,7 +57,7 @@ void VAZDecimatorAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
     // Map the two knobs onto VAZ's .v2p decimator fields:
     const int srParam = juce::jlimit (0, 255, (int) std::lround (srP * 255.0f));   // SR-reduction (+0x260) → rate
-    const int bits    = juce::jlimit (1, 16,  (int) std::lround (1.0f + bitP * 15.0f)); // bit depth (+0x264), 1..16 (VAZ dflt 16)
+    const int bits    = juce::jlimit (1, 16,  (int) std::lround (bitP));  // bitP is now 1..16 (discrete step) → bit depth (+0x264)
     engine.setParams (curSR, srParam, bits);
 
     constexpr double kFS = 8388608.0;   // Q23 full-scale (VAZ samples are ±2^23)
