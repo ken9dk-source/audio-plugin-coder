@@ -1,6 +1,8 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "ParameterIDs.hpp"
+#include "../../VAZClone/reference/vaz_autopan_rate_lut.h"
+#include <cmath>
 
 VAZAutopanAudioProcessor::VAZAutopanAudioProcessor()
     : AudioProcessor (BusesProperties()
@@ -73,7 +75,14 @@ void VAZAutopanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         lfoInc = ((bpm / 60.0) / periodBeats[p]) / sr;
     }
     else
-        lfoInc = (0.1 + (double) fRate * (double) fRate * 19.9) / sr;   // free: 0.1 .. 20 Hz
+    {
+        // FREE rate = EXACT VAZ curve (FUN_00517ee0 @0x517ee0, dumped): inc = 30.4012·e^(0.036·b)·11025·256/SR →
+        // freq = inc·SR/2^32 (SR-independent), EXPONENTIAL 0.020..193.8 Hz. Was 0.1+fRate²·19.9 (square law, capped
+        // at 20 Hz). knob 0..1 → byte → freq via the dumped LUT. See vaz_autopan_rate_lut.h.
+        const int b = juce::jlimit (0, 255, (int) std::lround (fRate * 255.0f));
+        const double freqHz = (double) vazfx::kAutopanRateLUT[b] * 44100.0 / 4294967296.0;
+        lfoInc = freqHz / sr;
+    }
     const double twoPi  = juce::MathConstants<double>::twoPi;
 
     const int   n     = buffer.getNumSamples();

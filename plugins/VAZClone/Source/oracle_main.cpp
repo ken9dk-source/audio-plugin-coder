@@ -14,6 +14,7 @@
 #include "../../VAZChorus/Source/VazChorusEngine.h"         // the REAL clone chorus engine (tested below)
 #include "../../VAZPhaser/Source/VazPhaserEngine.h"          // the REAL clone phaser engine (tested below)
 #include "../../VAZDelay/Source/VazDelayEngine.h"            // the REAL clone delay engine (tested below)
+#include "../reference/vaz_autopan_rate_lut.h"                // dumped autopan LFO rate curve (FUN_00517ee0)
 #include <cstdint>
 #include <cstdio>
 #include <cmath>
@@ -621,6 +622,18 @@ int main()
              "VAZ chorus LFO1/2 (FUN_00518ffc/98 → +0x288/+0x290) == phaser rate curve EXP 0.010..9.76 Hz (was fRate²·6). "
              "b{64,128,192}: VAZ " + s (vf (64)) + "/" + s (vf (128)) + "/" + s (vf (192)) + " vs old "
              + s (of (64)) + "/" + s (of (128)) + "/" + s (of (192)) + " Hz");
+    }
+
+    // ── FX. Autopan LFO rate — engine rate LUT (FUN_00517ee0) == dumped; quantify vs old 0.1+fRate²·19.9 ──
+    {
+        const bool ok = (vazfx::kAutopanRateLUT[0] == 0x0000079Au) && (vazfx::kAutopanRateLUT[255] == 0x012003B7u);
+        auto vf = [] (int b) { return (double) vazfx::kAutopanRateLUT[b] * 44100.0 / 4294967296.0; };
+        auto of = [] (int b) { const double f = b / 255.0; return 0.1 + f * f * 19.9; };   // old autopan approx
+        auto s = [] (double x) { return std::to_string (x).substr (0, 5); };
+        row ("fx_autopan_rate_curve", ok ? "VERIFIED (dumped LUT)" : "DEVIATION",
+             "VAZ autopan rate (FUN_00517ee0 → +0x27c) = 30.4012·e^(0.036·b)·11025·256/SR, EXP 0.020..193.8 Hz (was "
+             "0.1+fRate²·19.9, capped 20 Hz). b{64,128,192}: VAZ " + s (vf (64)) + "/" + s (vf (128)) + "/" + s (vf (192))
+             + " vs old " + s (of (64)) + "/" + s (of (128)) + "/" + s (of (192)) + " Hz");
     }
 
     // ── DIAG. Phaser param sweep — feedback/depth/mix/gain RESPONSE across the full range (not just default),
