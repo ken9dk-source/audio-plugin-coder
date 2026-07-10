@@ -215,16 +215,17 @@ VazOracle `fx_chorus_render` BIT-EXACT over impulse+noise, modes 1&2).
 | 3 tap phases 0/120/240° | LUT step 0x55; phase ±0x55555554 | now identical | ✅ ported exactly |
 | Mix / stereo law | linear, gain[+0x280]; stereo via lrPhase[+0x27c] | now identical (output filter transcribed) | ✅ ported exactly |
 | **2-LFO rate (dual-LFO)** | inc1 = 80-bit(rate [+0x268], FUN_00518ffc @0x518ffc); inc2 = 80-bit(**own param [+0x274]**, FUN_00519098 @0x519098) — two INDEPENDENT LFO rates | ✅ **FIXED (struct)** — added independent `rate2` param (LFO2), inc2 = f(rate2) not inc1·1.27 → true free dual-LFO beating. Wired: layout + processBlock + WebSliderRelay + index.html slider | dual-LFO **FIXED**; the shared rate→inc *curve* f() stays **TILNÆRMET-ACCEPTERET** (below) |
-| rate→inc curve + depth/level scalings | f(param) is 80-bit x87 (FUN_00518ffc/FUN_00519098/FUN_005208f0/FUN_0051a5fc); depth[+0x26c]/level2[+0x278] = raw params | **APPROX** rate≈fRate²·6, depth≈f·0.04·sr | **TILNÆRMET-ACCEPTERET** — 80-bit AND leaf setters fault standalone (div-by-0 on DllMain-uninit global; only reverb's self-contained FUN_00522c60 was dumpable). Sub-audible residual (continuous mod rates, not discrete pitch/length). No object-ctor harness (same ctor→VMT blocker as Osc3). |
+| rate→inc curve | FUN_00518ffc (LFO1→+0x288) / FUN_00519098 (LFO2→+0x290): inc = 3891.3559·e^(0.027·b)·11025/SR | ✅ **FIXED (dumped)** — `kPhaserRateLUT[b]·44100/SR`, EXP 0.010..9.76 Hz (was fRate²·6, 6.7× too fast). `fx_chorus_rate_curve` | **RESOLVED** — the "leaf setters fault standalone (div-by-0)" claim was WRONG: both read SR via [+0x1c]→[.] single indirection, dumpable (supply &g_sr). Chorus dump == phaser dump (identical VAZ curve). |
+| depth/level scalings | 80-bit x87 (depth[+0x26c]/level2[+0x278] raw params) | **APPROX** depth≈f·0.04·sr | TILNÆRMET (sub-audible; not a rate curve) |
 | Sine LUT (mode 0) | +0x2a8 256-entry, 80-bit-built | `sin()` double LUT | TILNÆRMET (80-bit residual; modes 1/2 bit-exact) |
 | Sample format | integer Q-format (all `>>0x20`) | float | TILNÆRMET | @0x518ad8 |
 | Params | delay/rate/depth/lr_phase/mix/gain + 2 mode fields (+0x264,+0x270) + base(+0x260) | delay/rate/depth/lr_phase/mix/gain/waveform/sync/period | VERIFICERET (superset; clone adds sync — VAZ sync TBD) | createParameterLayout:24-35 |
 
 **Status:** the topology (mono line + 3 combined taps + tap-diff stereo), base delay, and waveform selection are
 now VAZ-exact (`VazChorusEngine`, `fx_chorus_render`/`fx_chorus_basedelay`/`fx_chorus_waveform_map` all green).
-**Status:** dual-LFO structure ✅ FIXED (independent `rate2` param). The rate→inc *curve* + depth/lr/gain scalings
-stay TILNÆRMET-ACCEPTERET (80-bit, not isolable-dumpable, sub-audible for continuous mod rates). Mode-0 sine LUT is
-an 80-bit residual (modes 1/2 bit-exact).
+**Status:** dual-LFO structure ✅ FIXED (independent `rate2` param) + rate→inc *curve* ✅ **FIXED (dumped, 2026-07)** —
+both LFO rates now use the exact `kPhaserRateLUT` (chorus dump == phaser dump). Only depth/lr/gain scalings + the
+mode-0 sine LUT remain 80-bit residuals (sub-audible / modes 1&2 bit-exact).
 
 ### FX-D — Phaser (`TFXPhaser`, render `FUN_005218d8` @0x5218d8) — ✅ **FIXED (bit-exact)** · fixed-point (Q30)
 
@@ -253,7 +254,7 @@ Clone now ships `VazDelayEngine` (fixed-point port; render bit-exact vs an indep
 | Feedback damping | 1-pole `w = x + (state−x)·k`, k = damp/2^28 (Q28, FUN_0051c298 80-bit) | now uses the **runtime-dumped** tone→damp LUT (`vaz_delay_damp_lut.h`, 256 vals, SR-adjusted) | ✅ **FIXED** — `fx_delay_maps` VERIFIED (was a too-bright approx: VAZ k=0.989..0.9999, always dark) |
 | Q-formats | feedback tap·fb/256 (fb 0..255), dry/wet Q30 (v·g/2^30) | now identical | ✅ ported exactly |
 | Delay-time (free) | **LINEAR** in ms: delayL = ms·(SR/1000)+((SR/1000)>>4) (FUN_0051c1cc @0x51c1cc, INTEGER) | now exact (was logarithmic 5·1200^p) | ✅ **FIXED** — `fx_delay_maps` VERIFIED (extracted, not dumped — it's integer) |
-| Delay-time (sync) | 80-bit BPM (FUN_0051b9b0 @0x51b9b0, FUN_00402bf4) | note-table × musical mult | TILNÆRMET-ACCEPTERET (80-bit BPM, like flanger/phaser sync) |
+| Delay-time (sync) | `len = SR·60·note(+0x270)/(24·hostTempo)·expTbl[128+sub(+0x274)]` (FUN_0051b9b0 @0x51b9b0). hostTempo = **live** host read (FUN_004a0a68 @0x4a0a68: `[+0x28→host+0x7d]?[+0x68]:[+4]`); expTbl = 2^((i−128)/128) (FUN_0051d784-built ROM @0x6f8a60, dumped) | note-table × musical mult (BPM-locked) | **CHARACTERIZED — no static curve exists** (host-BPM-dependent, not a rate inc). Static pieces recovered (exp mult table + /24,·60 consts); clone is grid-correct. NOT dumpable as a LUT: hostTempo is per-block runtime state, PROVEN (exp table reads 0 without DllMain; FUN_004a0a68 reads a live struct). |
 | Buffer | next_pow2(sr·2550/1000) (FUN_0051bf78) | now identical | ✅ exact |
 
 ### FX-F — Autopan (`TFXAutopan`, render `FUN_00517d34` @0x517d34) — AUDITED · fixed-point · **cleanest match**
@@ -263,7 +264,7 @@ Clone now ships `VazDelayEngine` (fixed-point port; render bit-exact vs an indep
 | Pan law | **LINEAR** — pan table[i]=(i/255)·0.5·(2^31−1)=(i/255)·2^30 (ctor FUN_00517ae4 @0x517b1c, **no cos/sin/sqrt**); gainR=table[idx]=pan, gainL=table[255−idx]=1−pan | was `gL=cos, gR=sin` (equal-power) → **fixed to gL=1−pan, gR=pan** | ✅ **FIXED/VERIFICERET** — my earlier "equal-power" was WRONG; disasm proves LINEAR. `fx_autopan_panlaw` VERIFIED |
 | LFO waveform | mode0 triangle (`\|ph\|>>9`) · mode1 256-entry sine LUT (+0x684) | triangle default · sine bool | VERIFICERET (matches) | @0x517d34:699-708 vs .cpp:88-89 |
 | Pan range | pos = min[+0x260] + lfo·(max[+0x264]−min) | leftP + lfo·(rightP−leftP) | VERIFICERET | @0x517d34:709 vs .cpp:90 |
-| Rate | inc[+0x27c] (map not extracted) | 0.1..20 Hz (f²) / sync | **PÅSTÅET** (VAZ rate map not pinned) | .cpp:76 |
+| Rate | inc[+0x27c] = 30.40121770014134·e^(0.036·b)·11025·256/SR (FUN_00517ee0 @0x517ee0; SR via [+0x1c]→[.]) | ✅ **FIXED (dumped)** — `kAutopanRateLUT[b]·44100/SR`, EXP 0.020..193.8 Hz (was 0.1+f²·19.9, capped 20 Hz, ~7× off). `fx_autopan_rate_curve` VERIFIED | .cpp:76 · the note's FUN_005208f0 is the autopan GAIN, not the rate |
 
 ### FX-G — Decimator (`TFXDecimator`, render `FUN_0051dbcc` @0x51dbcc) — ✅ **FIXED (fix #3)** · fixed-point
 

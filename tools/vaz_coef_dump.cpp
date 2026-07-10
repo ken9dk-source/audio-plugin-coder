@@ -100,6 +100,17 @@ static void phaserRate (void* self, int r)
         call f
     }
 }
+// FUN_0051d784(void): refcount-guarded builder of the shared exp2 ROM table at 0x6f8a60 (257 floats, used by the
+// decimator AND the delay-sync multiplier at 0x6f8c60 = table[128]). _DAT_006f8a5c starts 0 in the zeroed image →
+// the (==0) branch builds the table; it then calls FUN_004c40c4(*PTR_0052bd84,...) which faults on the garbage
+// PTR — but the TABLE IS ALREADY BUILT by then, so a local __try lets us read it back. No args.
+static void buildExpTable ()
+{
+    void* f = fnv (0x51d784);
+    __asm {
+        call f
+    }
+}
 // FUN_00518ffc(this=EAX, EDX=rateByte): chorus LFO1 rate → inc[+0x288]. SAME exp curve as the phaser rate
 // (3891.3559·e^(0.027·b)·11025/SR); SR via [+0x1c]→[.] SINGLE indirection; no sync guard (unconditional compute).
 static void chorusRate1 (void* self, int r)
@@ -143,9 +154,15 @@ static void phaserGain (void* self, int b)
         call f
     }
 }
-// NOTE: the chorus/phaser/autopan LFO-rate INCS (leaf setters FUN_00518ffc/FUN_00519098/FUN_005208f0/FUN_0051a5fc)
-// are NOT dumpable — 80-bit AND they divide by DllMain-initialised global/object state = 0 standalone (int div-by-0).
-// Only self-contained setup methods (reverb FUN_00522c60, phaser FUN_00521aa0 — SR from the object) work.
+// NOTE (CORRECTED 2026-07): the earlier claim that the chorus/autopan LFO-rate incs "crash standalone / not dumpable"
+// was WRONG — nobody had traced the indirection chain. Phaser FUN_00521c84, chorus FUN_00518ffc/FUN_00519098 and
+// autopan FUN_00517ee0 ALL read SR via [+0x1c]→[.] SINGLE indirection and are otherwise self-contained: supply
+// [+0x1c]=&g_sr and they compute the exact inc (no div-by-0). All four LFO rate curves are now dumped above.
+// (The note's FUN_005208f0 is the autopan GAIN 2^((b−255)/60), not a rate; FUN_0051a5fc is a stale early-RE addr.)
+// The DELAY SYNC is genuinely NOT a static curve: FUN_0051b9b0 @0x51b9e2 does `mov eax,[ebx+0x28]; call FUN_004a0a68`
+// where FUN_004a0a68 @0x4a0a68 returns `[hostStruct+0x7d] ? [hostStruct+0x68] : [hostStruct+4]` = the LIVE per-block
+// host tempo. length = SR·60·note/(24·hostTempo)·expTbl[128+sub]; the exp table IS recoverable (FUN_0051d784 above),
+// but the hostTempo is runtime state, not a fixed pointer → no static rate LUT exists for the delay.
 
 int main ()
 {
@@ -205,6 +222,18 @@ int main ()
         memset (obj, 0, 0x40000);
         phaserGain (obj, b);
         printf ("G,%d,%08X\n", b, *(uint32_t*) (obj + 0x298));
+    }
+    // Delay sync multiplier table: 0x6f8c60 = table[128] of the exp2 ROM at 0x6f8a60 (FUN_0051d784-built, NOT static
+    // → reads 0 without running its init). Build it via FUN_0051d784 in a LOCAL __try (it faults on a trailing call
+    // AFTER building the table), then read back. Used in FUN_0051b9b0: len = SR·60·note/(24·hostTempo)·tbl[128+sub].
+    __try { buildExpTable (); } __except (EXCEPTION_EXECUTE_HANDLER) { printf ("// exp-table build faulted after fill (expected)\n"); }
+    {
+        const float* base = (const float*) fnv (0x6f8a60);   // exp2 table base
+        const float* tbl  = (const float*) fnv (0x6f8c60);   // = base[128], delay-sync multiplier slice
+        printf ("EXP2 base[0..3]=%g %g %g %g  base[128..131]=%g %g %g %g\n", base[0], base[1], base[2], base[3], base[128], base[129], base[130], base[131]);
+        printf ("DLYTBL:");
+        for (int i = 0; i < 24; ++i) printf (" %g", tbl[i]);
+        printf ("\n");
     }
     // Phaser CONSTRUCTOR default state (FUN_005216b8 @0x5216b8): base-init (FUN_004c398c) only writes +0x60..+0x25C,
     // leaving the param block +0x260+ zero-initialised; the ctor then writes ONLY stages=1, +0x278=0x60, mix +0x288
