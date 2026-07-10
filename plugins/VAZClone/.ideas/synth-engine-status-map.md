@@ -1,0 +1,147 @@
+# VAZ 2010 → clone — SYNTH-ENGINE STATUS MAP (2026-07-10)
+
+**Scope:** the synth *core* only — oscillators, filters, envelopes, voice/unison allocation, mod-matrix, and the
+non-FX modulation LFOs. (The 7 insert FX are mapped separately in `vaz-full-gap-inventory.md` §10–12.)
+**This is a status map, not a reimplementation.** No DSP was changed in this pass.
+
+**Status categories** (same as the FX matrix):
+
+| Tag | Meaning |
+|-----|---------|
+| **BIT-EXACT** | clone == VAZ per-sample, proven by a deterministic oracle diff (VazOracle) or line-by-line transcription of the disassembled integer recurrence. |
+| **VERIFICERET** | extracted from the actual decompile/disasm and validated (address-cited, or integer port validated vs *real* VAZ by spectral diff) — but not a per-sample oracle bit-null. |
+| **PÅSTÅET** | asserted / structurally plausible but **not** traced to VAZ's code (a guess, like the FX fb/depth defaults turned out to be). |
+| **ANTAGET** | a placeholder value/curve with no VAZ basis. |
+| **TILNÆRMET** | knowingly differs (float port of integer DSP, or a deliberate approximation). |
+| **MANGLER** | not implemented. |
+
+Sources: decompile in `tools/vaz_big.c` (voice/engine render `FUN_004dbddc` @0x4dbddc, 10 073 bytes),
+`tools/vaz_voice.c`, `tools/vaz_osc.c`, `tools/vaz_prims.c`; clone in `plugins/VAZClone/Source/`
+(`Synth.h`, `SynthVoice.h`, `VAZType*.h`, `VAZEnvTables.h`); coef/env/wavetables dumped from a *running* Vaz2010.exe
+by `tools/dump_vaz_tables.py`. Oracle: `plugins/VAZClone/Source/oracle_main.cpp` (build `VazOracle`).
+
+---
+
+## 1. Precision matrix
+
+### 1.1 Oscillators
+| Component | VAZ ref | Clone | Status | Method |
+|-----------|---------|-------|--------|--------|
+| Phase accumulator (32-bit free-run) | +0x110/+0x114 | `Synth.h` OscBlock | VERIFICERET | address citation |
+| Wavetable interp (2-pt linear) | `vaz_big.c`:171-173 (static tbl `DAT_005441d4`) | `Synth.h`:76 | VERIFICERET | line-by-line |
+| Waveform generation (saw/pulse = algorithmic, not tabled) | `vaz_big.c`:176-320 branches | `Synth.h` osc switch | VERIFICERET (read) — **no numeric oracle diff yet** | address citation |
+| Sample-osc interp (4-pt cubic) | `vaz_big.c`:979-991 | `Synth.h`:108 | VERIFICERET | line-by-line |
+| Pulse-width map | pulse path **not located** | `Synth.h`:160-169 | **PÅSTÅET** | square-at-0.5 asserted, VAZ path not found |
+| Multi-saw detune → cents | `FUN_004dbddc`:386-432 (not decoded to cents) | `Synth.h`:171-184 | **TILNÆRMET** | from FFT measurement, not the binary |
+| Osc3 audio-rate footage | `FUN_004dbddc`:~1310 ratio + LFO1 rateVal | mixer opt, `2^((b−144)/48)` | ⏸ **PARKED (anchor-consistent)** | 2 operand hypotheses survive; DSP-struct VMT not RE'd |
+
+### 1.2 Filters (6 families / 22 modes) — ⚠ matrix §3 was STALE; reconciled with the filter work below
+| Engine | Factory-patch share | Clone | Status | Method |
+|--------|--------------------|-------|--------|--------|
+| Cutoff map `fc=exp(10.24·idx/1024)` + dispatch (mode=+0x258, tap=mode&3) + 2D coef idx `ri·1024+ci` | — | `SynthVoice`/`VAZMultiFilter` | VERIFICERET | address citation |
+| **A** Lowpass (mode 0) | **82%** | `VAZTypeA.h` + tables | **BIT-EXACT** | line-by-line + spectral-validated vs real |
+| **R** cubic cascade (17/19/20) | 13% | `VAZTypeR.h` + tables | **BIT-EXACT** | line-by-line |
+| **C** 2P/4P + Separation (2/3/8/14) | **40%** | `VAZTypeC.h` (reuses R) | **VERIFICERET** | integer port, spectral-validated (`test_typec.cpp`) |
+| **B** A-HP/BP + B LP/BP/HP (1/4/5/6/7) | ~24% | `VAZTypeB.h` (reuses A) | **VERIFICERET** | integer port, spectral-validated (`test_typeb.cpp`) |
+| **K** Sallen-Key (15/16) | small | `VAZTypeK.h` + tables | **VERIFICERET** | integer port, spectral-validated |
+| **D-HP** (12) | small | `VAZTypeD.h` + tables | **VERIFICERET** | integer port, spectral-validated |
+| Cutoff **base smoother** (`DAT_006d45e4`) | all | `SynthVoice.h`:148 | **BIT-EXACT** | VazOracle `cutoff_smoother` |
+| D-LP/BP, D-HP+LP, Comb | **0 factory patches** | `Synth.h` FLOAT | TILNÆRMET | float fallback |
+
+> **Reconciliation:** matrix §3 (line 73-83) still tags B/C/D/K as *PÅSTÅET*. The filter memory + commits (2026-06-12,
+> `test_type{b,c}.cpp`) upgraded them to **integer ports validated vs real VAZ** (spectral). They are **VERIFICERET**,
+> not guesses. Only A + R are line-by-line *and* would trivially bit-null in an oracle; B/C/K/D-HP still lack a
+> deterministic per-sample oracle primitive (spectral-only) → the one honest gap to "BIT-EXACT" for them.
+
+### 1.3 Envelopes
+| Component | VAZ ref | Clone | Status | Method |
+|-----------|---------|-------|--------|--------|
+| ADSR per-sample recurrence (`L += rate·(target−L)>>32`, Q30) | `vaz_big.c`:405-443 | `VAZEnv::getNextSample` | **BIT-EXACT** | VazOracle `envelope_step` |
+| Rate tables (attack `+12`, decay/release; Q32) | `DAT_006db7e8`/`+0x818` | `VAZEnvTables` | VERIFICERET | runtime dump == clone |
+| Reset stage-0 ramp | `DAT_006dc0bc` | `Synth.h` PreAttack | VERIFICERET | raw const + address |
+| Curve-mode sustain LUT | `DAT_006dc0c0` region | `kSusCurve` | VERIFICERET | dumped table |
+| env1-as-mod-source polarity | bipolar `(L>>6)−0x800000` | unipolar 0..1 | **PÅSTÅET / known deviation** | VAZ bipolarity not matched |
+
+### 1.4 Voice / unison / mixer / MIDI
+| Component | VAZ ref | Clone | Status | Method |
+|-----------|---------|-------|--------|--------|
+| **Detune spread** (poly `DAT_0052b168`, unison `(uniDetune<<9)/N`, order `DAT_0052b0ec`) | `FUN_004e0618` | `reference/vaz_detune.h` | **BIT-EXACT** | VazOracle `detune_poly`/`detune_unison` |
+| Voices = Dynamic / fixed 1..32 | `FUN_004de5e0` clamp [1,0x20] | `voiceLimit`/`pickVoice` | VERIFICERET | address + count-load follow-up |
+| Voice steal = oldest-busy | `FUN_004db3a8`:80-98 | `pickVoice` | VERIFICERET | address citation |
+| Mono note-priority Hi/Lo/Last | +0x2e0 | `notePrio` | VERIFICERET | address citation |
+| Mixer 3-ch + pre/post | `vaz_big.c`:1020-1054 | `SynthVoice`:274-278 | VERIFICERET | address citation |
+| Mixer generic src per ch | +0x218/28/38 | 3 hardcoded opts | TILNÆRMET | clone restricts src |
+| Pitch-bend / Sustain CC64 | `FUN_004db958`/`FUN_004db8d4` | handlers | VERIFICERET | address citation |
+| Output soft-clip (`x−x³`, drive `256/(256−od)`) + per-voice DC-block | render :1647-1681 / `DAT_006df6c4` | `SynthVoice.h` | VERIFICERET | decoded from render |
+| Dynamic voice-free on env-close | `FUN_004de6cc` (+0x78) | full-pool + release-free | TILNÆRMET | semantics differ |
+
+### 1.5 Modulation matrix
+| Component | VAZ ref | Clone | Status | Method |
+|-----------|---------|-------|--------|--------|
+| Mod sources bipolar (env/CC/AT) | `vaz_big.c`:445,541; `FUN_004db9b8` | `SynthVoice` mv()/ModBus | VERIFICERET | binary + render demo |
+| 3-slot matrix per dest (src/depth/sign) | +0x218/21c/220 | cut/fm/amp slots | VERIFICERET | address citation |
+| Depth = \|v\| + direction bit | `FUN_004de75c` | `loadV2P` SD() | VERIFICERET | address + VazV2PAudit |
+| velocity / keytrack polarity | not confirmed | unipolar | **PÅSTÅET** | VAZ polarity not verified |
+
+### 1.6 Modulation LFOs (non-FX) — **least-verified subsystem**
+| Component | VAZ ref | Clone | Status | Method |
+|-----------|---------|-------|--------|--------|
+| LFO sync rate base (24 PPQN) | `FUN_004a073c` (`X·15360/(bpm·24)`) | `lfoRate` lambda | **PÅSTÅET** | structure only; ratio table not diffed |
+| 8 waveforms | LFO generator **not located** | `ModLFO` | **PÅSTÅET** | RE'd early, never re-verified vs binary |
+| LFO3 rate table | `DAT_006dc4c0` (255, dumped) | `lfo3` | **PÅSTÅET** | dumped, not diffed |
+
+---
+
+## 2. Can original behaviour be dumped as reference audio? (the key question)
+
+Three routes were assessed; the answer differs from the FX case.
+
+**Route A — isolate & call the render in a LoadLibraryEx harness (like the FX renders/setters): NOT a leaf, high-effort.**
+The only render is `FUN_004dbddc` @0x4dbddc — a **10 073-byte monolith** that renders the *whole engine*, not one voice
+(`FUN_004db698` next to it is voice-*allocation*, not DSP). Traced dependencies (why a naive call can't work):
+- **Host/tempo struct** at `param_1+0x20/+0x24/+0x28`, read via `FUN_004a0a68` (the same live-tempo getter that makes
+  the delay-sync non-static) — needs a populated `VstTimeInfo`-like struct, not a fixed pointer.
+- **Voice array** at `param_1+0x2534` and a **MIDI event ring** at `+0x2530/+0x2531` — the render *dequeues note events*;
+  nothing sounds without a constructed voice pool + a queued note-on.
+- **Runtime-built coef/env tables** (`0x6d67e8` filter, `0x6db7e8` env, wavetable region) — these read **zero** without
+  their init (confirmed pattern: the delay exp-table @0x6f8a60 read all-zeros until `FUN_0051d784` ran). `dump_vaz_tables.py`
+  exists *precisely because* they are runtime-built, not static.
+- **Verdict:** callable *in principle* (construct the engine object → run the table-init builders the way `FUN_0051d784`
+  was called → fake a host struct → queue a note → call render), but that is a **multi-step mini-project**, not the quick
+  one-field-+-SR leaf dump the FX setters were. Documented as evidence, not assumed.
+
+**Route B — transcription-diff (the `fx_*_render` method): the PROVEN reference, no VAZ execution needed. ← recommended.**
+The FX oracles never *ran* VAZ; they transcribed the decompiled render into independent C++ and diffed the clone over
+impulse+noise. For the synth this is **already** what proves the core: `envelope_step`, `detune_poly`/`detune_unison`,
+`cutoff_smoother` are **oracle BIT-EXACT**. Extending the same primitive to the unproven items (osc waveform generation,
+pulse-width, filter B/C/K/D-HP, the mod-LFO waveforms) closes them to a **per-sample bit-null without ever running VAZ** —
+the exact recurrences are in `vaz_big.c`.
+
+**Route C — drive the real standalone (`tools/vaz_auto/` + `tools/abtest/` + `dump_vaz_tables.py`): exists, but noisy.**
+Loopback-records `Vaz2010.exe` and `ReadProcessMemory`s its tables. It produced the embedded coef/env/wavetables and the
+filter spectral validation, but is **not sample-clean** (≈0.56 s onset offset + a `harmonic_profile` confound — see the
+A/B caveat). Good for table dumps and coarse spectral A/B, **not** for a bit-null reference.
+
+---
+
+## 3. Prioritised gap list (what needs disassembly to close, hardest-value first)
+
+1. **Mod-LFOs (§1.6) — least verified, and a direct parallel to the just-finished FX rate work.** The FX LFO-rate setters
+   were wrongly written off as "not dumpable" until the `[+0x1c]→[.]` SR chain was traced. Do the same for the synth LFO:
+   disassemble `FUN_004a073c` (rate) + the waveform generator — check whether the rate/inc is a dumpable `e^(k·b)·…/SR`
+   curve like the FX LFOs, and transcribe the 8 waveforms for an oracle diff. **Top target.**
+2. **Filter B/C/K/D-HP → BIT-EXACT.** Already VERIFICERET integer ports (spectral); add deterministic oracle primitives
+   (transcribe the per-sample recurrence, diff vs the clone) so they bit-null like A/R. Closes ~64% of factory patches to
+   the top tier.
+3. **Osc pulse-width map (PÅSTÅET) + multi-saw detune→cents (TILNÆRMET).** Locate VAZ's pulse path and decode
+   `FUN_004dbddc`:386-432 to actual cents instead of the FFT-fit.
+4. **velocity / keytrack mod polarity (PÅSTÅET)** + **env1-as-mod-source bipolarity (known deviation).** Verify against
+   `FUN_004db9b8`/render; both are small sign/scale decisions with audible impact on modulation feel.
+5. **Osc3 audio-rate footage** — remains ⏸ PARKED; needs the DSP-engine class VMT/global RE'd before a runtime dump can
+   locate the live voice struct (3 prior location attempts failed on HWND/RTTI ambiguity).
+
+**Headline:** the synth core is in good shape — envelope, detune, cutoff-smoother, filters A+R **bit-exact**; filters
+C/B/K/D-HP **verified integer ports** (~95% of factory patches covered); voice/mixer/MIDI/mod-matrix **verified**. The
+real guesses left are the **mod-LFOs** (waveforms + sync ratios, all PÅSTÅET) and the **osc pulse/detune** specifics.
+The cleanest way to close them is Route B (transcription-diff), not a full-engine capture. Nothing here was changed —
+prioritisation is yours.
