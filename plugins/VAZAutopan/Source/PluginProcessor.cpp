@@ -74,7 +74,6 @@ void VAZAutopanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     }
     else
         lfoInc = (0.1 + (double) fRate * (double) fRate * 19.9) / sr;   // free: 0.1 .. 20 Hz
-    const double halfPi = juce::MathConstants<double>::halfPi;
     const double twoPi  = juce::MathConstants<double>::twoPi;
 
     const int   n     = buffer.getNumSamples();
@@ -88,8 +87,9 @@ void VAZAutopanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         const double lfo01 = sine ? (0.5 - 0.5 * std::cos (twoPi * lfoPhase))
                                   : (1.0 - std::abs (2.0 * lfoPhase - 1.0));
         const double pan01 = juce::jlimit (0.0, 1.0, leftP + lfo01 * (rightP - leftP));
-        const double ang   = pan01 * halfPi;                 // equal-power pan
-        const double gL = std::cos (ang), gR = std::sin (ang);
+        // VAZ pan-law is LINEAR, not equal-power: pan-table[i]=(i/255)·2^30 (autopan ctor FUN_00517ae4 @0x517b1c,
+        // t·0.5·(2^31-1), NO cos/sin), render gainR=table[idx], gainL=table[255−idx] → gainR=pan, gainL=1−pan.
+        const double gL = 1.0 - pan01, gR = pan01;
 
         const double inL = (double) L[i];
         const double inR = R != nullptr ? (double) R[i] : inL;

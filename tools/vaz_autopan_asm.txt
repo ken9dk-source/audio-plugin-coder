@@ -1,0 +1,104 @@
+// ==== FUN_00517ae4 @0x517ae4 ====
+  00517ae4  PUSH EBP
+  00517ae5  MOV EBP,ESP
+  00517ae7  ADD ESP,-0x14
+  00517aea  PUSH EBX
+  00517aeb  PUSH ESI
+  00517aec  PUSH EDI
+  00517aed  TEST DL,DL
+  00517aef  JZ 0x00517af9
+  00517af1  ADD ESP,-0x10
+  00517af4  CALL 0x004037c8
+  00517af9  MOV dword ptr [EBP + -0x4],ECX   ; [Stack[-0x8]]=f32:
+  00517afc  MOV EBX,EDX
+  00517afe  MOV ESI,EAX
+  00517b00  MOV ECX,dword ptr [EBP + -0x4]   ; [Stack[-0x8]]=f32:
+  00517b03  XOR EDX,EDX
+  00517b05  MOV EAX,ESI
+  00517b07  CALL 0x004c398c
+  00517b0c  MOV dword ptr [ESI + 0x58],0x8
+  00517b13  MOV dword ptr [ESI + 0x5c],0x12d
+  00517b1a  XOR EDI,EDI
+  00517b1c  MOV dword ptr [EBP + -0x8],EDI   ; [Stack[-0xc]]=f32:
+  00517b1f  FILD dword ptr [EBP + -0x8]   ; [Stack[-0xc]]=f32:
+  00517b22  FDIV float ptr [0x00517c38]   ; [00517c38]=f32:255.0
+  00517b28  FSQRT
+  00517b2a  FSTP extended double ptr [EBP + -0x14]   ; [Stack[-0x18]]=f32:
+  00517b2d  WAIT
+  00517b2e  FLD extended double ptr [0x00517c3c]   ; [00517c3c]=f32:0.0
+  00517b34  FSQRT
+  00517b36  FLD extended double ptr [EBP + -0x14]   ; [Stack[-0x18]]=f32:
+  00517b39  FMULP
+  00517b3b  FLD extended double ptr [0x00517c48]   ; [00517c48]=f32:0.0
+  00517b41  FMULP
+  00517b43  CALL 0x00402bf4
+  00517b48  MOV dword ptr [ESI + EDI*0x4 + 0x280],EAX
+  00517b4f  INC EDI
+  00517b50  CMP EDI,0x100
+  00517b56  JNZ 0x00517b1c
+  00517b58  MOV EAX,dword ptr [ESI + 0x67c]
+  00517b5e  MOV dword ptr [ESI + 0x680],EAX
+  00517b64  XOR EDI,EDI
+  00517b66  MOV dword ptr [EBP + -0x8],EDI   ; [Stack[-0xc]]=f32:
+  00517b69  FILD dword ptr [EBP + -0x8]   ; [Stack[-0xc]]=f32:
+  00517b6c  FLD extended double ptr [0x00517c54]   ; [00517c54]=f32:7.886169E-19
+  00517b72  FMULP
+  00517b74  FDIV float ptr [0x00517c60]   ; [00517c60]=f32:256.0
+  00517b7a  CALL 0x00402bc0
+  00517b7f  FADD float ptr [0x00517c64]   ; [00517c64]=f32:1.0
+  00517b85  FDIV float ptr [0x00517c68]   ; [00517c68]=f32:2.0
+  00517b8b  FMUL float ptr [0x00517c6c]   ; [00517c6c]=f32:4194303.0
+  00517b91  CALL 0x00402bf4
+  00517b96  MOV dword ptr [ESI + EDI*0x4 + 0x684],EAX
+  00517b9d  INC EDI
+  00517b9e  CMP EDI,0x101
+  00517ba4  JNZ 0x00517b66
+  00517ba6  MOV EDX,0xff
+  00517bab  MOV EAX,ESI
+  00517bad  CALL 0x00517e6c
+  00517bb2  MOV dword ptr [ESI + 0x26c],0x60
+  00517bbc  MOV EDX,0x52b454   ; [0052b454]=f32:9.1835E-41
+  00517bc1  MOV EAX,dword ptr [ESI + 0x14]
+  00517bc4  CALL 0x004a2bac
+  00517bc9  PUSH ESI
+  00517bca  PUSH 0x517e34   ; [00517e34]=f32:1.6493811E-37
+  00517bcf  PUSH ESI
+  00517bd0  PUSH 0x517e3c   ; [00517e3c]=f32:-8.293005E-34
+  00517bd5  MOV EAX,dword ptr [ESI + 0x14]
+  00517bd8  MOV EDX,dword ptr [EAX]
+  00517bda  CALL dword ptr [EDX + 0x8]
+  00517bdd  PUSH ESI
+  00517bde  PUSH 0x517e64   ; [00517e64]=f32:1.6787685E-37
+  00517be3  PUSH ESI
+  00517be4  PUSH 0x517e6c   ; [00517e6c]=f32:-8.293005E-34
+  00517be9  MOV EAX,dword ptr [ESI + 0x14]
+  00517bec  MOV EDX,dword ptr [EAX]
+  00517bee  CALL dword ptr [EDX + 0x8]
+  00517bf1  PUSH ESI
+  00517bf2  PUSH 0x517ed8   ; [00517ed8]=f32:1.7669305E-37
+  00517bf7  PUSH ESI
+  00517bf8  PUSH 0x517ee0   ; [00517ee0]=f32:-1050.6976
+  00517bfd  MOV EAX,dword ptr [ESI + 0x14]
+  00517c00  MOV EDX,dword ptr [EAX]
+  00517c02  CALL dword ptr [EDX + 0x8]
+  00517c05  PUSH ESI
+  00517c06  PUSH 0x517f68   ; [00517f68]=f32:1.7963179E-37
+  00517c0b  PUSH ESI
+  00517c0c  PUSH 0x517f70   ; [00517f70]=f32:1.7967768E-37
+  00517c11  MOV EAX,dword ptr [ESI + 0x14]
+  00517c14  MOV EDX,dword ptr [EAX]
+  00517c16  CALL dword ptr [EDX + 0x8]
+  00517c19  MOV EAX,ESI
+  00517c1b  TEST BL,BL
+  00517c1d  JZ 0x00517c2e
+  00517c1f  CALL 0x00403820
+  00517c24  POP dword ptr FS:[0x0]
+  00517c2b  ADD ESP,0xc
+  00517c2e  MOV EAX,ESI
+  00517c30  POP EDI
+  00517c31  POP ESI
+  00517c32  POP EBX
+  00517c33  MOV ESP,EBP
+  00517c35  POP EBP
+  00517c36  RET
+

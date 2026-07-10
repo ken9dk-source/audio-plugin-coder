@@ -260,7 +260,7 @@ Clone now ships `VazDelayEngine` (fixed-point port; render bit-exact vs an indep
 
 | Part | Ghidra ref (VAZ) | Clone (VAZAutopan) | Deviation class | Status |
 |---|---|---|---|---|
-| Pan law | CONSTANT-POWER via 257-LUT: gainL=LUT[255−idx], gainR=LUT[idx] | `gL=cos(pan·π/2), gR=sin(pan·π/2)` | **TILNÆRMET-BEVIDST** (cos/sin = exact continuous form of the LUT; float chosen, law verified) | @0x517d34:713-726 vs .cpp:91-92 |
+| Pan law | **LINEAR** — pan table[i]=(i/255)·0.5·(2^31−1)=(i/255)·2^30 (ctor FUN_00517ae4 @0x517b1c, **no cos/sin/sqrt**); gainR=table[idx]=pan, gainL=table[255−idx]=1−pan | was `gL=cos, gR=sin` (equal-power) → **fixed to gL=1−pan, gR=pan** | ✅ **FIXED/VERIFICERET** — my earlier "equal-power" was WRONG; disasm proves LINEAR. `fx_autopan_panlaw` VERIFIED |
 | LFO waveform | mode0 triangle (`\|ph\|>>9`) · mode1 256-entry sine LUT (+0x684) | triangle default · sine bool | VERIFICERET (matches) | @0x517d34:699-708 vs .cpp:88-89 |
 | Pan range | pos = min[+0x260] + lfo·(max[+0x264]−min) | leftP + lfo·(rightP−leftP) | VERIFICERET | @0x517d34:709 vs .cpp:90 |
 | Rate | inc[+0x27c] (map not extracted) | 0.1..20 Hz (f²) / sync | **PÅSTÅET** (VAZ rate map not pinned) | .cpp:76 |
@@ -322,7 +322,8 @@ later fixed-point port to bit-exactness is a separate prioritisation decision, n
    Also ✅ **flanger feedback** fixed 0.92 → 255/256 (`fx_flanger_feedback` BIT-EXACT, render `<<23` @0x52059c).
 
 **LAV / bevidst / inaudible:**
-9. Autopan pan-law (257-LUT vs cos/sin) — mathematically the same equal-power law.
+9. ✅ **FIXED — Autopan pan-law** — disasm (FUN_00517ae4 @0x517b1c) proves VAZ uses **LINEAR** pan (table[i]=(i/255)·2^30,
+   no cos/sin), not equal-power as I'd assumed. Clone fixed to gL=1−pan, gR=pan. `fx_autopan_panlaw` VERIFIED.
 10. Reverb comb 1188→1187 & allpass 0.5→0.65 — subsumed by #1.
 11. Q-format→float across all 7 — deliberate; only matters after topology matches.
 

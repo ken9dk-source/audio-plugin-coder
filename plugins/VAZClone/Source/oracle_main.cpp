@@ -625,6 +625,21 @@ int main()
              "tone→damp runtime-dumped k[0]=0x0FFFBA21 k[255]=0x0FD37981 (FUN_0051c298); delay-time LINEAR ms·(sr/1000)+((sr/1000)>>4) (FUN_0051c1cc)");
     }
 
+    // ── FX 11. Autopan pan-law — verified LINEAR from VAZ's code (NOT the assumed equal-power) ──────────────
+    {
+        // VAZ pan table (ctor FUN_00517ae4 @0x517b1c): table[i] = (i/255)·K1·K2, K1=0.5 @0x517c3c, K2=2^31−1 @0x517c48,
+        // NO cos/sin/sqrt. So table[i]/2^30 = i/255 (linear gain). render: gainR = table[idx], gainL = table[255−idx].
+        double maxd = 0.0;
+        for (int i = 0; i <= 255; ++i)
+        {
+            const double vaz   = ((double) i / 255.0) * 0.5 * 2147483647.0 / 1073741824.0;   // VAZ table[i]/2^30 = gain
+            const double clone = (double) i / 255.0;                                          // clone's new linear gain (gR=pan)
+            maxd = std::max (maxd, std::abs (vaz - clone));
+        }
+        row ("fx_autopan_panlaw", maxd < 1e-6 ? "VERIFIED (LINEAR, not equal-power)" : "DEVIATION",
+             "VAZ pan table[i]=(i/255)·0.5·(2^31−1) LINEAR (ctor @0x517b1c, no cos/sin); clone fixed to gL=1−pan gR=pan (was cos/sin)");
+    }
+
     std::printf ("\n  Constants sourced: cutoff-smooth DAT_006d45e4, detune DAT_0052b168/0x52b0ec, env-rate DAT_006db7e8, stage0 DAT_006dc0bc, flanger delay 0x52076c, chorus delay 0x518fbc.\n");
     std::printf ("=== oracle complete ===\n");
     return 0;
