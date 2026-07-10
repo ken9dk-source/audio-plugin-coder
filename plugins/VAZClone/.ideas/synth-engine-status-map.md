@@ -41,17 +41,34 @@ by `tools/dump_vaz_tables.py`. Oracle: `plugins/VAZClone/Source/oracle_main.cpp`
 | Cutoff map `fc=exp(10.24·idx/1024)` + dispatch (mode=+0x258, tap=mode&3) + 2D coef idx `ri·1024+ci` | — | `SynthVoice`/`VAZMultiFilter` | VERIFICERET | address citation |
 | **A** Lowpass (mode 0) | **82%** | `VAZTypeA.h` + tables | **BIT-EXACT** | line-by-line + spectral-validated vs real |
 | **R** cubic cascade (17/19/20) | 13% | `VAZTypeR.h` + tables | **BIT-EXACT** | line-by-line |
-| **C** 2P/4P + Separation (2/3/8/14) | **40%** | `VAZTypeC.h` (reuses R) | **VERIFICERET** | integer port, spectral-validated (`test_typec.cpp`) |
-| **B** A-HP/BP + B LP/BP/HP (1/4/5/6/7) | ~24% | `VAZTypeB.h` (reuses A) | **VERIFICERET** | integer port, spectral-validated (`test_typeb.cpp`) |
-| **K** Sallen-Key (15/16) | small | `VAZTypeK.h` + tables | **VERIFICERET** | integer port, spectral-validated |
-| **D-HP** (12) | small | `VAZTypeD.h` + tables | **VERIFICERET** | integer port, spectral-validated |
+| **C** 2P/4P + Separation (2/3/8/14) | **40%** | `VAZTypeC.h` (reuses R) | ✅ **BIT-EXACT** | Route-B line-by-line vs decompile `vaz_big.c`:1179-1283 (biquad + cubic `>>0x21/0x22` + separation ±sep + closing 1-pole `kRC[+0x274·4]`) — faithful, no fudge |
+| **B** A-HP/BP + B LP/BP/HP (1/4/5/6/7) | ~24% | `VAZTypeB.h` (reuses A) | ✅ **BIT-EXACT** | Route-B line-by-line vs decompile `vaz_big.c`:1114-1177 (A biquad `s2·a2+s1·a1+in·b0` + LP/BP/HP taps); coef map confirmed (kA1=0x5945e4, kA2=0x5d45e4) |
+| **D-HP** (12) | small | `VAZTypeD.h` + tables | ✅ **BIT-EXACT** | Route-B line-by-line vs decompile `vaz_big.c`:1406-1440 (Chamberlin SVF, resoFB clamp ±0x1000000, `coefA=0x6d67e8`) — faithful |
+| **K** Sallen-Key (15/16) | small | `VAZTypeK.h` + tables | ⚠ **VERIFICERET (3 deviations found)** | Route-B (`vaz_big.c`:1499-1594) found the clone is a spectral approx, NOT bit-exact — see below |
 | Cutoff **base smoother** (`DAT_006d45e4`) | all | `SynthVoice.h`:148 | **BIT-EXACT** | VazOracle `cutoff_smoother` |
 | D-LP/BP, D-HP+LP, Comb | **0 factory patches** | `Synth.h` FLOAT | TILNÆRMET | float fallback |
 
-> **Reconciliation:** matrix §3 (line 73-83) still tags B/C/D/K as *PÅSTÅET*. The filter memory + commits (2026-06-12,
-> `test_type{b,c}.cpp`) upgraded them to **integer ports validated vs real VAZ** (spectral). They are **VERIFICERET**,
-> not guesses. Only A + R are line-by-line *and* would trivially bit-null in an oracle; B/C/K/D-HP still lack a
-> deterministic per-sample oracle primitive (spectral-only) → the one honest gap to "BIT-EXACT" for them.
+> **B/C/D-HP → BIT-EXACT (2026-07-11):** transcribed each recurrence independently from the decompile and compared
+> line-by-line to the clone (the same standard A+R hold, and the method that just caught the LFO rate/waveform mis-cites).
+> They faithfully mirror the decompile — the only non-VAZ element is the shared `SCALE=65536` float↔int wrapper (the
+> input-level anchor, common to A/R too), not a recurrence deviation. ~95% of factory patches are now top-tier.
+>
+> **K is NOT bit-exact — 3 real deviations vs `vaz_big.c`:1499-1594** (the clone author's `// BIT-EXACT` header + the
+> spectral validation hid these):
+> 1. **`RESO_TRIM ×0.5`** — the clone halves the resonance loop gain (`VAZTypeK.h`:38). The decompile has **no ÷2**
+>    (line 1501/1508: `mulhi(coefB, reso<<22)<<2`); the reso-input scaling `reso·0x400000 = reso<<22` (setup line 1092)
+>    matches the clone exactly, so the ÷2 is a pure fudge (added because the faithful gain self-oscillates from reso~170,
+>    which the author believed real VAZ doesn't — but the cubic clip ±0xd105e8 *bounds* that self-osc = VAZ's actual
+>    "distorted self-oscillating resonance").
+> 2. **Output tap** — clone outputs `(2-pole + 4-pole)/2` (`VAZTypeK.h`:59); the decompile **selects** 2-pole (`+0x174`)
+>    OR 4-pole (`+0x170`+last) by mode (line 1574 `<0x55` test), never averages.
+> 3. **Post-HP index** — clone uses a **log** cutoff index (`kRC[log(hpFc)]`); the decompile uses a **linear** one
+>    (`kRC[hp_cutoff·4]`, line 1580/1593), same as Type-C.
+>
+> A bit-exact K = a scoped rewrite (remove ÷2 + mode-aware output + linear HP index + plumb which of modes 15/16 is
+> 2-pole vs 4-pole). **Not done here** — it needs the VAZ-internal-mode→2P/4P mapping resolved and the (bounded) self-osc
+> behaviour confirmed against a numeric harness before touching a working, spectral-validated self-osc filter (**"gæt
+> ikke"**). Flagged as the next filter task.
 
 ### 1.3 Envelopes
 | Component | VAZ ref | Clone | Status | Method |
@@ -134,9 +151,10 @@ A/B caveat). Good for table dumps and coarse spectral A/B, **not** for a bit-nul
    open** — it's inline in the render, entangled with the audio-rate LFO object (= the parked Osc3), *not* an isolable
    recurrence, so Route B can't diff it without the deep LFO-object RE. VAZ's param model (Waveform + WaveShape + mode(1/6)
    + Retrigger + Delay) *is* confirmed from the named reader and the clone's fields match it; only the exact shapes are approximated.
-2. **Filter B/C/K/D-HP → BIT-EXACT.** Already VERIFICERET integer ports (spectral); add deterministic oracle primitives
-   (transcribe the per-sample recurrence, diff vs the clone) so they bit-null like A/R. Closes ~64% of factory patches to
-   the top tier.
+2. **Filters B/C/D-HP — ✅ BIT-EXACT (2026-07-11)** via Route-B line-by-line transcription (faithful, no fudge). **K
+   remains** — Route-B found 3 real deviations (RESO_TRIM ×0.5, output `(2P+4P)/2` vs mode-selected, log vs linear post-HP
+   index; see §1.2). A bit-exact K is a scoped rewrite blocked on the mode 15/16 → 2P/4P mapping + confirming the (cubic-
+   bounded) self-osc against a numeric harness — do that before touching the working filter.
 3. **Osc pulse-width map (PÅSTÅET) + multi-saw detune→cents (TILNÆRMET).** Locate VAZ's pulse path and decode
    `FUN_004dbddc`:386-432 to actual cents instead of the FFT-fit.
 4. **velocity / keytrack mod polarity (PÅSTÅET)** + **env1-as-mod-source bipolarity (known deviation).** Verify against
@@ -145,9 +163,10 @@ A/B caveat). Good for table dumps and coarse spectral A/B, **not** for a bit-nul
    locate the live voice struct (3 prior location attempts failed on HWND/RTTI ambiguity).
 
 **Headline:** the synth core is in good shape — envelope, detune, cutoff-smoother, filters A+R **bit-exact**; filters
-C/B/K/D-HP **verified integer ports** (~95% of factory patches covered); voice/mixer/MIDI/mod-matrix **verified**; the
-**mod-LFO rate is now VERIFICERET** (dumped `DAT_006dc4c0`, fixed 2026-07-10). The real guesses left are the **mod-LFO
-waveform shapes** (entangled with the parked Osc3, not isolable) and the **osc pulse/detune** specifics. The cleanest way
-to close the rest is Route B (transcription-diff), not a full-engine capture.
+filters A+R+**B+C+D-HP** now **BIT-EXACT** (~95% of factory patches, 2026-07-11); voice/mixer/MIDI/mod-matrix **verified**;
+the **mod-LFO rate is VERIFICERET** (dumped `DAT_006dc4c0`, 2026-07-10). The real items left are **filter K** (3 real
+deviations found — a scoped rewrite), the **mod-LFO waveform shapes** (entangled with the parked Osc3), and the **osc
+pulse/detune** specifics. The cleanest way to close the rest is Route B (transcription-diff), not a full-engine capture.
 
-> **Update 2026-07-10:** the mod-LFO **rate** was closed this pass (Route B). Everything else above is unchanged.
+> **Update 2026-07-11:** filters **B/C/D-HP → BIT-EXACT** (Route-B line-by-line); **K** found to have 3 real deviations
+> (not bit-exact — flagged, see §1.2). **Update 2026-07-10:** the mod-LFO **rate** was closed. Rest unchanged.
