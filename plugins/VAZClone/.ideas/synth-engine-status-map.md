@@ -83,12 +83,13 @@ by `tools/dump_vaz_tables.py`. Oracle: `plugins/VAZClone/Source/oracle_main.cpp`
 | Depth = \|v\| + direction bit | `FUN_004de75c` | `loadV2P` SD() | VERIFICERET | address + VazV2PAudit |
 | velocity / keytrack polarity | not confirmed | unipolar | **PÅSTÅET** | VAZ polarity not verified |
 
-### 1.6 Modulation LFOs (non-FX) — **least-verified subsystem**
+### 1.6 Modulation LFOs (non-FX) — rate now CLOSED (2026-07-10); waveform still open
 | Component | VAZ ref | Clone | Status | Method |
 |-----------|---------|-------|--------|--------|
-| LFO sync rate base (24 PPQN) | `FUN_004a073c` (`X·15360/(bpm·24)`) | `lfoRate` lambda | **PÅSTÅET** | structure only; ratio table not diffed |
-| 8 waveforms | LFO generator **not located** | `ModLFO` | **PÅSTÅET** | RE'd early, never re-verified vs binary |
-| LFO3 rate table | `DAT_006dc4c0` (255, dumped) | `lfo3` | **PÅSTÅET** | dumped, not diffed |
+| **Free rate → inc** | **`FUN_004dead8` → `+0xe8` = `DAT_006dc4c0[sel]`** = `0.02·e^(0.036·sel)` Hz (0.02..187 Hz) | `lfoRate` → `kAutopanRateLUT[sel]·44100/2³²` (LFO1/2/3) | ✅ **VERIFICERET (dumped)** | oracle `lfo_rate_curve`; **DAT_006dc4c0 == kAutopanRateLUT byte-identical** (256/256). Was `0.05+r²·20`, **2.5–6.5× off**. |
+| LFO param model | named reader: **Waveform** + **WaveShape**(0..127) + **Retrigger** + mode(1/6 = S&H) + **Delay** (LFO2) | `ModLFO` (wave/shape/trig/S&H/delay) | VERIFICERET (param set) | `vaz_osc.c`:367-410 — clone's fields match VAZ's named properties |
+| Waveform **shape generation** | inline in the render (entangled w/ the audio-rate LFO object = parked Osc3) — **not an isolable recurrence** | `ModLFO::next` 8 hand-coded shapes | **PÅSTÅET (shapes)** | generator not isolable; see §2 route-A note |
+| ~~sync rate `FUN_004a073c`~~ | **NOT the LFO** — it's the **tempo/sequencer clock** (`period=[+0x78]·15360/(param·24)`; called w/ 120 BPM `vaz_decomp.c`:129; its dispatcher `0x4a0800` handles MIDI note-on `0x90`) | — | **CORRECTED** | the old matrix mis-cited this as the LFO rate |
 
 ---
 
@@ -126,10 +127,13 @@ A/B caveat). Good for table dumps and coarse spectral A/B, **not** for a bit-nul
 
 ## 3. Prioritised gap list (what needs disassembly to close, hardest-value first)
 
-1. **Mod-LFOs (§1.6) — least verified, and a direct parallel to the just-finished FX rate work.** The FX LFO-rate setters
-   were wrongly written off as "not dumpable" until the `[+0x1c]→[.]` SR chain was traced. Do the same for the synth LFO:
-   disassemble `FUN_004a073c` (rate) + the waveform generator — check whether the rate/inc is a dumpable `e^(k·b)·…/SR`
-   curve like the FX LFOs, and transcribe the 8 waveforms for an oracle diff. **Top target.**
+1. **Mod-LFO RATE — ✅ CLOSED (2026-07-10).** Traced past the mis-cited `FUN_004a073c` (which is the *tempo/sequencer
+   clock*, not the LFO) to the real rate setter `FUN_004dead8` → `+0xe8 = DAT_006dc4c0[sel]`. That table is **byte-identical
+   to the autopan rate LUT** (`0.02·e^(0.036·sel)`, 256/256) — same VAZ curve. Clone LFO1/2/3 now index it (`kAutopanRateLUT`);
+   was `0.05+r²·20`, **2.5–6.5× too fast**. Oracle `lfo_rate_curve` VERIFIED. **Mod-LFO WAVEFORM shape generation still
+   open** — it's inline in the render, entangled with the audio-rate LFO object (= the parked Osc3), *not* an isolable
+   recurrence, so Route B can't diff it without the deep LFO-object RE. VAZ's param model (Waveform + WaveShape + mode(1/6)
+   + Retrigger + Delay) *is* confirmed from the named reader and the clone's fields match it; only the exact shapes are approximated.
 2. **Filter B/C/K/D-HP → BIT-EXACT.** Already VERIFICERET integer ports (spectral); add deterministic oracle primitives
    (transcribe the per-sample recurrence, diff vs the clone) so they bit-null like A/R. Closes ~64% of factory patches to
    the top tier.
@@ -141,7 +145,9 @@ A/B caveat). Good for table dumps and coarse spectral A/B, **not** for a bit-nul
    locate the live voice struct (3 prior location attempts failed on HWND/RTTI ambiguity).
 
 **Headline:** the synth core is in good shape — envelope, detune, cutoff-smoother, filters A+R **bit-exact**; filters
-C/B/K/D-HP **verified integer ports** (~95% of factory patches covered); voice/mixer/MIDI/mod-matrix **verified**. The
-real guesses left are the **mod-LFOs** (waveforms + sync ratios, all PÅSTÅET) and the **osc pulse/detune** specifics.
-The cleanest way to close them is Route B (transcription-diff), not a full-engine capture. Nothing here was changed —
-prioritisation is yours.
+C/B/K/D-HP **verified integer ports** (~95% of factory patches covered); voice/mixer/MIDI/mod-matrix **verified**; the
+**mod-LFO rate is now VERIFICERET** (dumped `DAT_006dc4c0`, fixed 2026-07-10). The real guesses left are the **mod-LFO
+waveform shapes** (entangled with the parked Osc3, not isolable) and the **osc pulse/detune** specifics. The cleanest way
+to close the rest is Route B (transcription-diff), not a full-engine capture.
+
+> **Update 2026-07-10:** the mod-LFO **rate** was closed this pass (Route B). Everything else above is unchanged.

@@ -5,6 +5,7 @@
 #include "ParameterIDs.hpp"
 #include "VAZInitTemplate.h"
 #include "../reference/vaz_detune.h"   // VAZ deterministic detune spread (FUN_004e0618 port)
+#include "../reference/vaz_autopan_rate_lut.h"   // DAT_006dc4c0 (mod-LFO rate, FUN_004dead8) == autopan curve, byte-identical
 
 //==============================================================================
 VAZCloneAudioProcessor::VAZCloneAudioProcessor()
@@ -542,10 +543,9 @@ bool VAZCloneAudioProcessor::loadV2P (const juce::MemoryBlock& mb)
     S (ParameterIDs::lfo2_wave,   juce::jlimit (0, 7, p.lfo2mode) / 7.0f);   // LFO2: normal/S&H (VAZ has no full LFO2 wave)
     S (ParameterIDs::lfo2_trig,   p.lfo2trig != 0 ? 1.0f : 0.0f);
     S (ParameterIDs::lfo2_delay,  p.lfo2delay / 255.0f);                     // LFO2 Delay fade-in time
-    // LFO3: the 0..174 selector → exact rate (DAT_006dc4c0 is a clean exp 0.02·e^0.036·sel = 0.02..10.5 Hz),
-    // inverse-mapped onto the clone's lfo3_rate law (0.05 + r²·20). Wave byte +0x10c: 0 = Triangle, else Sine.
-    const double l3hz = 0.02 * std::exp (0.036 * (double) juce::jlimit (0, 255, p.lfo3sel));
-    S (ParameterIDs::lfo3_rate,   (float) std::sqrt (juce::jmax (0.0, (l3hz - 0.05) / 20.0)));
+    // LFO3: the selector byte IS the DAT_006dc4c0 table index (render maps it back through kAutopanRateLUT) — store
+    // it straight as the 0..1 param (was inverse-mapped through the old 0.05+r²·20 law). Wave byte +0x10c: 0=Tri else Sine.
+    S (ParameterIDs::lfo3_rate,   juce::jlimit (0, 255, p.lfo3sel) / 255.0f);
     S (ParameterIDs::lfo3_wave,   p.lfo3wav != 0 ? 1.0f : 0.0f);             // 0=Tri, 1=Sine
     S (ParameterIDs::o1_wave,     juce::jlimit (0, 4, p.o1wave) / 4.0f);
     S (ParameterIDs::o1_shape,    juce::jlimit (0, 255, p.o1shape) / 255.0f);
@@ -941,7 +941,10 @@ void VAZCloneAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
             int p = juce::jlimit (0, 23, (int) apvts.getRawParameterValue (periodId)->load());
             return (bpm / 60.0) / periodBeats[p];                       // tempo-synced Hz
         }
-        return 0.05 + std::pow (apvts.getRawParameterValue (rateId)->load(), 2.0f) * 20.0; // free
+        // free: EXACT VAZ curve — the rate byte indexes DAT_006dc4c0[sel] (FUN_004dead8 → +0xe8), byte-identical to
+        // the autopan rate LUT = 0.02·e^(0.036·sel) Hz (0.02..187 Hz). Was 0.05+r²·20 (square law, 2.5–6.5× too fast).
+        const int sel = juce::jlimit (0, 255, (int) std::lround (apvts.getRawParameterValue (rateId)->load() * 255.0f));
+        return (double) vazfx::kAutopanRateLUT[sel] * 44100.0 / 4294967296.0;
     };
     modLfo .setRate (lfoRate (ParameterIDs::lfo_rate,  ParameterIDs::lfo_sync,  ParameterIDs::lfo_period),  currentSampleRate);
     const double lfo2Hz = lfoRate (ParameterIDs::lfo2_rate, ParameterIDs::lfo2_sync, ParameterIDs::lfo2_period);
@@ -952,7 +955,10 @@ void VAZCloneAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
     }
     const int   lfo2RmSrc = (int) apvts.getRawParameterValue (ParameterIDs::lfo2_rm_src)->load();
     const float lfo2RmAmt = apvts.getRawParameterValue (ParameterIDs::lfo2_rm_amt)->load();
-    modLfo3.setRate (0.05 + std::pow (apvts.getRawParameterValue (ParameterIDs::lfo3_rate)->load(), 2.0f) * 20.0, currentSampleRate);
+    {   // LFO3 rate: same DAT_006dc4c0 exp table (selector = table index)
+        const int sel = juce::jlimit (0, 255, (int) std::lround (apvts.getRawParameterValue (ParameterIDs::lfo3_rate)->load() * 255.0f));
+        modLfo3.setRate ((double) vazfx::kAutopanRateLUT[sel] * 44100.0 / 4294967296.0, currentSampleRate);
+    }
 
     // Oversample x2: render the synth + mod bus at the oversampled rate into the 2× internal block; downsample at the end.
     if (osOn) buffer.clear();                                     // generate into the upsampled (silent) block

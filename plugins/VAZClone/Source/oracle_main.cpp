@@ -636,6 +636,20 @@ int main()
              + " vs old " + s (of (64)) + "/" + s (of (128)) + "/" + s (of (192)) + " Hz");
     }
 
+    // ── SYNTH. Mod-LFO rate — VAZ table DAT_006dc4c0 (FUN_004dead8 → +0xe8) == kAutopanRateLUT (byte-identical, same
+    //    VAZ curve); quantify vs the clone's guessed 0.05+r²·20 law. LFO1/2/3 share the table. ──────────────────────
+    {
+        const bool ok = (vazfx::kAutopanRateLUT[0] == 0x0000079Au);   // DAT_006dc4c0[0] = 1946
+        auto vf = [] (int sel) { return (double) vazfx::kAutopanRateLUT[sel] * 44100.0 / 4294967296.0; };   // VAZ Hz
+        auto of = [] (int sel) { const double r = sel / 255.0; return 0.05 + r * r * 20.0; };                // old clone
+        auto s = [] (double x) { return std::to_string (x).substr (0, 5); };
+        row ("lfo_rate_curve", ok ? "VERIFIED (dumped DAT_006dc4c0 == autopan)" : "DEVIATION",
+             "VAZ mod-LFO rate DAT_006dc4c0[sel]=0.02·e^(0.036·sel), 0.02..187 Hz — clone LFO1/2/3 now index it. "
+             "sel{64,128,174}: VAZ " + s (vf (64)) + "/" + s (vf (128)) + "/" + s (vf (174)) + " vs old 0.05+r²·20 "
+             + s (of (64)) + "/" + s (of (128)) + "/" + s (of (174)) + " Hz (" + s (of (64) / vf (64)) + "/"
+             + s (of (128) / vf (128)) + "/" + s (of (174) / vf (174)) + "x off)");
+    }
+
     // ── DIAG. Phaser param sweep — feedback/depth/mix/gain RESPONSE across the full range (not just default),
     //    each point bit-exact vs the independent FUN_005218d8 transcription so the numbers reflect VAZ's render. ──
     {
