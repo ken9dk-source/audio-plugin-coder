@@ -1,6 +1,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "ParameterIDs.hpp"
+#include "../../VAZClone/reference/vaz_phaser_rate_lut.h"   // VAZ chorus LFO rate == phaser rate (identical setter curve)
 
 VAZChorusAudioProcessor::VAZChorusAudioProcessor()
     : AudioProcessor (BusesProperties()
@@ -72,10 +73,11 @@ void VAZChorusAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
     engine.base = ((srI * 50) / 256000) * (delayParam + 1);
     // Waveform mode: 0 sine · 1 trapezoid · 2 triangle (VAZ order) — the engine selects the shape directly.
     engine.mode1 = engine.mode2 = juce::jlimit (0, 2, waveform);
-    // Modulation rate → 32-bit phase increments.  ⚠ APPROX (rate/depth/lr/gain scalings pending exact setters, step #3):
+    // Modulation rate → 32-bit phase increments. LFO1 free rate = EXACT VAZ curve (FUN_00518ffc @0x518ffc, dumped):
+    // knob 0..1 → byte → inc = kPhaserRateLUT[b]·44100/SR — VAZ uses the IDENTICAL exp curve for chorus + phaser LFOs
+    // (verified: chorus dump == phaser dump), 0.010..9.76 Hz (was fRate²·6, a square law capped at 6 Hz).
     static constexpr double periodBeats[24] = { 1.0/12, 1.0/8, 1.0/6, 1.0/4, 1.0/3, 1.0/2, 2.0/3, 1.0,
         2.0, 3.0, 4.0, 5.0, 6.0, 8.0, 12.0, 16.0, 24.0, 32.0, 48.0, 64.0, 96.0, 128.0, 192.0, 256.0 };
-    double rateHz;
     if (apvts.getRawParameterValue (ParameterIDs::mod_sync)->load() > 0.5f)
     {
         double bpm = 120.0;
@@ -83,16 +85,18 @@ void VAZChorusAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
             if (auto pos = ph->getPosition())
                 if (auto b = pos->getBpm()) bpm = *b;
         const int p = juce::jlimit (0, 23, (int) apvts.getRawParameterValue (ParameterIDs::mod_period)->load());
-        rateHz = (bpm / 60.0) / periodBeats[p];
+        const double rateHz = (bpm / 60.0) / periodBeats[p];
+        engine.inc1 = (uint32_t) (int64_t) (rateHz / sr * 4294967296.0);   // sync: tempo → inc (unchanged)
     }
     else
-        rateHz = (double) fRate * (double) fRate * 6.0;       // free: 0..6 Hz (chorus is slow)
-    engine.inc1  = (uint32_t) (int64_t) (rateHz / sr * 4294967296.0);
-    // LFO2 rate is now an INDEPENDENT param (VAZ [+0x274], FUN_00519098) — NOT inc1·1.27. Same rate→inc curve as
-    // LFO1 (both approximate, 80-bit non-dumpable), driven by fRate2 → the *ratio* between the two LFOs is now
-    // structurally correct = true free dual-LFO beating. Kept free (un-synced) so beating persists in Sync mode.
-    const double rate2Hz = (double) fRate2 * (double) fRate2 * 6.0;
-    engine.inc2  = (uint32_t) (int64_t) (rate2Hz / sr * 4294967296.0);
+    {
+        const int b1 = juce::jlimit (0, 255, (int) std::lround (fRate * 255.0f));
+        engine.inc1 = (uint32_t) std::llround ((double) vazfx::kPhaserRateLUT[b1] * (44100.0 / sr));
+    }
+    // LFO2 rate = INDEPENDENT param (VAZ [+0x274], FUN_00519098 → +0x290, same exact curve as LFO1). Always free so
+    // the *ratio* between the two LFOs gives true dual-LFO beating (persists even in Sync mode).
+    const int b2 = juce::jlimit (0, 255, (int) std::lround (fRate2 * 255.0f));
+    engine.inc2  = (uint32_t) std::llround ((double) vazfx::kPhaserRateLUT[b2] * (44100.0 / sr));
     engine.level = 0x8000;                                                     // common scale (approx)
     const int32_t modDepth = (int32_t) std::llround ((double) fDepth * 0.04 * sr);
     engine.depth = engine.level2 = modDepth;                                   // both LFO depths = fDepth (approx)

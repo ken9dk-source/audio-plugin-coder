@@ -100,6 +100,38 @@ static void phaserRate (void* self, int r)
         call f
     }
 }
+// FUN_00518ffc(this=EAX, EDX=rateByte): chorus LFO1 rate → inc[+0x288]. SAME exp curve as the phaser rate
+// (3891.3559·e^(0.027·b)·11025/SR); SR via [+0x1c]→[.] SINGLE indirection; no sync guard (unconditional compute).
+static void chorusRate1 (void* self, int r)
+{
+    void* f = fnv (0x518ffc);
+    __asm {
+        mov eax, self
+        mov edx, r
+        call f
+    }
+}
+// FUN_00519098(this=EAX, EDX=rateByte): chorus LFO2 rate → inc[+0x290]. Same formula, second modulator.
+static void chorusRate2 (void* self, int r)
+{
+    void* f = fnv (0x519098);
+    __asm {
+        mov eax, self
+        mov edx, r
+        call f
+    }
+}
+// FUN_00517ee0(this=EAX, EDX=rateByte): autopan rate → inc[+0x27c] = 30.4012177·e^(0.036·b)·11025·256/SR.
+// SR via [+0x1c]→[.] SINGLE indirection; guarded by +0x268==0 (sync flag off) → set it 0.
+static void autopanRate (void* self, int r)
+{
+    void* f = fnv (0x517ee0);
+    __asm {
+        mov eax, self
+        mov edx, r
+        call f
+    }
+}
 // FUN_00521d44(this=EAX, EDX=gainByte): phaser output gain. inGain[+0x298] = 2^((b−255)/60)·2^30 (self-contained
 // x87: fld2/fldln2/fyl2x→ln2, (b−255)·ln2/60, exp, ·2^30). No SR, no globals → dumpable. Validates the disasm read.
 static void phaserGain (void* self, int b)
@@ -198,6 +230,26 @@ int main ()
         *(int*) (obj + 0x274) = 0;         // sync flag off → compute the free-rate inc
         phaserRate (obj, r);
         printf ("RA,%d,%08X\n", r, *(uint32_t*) (obj + 0x294));
+    }
+    // Chorus LFO1/LFO2 free-rate → inc (FUN_00518ffc→+0x288, FUN_00519098→+0x290): SAME exp curve as phaser.
+    for (int r = 0; r <= 255; ++r)
+    {
+        memset (obj, 0, 0x40000); *(void**) (obj + 0x1c) = &g_sr;
+        chorusRate1 (obj, r);
+        printf ("CR1,%d,%08X\n", r, *(uint32_t*) (obj + 0x288));
+    }
+    for (int r = 0; r <= 255; ++r)
+    {
+        memset (obj, 0, 0x40000); *(void**) (obj + 0x1c) = &g_sr;
+        chorusRate2 (obj, r);
+        printf ("CR2,%d,%08X\n", r, *(uint32_t*) (obj + 0x290));
+    }
+    // Autopan free-rate → inc (FUN_00517ee0→+0x27c): 30.4012·e^(0.036·b)·11025·256/SR. +0x268=0 (sync off).
+    for (int r = 0; r <= 255; ++r)
+    {
+        memset (obj, 0, 0x40000); *(void**) (obj + 0x1c) = &g_sr; *(int*) (obj + 0x268) = 0;
+        autopanRate (obj, r);
+        printf ("AR,%d,%08X\n", r, *(uint32_t*) (obj + 0x27c));
     }
     for (int p = 0; p <= 255; ++p)
     {

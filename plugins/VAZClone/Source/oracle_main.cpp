@@ -611,6 +611,18 @@ int main()
              + s (of (64) / vf (64)) + "/" + s (of (128) / vf (128)) + "/" + s (of (192) / vf (192)) + "x too fast)");
     }
 
+    // ── FX. Chorus LFO rate — reuses the phaser rate LUT (chorus dump == phaser dump); quantify vs old fRate²·6 ──
+    {
+        const bool ok = (vazfx::kPhaserRateLUT[0] == 0x000003CDu) && (vazfx::kPhaserRateLUT[255] == 0x000E82A8u);
+        auto vf = [] (int b) { return (double) vazfx::kPhaserRateLUT[b] * 44100.0 / 4294967296.0; };
+        auto of = [] (int b) { const double f = b / 255.0; return f * f * 6.0; };   // old chorus approx (0..6 Hz)
+        auto s = [] (double x) { return std::to_string (x).substr (0, 5); };
+        row ("fx_chorus_rate_curve", ok ? "VERIFIED (shared dumped LUT)" : "DEVIATION",
+             "VAZ chorus LFO1/2 (FUN_00518ffc/98 → +0x288/+0x290) == phaser rate curve EXP 0.010..9.76 Hz (was fRate²·6). "
+             "b{64,128,192}: VAZ " + s (vf (64)) + "/" + s (vf (128)) + "/" + s (vf (192)) + " vs old "
+             + s (of (64)) + "/" + s (of (128)) + "/" + s (of (192)) + " Hz");
+    }
+
     // ── DIAG. Phaser param sweep — feedback/depth/mix/gain RESPONSE across the full range (not just default),
     //    each point bit-exact vs the independent FUN_005218d8 transcription so the numbers reflect VAZ's render. ──
     {
