@@ -465,8 +465,10 @@ struct VAZMultiFilter
             case 11: engine=3; tap=2; break;                                       // D BP
             case 12: engine=3; tap=1; break;                                       // D HP
             case 13: engine=3; tap=3; hpLP=true; modRoute=2; break;                // D HP+LP (Separation)
-            case 15: engine=4; tap=0; break;                                       // K LP  (⚠ TEMP: wrong engine — .v2p 15 needs the 0x4ddcfe SVF-variant; unchanged this commit, see status-map §1.2)
-            case 16: engine=4; tap=3; hpLP=true; usesHP=true; break;               // K HP+LP  (⚠ TEMP, same as 15)
+            // K (.v2p 15/16): PROVEN (oracle filter_k, BIT-EXACT) to be VAZ's 0x6d67 SVF (handler 0x4ddcfe) = exactly the
+            // engine the clone calls VAZTypeD, bp tap (= resonant 2-pole LP), no post-HP. Re-routed engine 4 → engine 3.
+            case 15: engine=3; tap=2; break;                                       // K LP  → VAZTypeD bp tap (BIT-EXACT)
+            case 16: engine=3; tap=2; break;                                       // K HP+LP → VAZTypeD bp tap (LP core exact); ⚠ TODO: the mode-0x44 HP pre-section (vaz_big.c:1394-1454) not yet ported
             // R (.v2p 17-20): PROVEN to be VAZ's Sallen-Key 0x6d87 handler (0x4ddf44) — the exact recurrence VAZTypeK
             // implements — NOT the 0x69 cubic. Re-routed cubic→Sallen-Key (filter_route_map: these 4 now match VAZ).
             // VAZTypeR (cubic) turned out to be a duplicate of the C engine (0x4dd82b), never VAZ's R → deprecated below.

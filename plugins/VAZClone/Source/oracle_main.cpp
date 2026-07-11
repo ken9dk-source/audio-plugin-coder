@@ -270,7 +270,7 @@ int main()
                 case 1: case 6: case 7: return "0x55 A/B (B)";
                 case 2: case 3: case 8: case 9: case 14: return "0x69 cubic (C)";
                 case 10: case 11: case 12: case 13: return "0x6d67 SVF (D)";
-                case 15: case 16: return "0x6d87 Sallen-Key (K)";   // ← clone still (temp) on K; .v2p 15/16 mismatch remains
+                case 15: case 16: return "0x6d67 SVF (K→VAZTypeD)"; // FIXED 2026-07-11: K re-routed to VAZTypeD (VAZ's K)
                 case 17: case 18: case 19: case 20: return "0x6d87 Sallen-Key (K→R)"; // FIXED 2026-07-11: R re-routed to VAZTypeK
                 case 21: return "Comb"; default: return "?"; }; };
         int mism = 0; std::string bad;
@@ -283,6 +283,45 @@ int main()
         }
         row ("filter_route_map", mism == 0 ? "ALL MATCH" : std::to_string (mism) + " MISMATCH",
              mism == 0 ? "every .v2p mode routes to VAZ's coef table" : bad);
+    }
+
+    // ── FILTER K — independent transcription of VAZ's K handler 0x4ddcfe (vaz_big.c:1455-1496) vs VAZTypeD.process(tap 2).
+    //    Proves K's real engine IS what the clone calls VAZTypeD (0x6d67 SVF, bp tap = resonant 2-pole LP). ─────────────
+    {
+        struct RefKsvf {   // faithful transcription of the 0x4ddcfe common SVF (K LP, mode 0x40)
+            double sr = 44100.0; int32_t s17c = 0, s180 = 0;    // lp, bp states (+0x17c / +0x180)
+            static int32_t mh (int32_t a, int32_t b) { return (int32_t) (((int64_t) a * b) >> 32); }
+            static int32_t sl (int32_t v, int n) { return (int32_t) ((uint32_t) v << n); }
+            static int32_t ad (int32_t a, int32_t b) { return (int32_t) ((uint32_t) a + (uint32_t) b); }
+            static int32_t sb (int32_t a, int32_t b) { return (int32_t) ((uint32_t) a - (uint32_t) b); }
+            double process (double in, double fc, double reso) {
+                const int ci = std::clamp ((int) std::lround (1024.0 * std::log (std::clamp (fc, 1.0, sr * 0.49)) / 10.24), 0, 1023);
+                const int32_t coefA = VAZTypeDT::kCoefA[ci], coefB = VAZTypeDT::kCoefB[ci];
+                const int r255 = (int) std::lround (std::clamp (reso, 0.0, 1.0) * 255.0);
+                const int32_t resoGain = sl (mh (coefB, sl (r255, 22)), 2);   // [+0x164]
+                const int32_t input = (int32_t) std::lround (std::clamp (in, -2.0, 2.0) * 65536.0);
+                int32_t v0 = 0, v1 = 0;
+                for (int p = 0; p < 2; ++p) {
+                    int32_t resoFB = mh (sl (s180, 4), resoGain);              // (bp<<4)·resoGain
+                    if (resoFB > 0x1000000) resoFB = 0x1000000; if (resoFB < -0x1000000) resoFB = -0x1000000;
+                    s17c = ad (mh (sl (sb (sb (input, resoFB), s17c), 2), coefA), s17c);   // lp += coefA·((in−resoFB−lp)<<2)
+                    s180 = ad (mh (sl (sb (ad (s17c, resoFB), s180), 2), coefA), s180);    // bp += coefA·((lp+resoFB−bp)<<2)
+                    (p == 0 ? v0 : v1) = s180;
+                }
+                return (double) ((int32_t) (((int64_t) v0 + v1) >> 1)) / 65536.0;   // avg of the 2 passes' bp
+            }
+        } ref;
+        VAZTypeD d; d.prepare (44100.0);
+        uint32_t rng = 0x2468u; long maxd = 0;
+        for (int i = 0; i < 60000; ++i) {
+            const double fc = 200.0 + (double) (i % 400) * 20.0, rs = 0.2 + (double) (i % 5) * 0.19;
+            const double s = (i == 0) ? 0.5 : ((double) (int32_t) ((rng = rng * 1664525u + 1013904223u) >> 9) / 4194304.0 - 0.5);
+            const int32_t a = (int32_t) std::llround (ref.process (s, fc, rs) * 65536.0);
+            const int32_t b = (int32_t) std::llround (d.process (2, s, fc, rs) * 65536.0);   // tap 2 = bp
+            long dd = (long) a - (long) b; if (dd < 0) dd = -dd; if (dd > maxd) maxd = dd;
+        }
+        row ("filter_k", maxd == 0 ? "BIT-EXACT (K = VAZTypeD tap2)" : "DEVIATION (max=" + std::to_string (maxd) + ")",
+             "VAZ K handler 0x4ddcfe (0x6d67 SVF, bp=resonant 2-pole LP) == VAZTypeD.process(tap 2) — so K LP re-routes to VAZTypeD, not a new engine");
     }
 
     // ── 2. Envelope per-sample step (attack→decay→release) ──────────────────────────────────────────
