@@ -369,6 +369,51 @@ int main()
              "VAZ real D 0x4ddaa8 (2-stage cubic SVF, 0x6d45/55/65/66) — VAZTypeDreal vs independent transcription, taps LP/BP/HP");
     }
 
+    // ── FILTER Dreal HP+LP (mode 0x34, .v2p 13) — independent transcription of the 2-section Separation cascade
+    //    (vaz_big.c:1289-1346 section-1 HP at cut+Sep → common section-2 LP at cut−Sep) vs VAZTypeDreal::processHPLP. ──
+    {
+        struct RefHPLP {
+            double sr = 44100.0; int32_t a1 = 0, a2 = 0, b1 = 0, b2 = 0;   // sec1 (0x184/0x188), sec2 (0x17c/0x180)
+            static int32_t mh (int32_t a, int32_t b) { return (int32_t) (((int64_t) a * b) >> 32); }
+            static int32_t sl (int32_t v, int n) { return (int32_t) ((uint32_t) v << n); }
+            static int32_t ad (int32_t a, int32_t b) { return (int32_t) ((uint32_t) a + (uint32_t) b); }
+            static int32_t sb (int32_t a, int32_t b) { return (int32_t) ((uint32_t) a - (uint32_t) b); }
+            static int32_t cub (int32_t x) { return sb (x, mh (sl (x, 3), mh (sl (x, 4), sl (x, 4)))); }
+            static int32_t sect (int tap, int32_t in, int c, int r, int32_t& st1, int32_t& st2) {
+                int32_t c168 = VAZTypeDrealT::kResC[r]; if (VAZTypeDrealT::kCutRlim[c] < c168) c168 = VAZTypeDrealT::kCutRlim[c];
+                const int32_t c16c = VAZTypeDrealT::kResD[r], cA = VAZTypeDrealT::kCutA[c];
+                int32_t v170 = ad (mh (sl (st1, 2), cA), st2);
+                int32_t v178 = sb (sb (mh (sl (in, 1), c16c), mh (sl (st1, 2), c168)), v170);
+                const int32_t i9 = ad (sb (st1, mh (sl (st1, 3), mh (sl (st1, 4), sl (st1, 4)))), mh (sl (v178, 2), cA));
+                int32_t i8 = ad (mh (sl (i9, 2), cA), v170); v170 = ad (v170, i8); st2 = i8;
+                i8 = sb (sb (mh (sl (in, 1), c16c), mh (sl (i9, 2), c168)), i8); v178 = ad (v178, i8);
+                st1 = ad (mh (sl (i8, 2), cA), sb (i9, mh (sl (i9, 3), mh (sl (i9, 4), sl (i9, 4)))));
+                return (tap == 0) ? v170 : (tap == 2) ? v178 : ad (st1, i9);
+            }
+            double process (double in, double fc, double reso, double sepN) {
+                const int c = std::clamp ((int) std::lround (1024.0 * std::log (std::clamp (fc, 1.0, sr * 0.49)) / 10.24), 0, 1023);
+                const int r = std::clamp (((int) std::lround (std::clamp (reso, 0.0, 1.0) * 255.0)) >> 2, 0, 63);
+                const int sep = std::max (3, ((int) std::lround (std::clamp (sepN, 0.0, 1.0) * 255.0)) * 2);
+                const int cU = std::clamp (c + sep, 0, 0x3ff), cL = std::clamp (c - sep, 0, 0x3ff);
+                const int32_t in1 = (int32_t) std::lround (std::clamp (in, -2.0, 2.0) * 65536.0);
+                const int32_t mid = sect (2, in1, cU, r, a1, a2);      // section 1: cut+Sep, HP
+                return (double) sect (0, mid, cL, r, b1, b2) / 65536.0; // section 2: cut−Sep, LP
+            }
+        };
+        long maxd = 0;
+        RefHPLP ref; VAZTypeDreal eng; eng.prepare (44100.0);
+        uint32_t rng = 0x77u;
+        for (int i = 0; i < 50000; ++i) {
+            const double fc = 200.0 + (double) (i % 400) * 18.0, rs = 0.2 + (double) (i % 5) * 0.19, sp = (double) (i % 8) / 7.0;
+            const double s = (i == 0) ? 0.5 : ((double) (int32_t) ((rng = rng * 1664525u + 1013904223u) >> 9) / 4194304.0 - 0.5);
+            const int32_t a = (int32_t) std::llround (ref.process (s, fc, rs, sp) * 65536.0);
+            const int32_t b = (int32_t) std::llround (eng.processHPLP (s, fc, rs, sp) * 65536.0);
+            const long d = std::llabs ((long) a - (long) b); if (d > maxd) maxd = d;
+        }
+        row ("filter_dreal_hplp", maxd == 0 ? "BIT-EXACT" : "DEVIATION (max=" + std::to_string (maxd) + ")",
+             "VAZ D HP+LP Separation (mode 0x34, .v2p 13): section-1 HP@cut+Sep → section-2 LP@cut−Sep vs VAZTypeDreal::processHPLP");
+    }
+
     // ── FILTER R — independent transcription of VAZ's R handler 0x4ddf44 (vaz_big.c:1499-1594, Sallen-Key 0x6d87)
     //    vs VAZTypeK. Faithful = no reso-trim, mode-select 2P|4P output, LINEAR post-HP index. ─────────────────────────
     {

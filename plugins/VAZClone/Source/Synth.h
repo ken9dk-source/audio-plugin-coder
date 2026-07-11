@@ -468,7 +468,7 @@ struct VAZMultiFilter
             case 10: engine=7; tap=0; break;                                       // D LP  → VAZTypeDreal LP
             case 11: engine=7; tap=1; break;                                       // D BP  → VAZTypeDreal BP
             case 12: engine=7; tap=2; break;                                       // D HP  → VAZTypeDreal HP
-            case 13: engine=7; tap=0; break;                                       // D HP+LP → VAZTypeDreal LP core (⚠ mode-0x34 Separation variant TODO)
+            case 13: engine=7; hpLP=true; break;                                   // D HP+LP Separation → VAZTypeDreal 2-section (cut±Sep), aux=Separation
             // K (.v2p 15/16): PROVEN (oracle filter_k, BIT-EXACT) to be VAZ's 0x6d67 SVF (handler 0x4ddcfe) = exactly the
             // engine the clone calls VAZTypeD, bp tap (= resonant 2-pole LP), no post-HP. Re-routed engine 4 → engine 3.
             case 15: engine=3; tap=2; break;                                       // K LP  → VAZTypeD bp tap (BIT-EXACT)
@@ -542,8 +542,8 @@ struct VAZMultiFilter
                 const double hpNorm = std::log (juce::jlimit (20.0, sr*0.45, hpHz) / 20.0) / std::log (100.0);
                 out = typeK.process (poles == 4, x, fc, reso, hpNorm);   // poles 2/4 = .v2p 17-18 / 19-20
             } break;
-            case 7:                                                      // D (real) = 2-stage cubic SVF (LP/BP/HP taps)
-                out=typeDreal.process (tap, x, fc, reso); break;
+            case 7:                                                      // D (real) = 2-stage cubic SVF; hpLP → 2-section Separation
+                out = hpLP ? typeDreal.processHPLP (x, fc, reso, aux) : typeDreal.process (tap, x, fc, reso); break;
             case 6: {                                                    // Comb delay-feedback
                 const int len=(int) juce::jlimit (8.0,4094.0, sr/juce::jlimit (40.0,2000.0,fc));
                 int rd=combIdx-len; if (rd<0) rd+=4096;
