@@ -99,15 +99,15 @@ by `tools/dump_vaz_tables.py`. Oracle: `plugins/VAZClone/Source/oracle_main.cpp`
 >
 > `filter_route_map` = **6 MISMATCH** (`.v2p` 10-13 D + 15/16 K; R fixed in commit 6fe9c39).
 >
-> **Correct fix for the whole group:**
-> 1. **R `.v2p` 17-20 → `VAZTypeK`** ✅ DONE (commit 6fe9c39; flips the default filter cubic→Sallen-Key).
-> 2. **K `.v2p` 15/16 → route to `VAZTypeD`** (which IS VAZ's K engine, 0x6d67 SVF) with the 2nd-integrator output tap +
->    the mode-0x44 HP+LP variant. This is a **re-route + tap**, NOT a new engine — the clone already has K's recurrence.
-> 3. **D `.v2p` 10-13 → build the REAL D engine** (0x6d45/55/65/66 + cubic + tap(mode&3) @0x4ddaa8). This is the actual
->    **missing** engine (the one I mistakenly thought was "K's missing SVF"). Route-B transcription + oracle.
+> **Fix — ✅ ALL DONE (2026-07-11); `filter_route_map` = ALL MATCH:**
+> 1. **R `.v2p` 17-20 → `VAZTypeK`** ✅ (commit 6fe9c39; flips the default filter cubic→Sallen-Key).
+> 2. **K `.v2p` 15/16 → `VAZTypeD` tap 2** ✅ (commit eb9d820; oracle `filter_k` BIT-EXACT — K = VAZTypeD's 0x6d67 SVF,
+>    a re-route, not a new engine).
+> 3. **D `.v2p` 10-13 → new `VAZTypeDreal`** ✅ (commit e3cce59; the real 0x6d45/55/65/66 + cubic 2-stage SVF @0x4ddaa8,
+>    tables RPM-dumped, oracle `filter_dreal` BIT-EXACT). The genuinely-missing engine.
 >
-> **Reported, not patched** (steps 2-3) — the scope grew: K is a re-route, and the genuinely-new engine is for **D**
-> (another whole filter choice, `.v2p` 10-13). Awaits the user's direction. `filter_route_map` makes it all reproducible.
+> Every `.v2p` filter mode now routes to VAZ's coef table (oracle `filter_route_map` ALL MATCH). Only the mode-0x34
+> **D HP+LP Separation** variant + `VAZTypeK`'s reso-trim/output/HP-index refinements remain as minor TODOs.
 
 ### 1.3 Envelopes
 | Component | VAZ ref | Clone | Status | Method |
