@@ -8,6 +8,7 @@
 #include <iostream>
 #include <vector>
 #include <cmath>
+#include <cstdio>
 
 using juce::MidiMessage;
 
@@ -184,6 +185,46 @@ int main()
                                      peak(b.getReadPointer(1), on, b.getNumSamples()));
         check("polyphony_no_clip", pk <= 1.0, "peak=" + std::to_string(pk) + " (>1.0 clips at the output)");
     }
+
+    // ==== AUDIBILITY MATRIX (surfaces missing clamp/guard bugs like the Pulse min-edge one) ====
+    // For every osc waveform + every filter mode, render default & extreme settings and print RMS/peak.
+    // A SILENT cell (RMS<1e-4) or a BLOWUP cell (peak>4 or non-finite) at a musically-valid setting = a suspect.
+    auto measure = [&](VAZCloneAudioProcessor& p, int note) {
+        setP(p, "e1_attack", 0.02f); setP(p, "e1_sustain", 1.0f);
+        const int on = (int)(0.05 * sr);
+        auto b = render(p, sr, {{on, MidiMessage::noteOn(1, note, 1.0f)}}, 0.35);
+        const int a0 = on + (int)(0.12 * sr), a1 = b.getNumSamples();
+        return std::pair<double,double>{ rms(b.getReadPointer(0), a0, a1), peak(b.getReadPointer(0), a0, a1) };
+    };
+    auto flag = [](double r, double pk) { return r < 1e-4 ? "  <== SILENT" : (!std::isfinite(pk) || pk > 4.0 ? "  <== BLOWUP" : ""); };
+
+    std::cout << "\n--- OSC waveform audibility (A-LP open, note 60, sustain) ---\n";
+    { const char* wn[5] = {"Saw","Pulse","MultiSaw","Sample","Ext"};
+      for (int w = 0; w < 5; ++w) for (double sh : {0.0, 0.5, 1.0}) {
+        VAZCloneAudioProcessor p; setP(p, "o1_wave", w / 4.0f); setP(p, "o1_shape", (float) sh);
+        auto [r, pk] = measure(p, 60);
+        std::printf("  %-9s shape=%.1f   RMS=%.5f  peak=%.4f%s\n", wn[w], sh, r, pk, flag(r, pk)); } }
+
+    std::cout << "--- FILTER audibility (Saw source, note 60, sustain; reso 0, cutoff mid & high) ---\n";
+    for (int m = 0; m <= 21; ++m) for (double cf : {0.5, 0.9}) {
+        VAZCloneAudioProcessor p; setP(p, "o1_wave", 0.0f); setP(p, "filter_mode", m / 21.0f);
+        setP(p, "resonance", 0.0f); setP(p, "cutoff", (float) cf);
+        auto [r, pk] = measure(p, 60);
+        std::printf("  mode %2d cutoff=%.1f   RMS=%.5f  peak=%.4f%s\n", m, cf, r, pk, flag(r, pk)); }
+
+    // Regression guards: every waveform (default shape) and every filter mode (default open cutoff, reso 0) must be
+    // audible at default settings — this is the class of bug the Pulse min-edge clamp fell into.
+    { std::string bad;
+      for (int w = 0; w < 5; ++w) { VAZCloneAudioProcessor p; setP(p, "o1_wave", w / 4.0f); auto [r, pk] = measure(p, 60);
+        if (r <= 1e-3) bad += " w" + std::to_string(w) + "(RMS=" + std::to_string(r) + ")"; }
+      check("all_osc_audible_at_default", bad.empty(), bad.empty() ? "5 waveforms, default shape, open filter" : "SILENT:" + bad); }
+    // (HP modes are correctly silent at max cutoff — the note is below the HP freq — so sweep cutoffs and require
+    //  the filter to pass the note at SOME musical setting. A mode silent at every cutoff is the real bug.)
+    { std::string bad;
+      for (int m = 0; m <= 21; ++m) { double best = 0.0;
+        for (double cf : {0.3, 0.5, 0.7}) { VAZCloneAudioProcessor p; setP(p, "o1_wave", 0.0f); setP(p, "filter_mode", m / 21.0f); setP(p, "cutoff", (float) cf); auto [r, pk] = measure(p, 60); best = juce::jmax(best, r); }
+        if (best <= 1e-3) bad += " m" + std::to_string(m) + "(maxRMS=" + std::to_string(best) + ")"; }
+      check("all_filters_pass_note_somewhere", bad.empty(), bad.empty() ? "22 modes audible at cutoff 0.3/0.5/0.7" : "SILENT AT ALL CUTOFFS:" + bad); }
 
     std::cout << "\n=== " << (g_total - g_fail) << "/" << g_total << " passed, " << g_fail
               << " failed (failures pin audited bugs) ===\n";

@@ -35,6 +35,15 @@ by `tools/dump_vaz_tables.py`. Oracle: `plugins/VAZClone/Source/oracle_main.cpp`
 | Multi-saw detune → cents | `FUN_004dbddc`:386-432 (not decoded to cents) | `Synth.h`:171-184 | **TILNÆRMET** | from FFT measurement, not the binary |
 | Osc3 audio-rate footage | `FUN_004dbddc`:~1310 ratio + LFO1 rateVal | mixer opt, `2^((b−144)/48)` | ⏸ **PARKED (anchor-consistent)** | 2 operand hypotheses survive; DSP-struct VMT not RE'd. **Mechanism now confirmed (2026-07-11): LFO1↔Osc3 is an explicit mixer-source mode-flag, NOT a rate threshold** — only mix-ch3 offers "Oscillator 3" (DFM `MixerSourcePopup`), audio already keys off `mix3Src==1`. GUI now relabels the LFO1 panel → "Oscillator 3" on that condition (`bindLfo1Identity`, matches Core.dll relabel @1109628/45). Only the *footage-pitch value* stays parked (VMT). |
 
+> **Systemic audibility audit (2026-07-11):** after the Pulse min-edge-clamp bug, `dsp_audit` gained an "audible at
+> default/extreme" RMS matrix + guards (`all_osc_audible_at_default`, `all_filters_pass_note_somewhere`, plus the
+> printed osc×shape / filter×cutoff table). Result: **the Pulse clamp was the ONLY un-ported guard** — every osc
+> waveform is audible at default, every filter passes the note at some musical cutoff, none blow up at max reso
+> (peak < 0.5). Full-function re-reads: **A/B** have no output/state clamps in VAZ (`vaz_big.c`:1104-1177) so the
+> clone's absence matches; **C** was Route-B re-read (cubic soft-clip `>>0x21`/`0x22` + separation ±sep clamps ported,
+> `vaz_big.c`:1179-1235); **D/K/R/Dreal** re-read with their reso/cubic clamps. (Mode-12 D-HP is *correctly* silent
+> at max cutoff — the note is below the HP freq, loud at cutoff 0.3-0.5.)
+
 ### 1.2 Filters (6 families / 22 modes) — ⚠ matrix §3 was STALE; reconciled with the filter work below
 | Engine | Factory-patch share | Clone | Status | Method |
 |--------|--------------------|-------|--------|--------|
