@@ -103,6 +103,7 @@ body {
 
 /* LABELS */
 .lbl { color:#c8c8d8; font-size:9px; line-height:12px; }
+.lbl.dim { color:#6a6a78; }   /* "Unused" filter knob for the current mode */
 
 /* HORIZONTAL SLIDERS w/ tick marks */
 .slider {
@@ -1554,6 +1555,52 @@ function bindCombo(paramId, el) {
   el.addEventListener("change", () => state.setChoiceIndex(el.selectedIndex));
 }
 
+// Per-mode filter knob labels. VAZ dynamically relabels flt_aux / hp_cutoff / the filter mod-slot per filter mode
+// (Core.dll DFM radio captions + the knob-label pool at file-off 1111113: Bandwidth/Separation/Highpass Cutoff/
+// Damping/Unused/Highpass Resonance/Input-Output Mix + the three Modulation labels). Assignment cross-checked with
+// the DSP param reads in vaz_big.c (aux=param[0x270], hp=param[0x274]): C-Sep + D-HP+LP read separation; K-HP+LP
+// reads 0x270 as HP-cutoff + 0x274 as HP-reso; Comb = Damping / I-O Mix. R (2P & 4P) NEVER reads 0x270 → aux=Unused
+// (there is no rbTypeR4SM radio; only C has a Separation-Modulation variant). Rows: [flt_aux, hp_cutoff, modSlot].
+const FILTER_LABELS = [
+  ["Unused",          "Unused",             "Resonance Modulation"],  // 0  A LP 2P
+  ["Bandwidth",       "Unused",             "Resonance Modulation"],  // 1  B LP 2P
+  ["Unused",          "Highpass Cutoff",    "Resonance Modulation"],  // 2  C 2P LP Res Mod
+  ["Unused",          "Highpass Cutoff",    "Resonance Modulation"],  // 3  C 4P LP Res Mod
+  ["Unused",          "Unused",             "Resonance Modulation"],  // 4  A HP 2P
+  ["Unused",          "Unused",             "Resonance Modulation"],  // 5  A BP 2P
+  ["Bandwidth",       "Unused",             "Resonance Modulation"],  // 6  B HP 2P
+  ["Bandwidth",       "Unused",             "Resonance Modulation"],  // 7  B BP 2P
+  ["Separation",      "Highpass Cutoff",    "Separation Modulation"], // 8  C 4P LP Sep Mod
+  ["Unused",          "Highpass Cutoff",    "Highpass Modulation"],   // 9  C 4P LP HP Mod
+  ["Unused",          "Unused",             "Resonance Modulation"],  // 10 D LP 2P
+  ["Unused",          "Unused",             "Resonance Modulation"],  // 11 D BP 2P
+  ["Unused",          "Unused",             "Resonance Modulation"],  // 12 D HP 2P
+  ["Separation",      "Highpass Cutoff",    "Separation Modulation"], // 13 D HP+LP
+  ["Unused",          "Highpass Cutoff",    "Highpass Modulation"],   // 14 C 2P LP HP Mod
+  ["Unused",          "Unused",             "Resonance Modulation"],  // 15 K LP Sallen-Key
+  ["Highpass Cutoff", "Highpass Resonance", "Highpass Modulation"],   // 16 K HP+LP
+  ["Unused",          "Highpass Cutoff",    "Resonance Modulation"],  // 17 R 2P LP Res Mod
+  ["Unused",          "Highpass Cutoff",    "Highpass Modulation"],   // 18 R 2P LP HP Mod
+  ["Unused",          "Highpass Cutoff",    "Resonance Modulation"],  // 19 R 4P LP Res Mod
+  ["Unused",          "Highpass Cutoff",    "Highpass Modulation"],   // 20 R 4P LP HP Mod
+  ["Damping",         "Input/Output Mix",   "Resonance Modulation"],  // 21 Comb Filter
+];
+function bindFilterModeLabels() {
+  let st; try { st = getComboBoxState("filter_mode"); } catch (e) { st = null; }
+  if (!st) return;
+  const auxEl = document.getElementById("auxLbl");
+  const hpEl  = document.getElementById("hpLbl");
+  const rmEl  = document.getElementById("resModLbl");
+  const apply = () => {
+    const r = FILTER_LABELS[st.getChoiceIndex()] || ["Unused", "Unused", "Resonance Modulation"];
+    if (auxEl) { auxEl.textContent = r[0]; auxEl.classList.toggle("dim", r[0] === "Unused"); }
+    if (hpEl)  { hpEl.textContent  = r[1]; hpEl.classList.toggle("dim", r[1] === "Unused"); }
+    if (rmEl)  rmEl.textContent  = r[2];
+  };
+  if (st.valueChangedEvent && st.valueChangedEvent.addListener) st.valueChangedEvent.addListener(apply);
+  apply();
+}
+
 // Button group (waveform / octave) bound to a WebComboBoxRelay: button position = choice index.
 function bindButtonGroup(selector, paramId) {
   let state;
@@ -1796,6 +1843,7 @@ function init() {
   document.querySelectorAll("[data-combo]").forEach((el) => {
     bindCombo(el.getAttribute("data-combo"), el);
   });
+  bindFilterModeLabels();                           // per-mode flt_aux / hp_cutoff / mod-slot relabeling
   bindSigns();                                      // +/- modulation-polarity buttons
   bindButtonGroup('[data-wg="wf1"]', "o1_wave");    // waveform buttons OSC1
   bindButtonGroup('[data-wg="wf2"]', "o2_wave");    // waveform buttons OSC2
