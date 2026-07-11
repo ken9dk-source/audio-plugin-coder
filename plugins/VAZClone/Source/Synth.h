@@ -168,6 +168,12 @@ struct OscBlock
             case 1: {  // Pulse = saw(t) − saw(t−pw); duty from waveshape (difference-of-saws; band-limiting differs from VAZ's BLEP)
                 double ph  = adv (phase[0], inc);
                 double pw  = pulseWidth (waveshape);            // VAZ duty = WaveShape/256 — LINEAR, square at 0.5 (FUN_004de930)
+                // VAZ clamps the pulse edge to a frequency-dependent min/max (its BLEP transition width, vaz_big.c:207-220):
+                // pw ∈ [(iv8+1)/1024, 1−(iv8+1)/1024], iv8 = max(0, ((inc·0x1200000) − 0xe000) >> 0xd) in 32-bit phase units
+                // (inc = hz/sr). Without it the difference-of-saws is exactly 0 at pw=0 → Modifier=0 (the default) is SILENT.
+                const double pre = inc * 18874368.0 - 57344.0;                       // (inc<<24)+(inc<<21) − 0xe000
+                const double lo  = juce::jmin ((double) ((pre > 0.0 ? (int) (pre / 8192.0) : 0) + 1) / 1024.0, 0.5);
+                pw = juce::jlimit (lo, 1.0 - lo, pw);
                 double ph2 = ph - pw; if (ph2 < 0.0) ph2 += 1.0;
                 float a = WaveTables::read (wt.saw[mip], ph);
                 float b = WaveTables::read (wt.saw[mip], ph2);

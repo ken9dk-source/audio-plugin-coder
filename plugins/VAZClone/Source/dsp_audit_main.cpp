@@ -159,6 +159,18 @@ int main()
               "DC=" + std::to_string(off) + " (" + std::to_string(100 * std::abs(off) / juce::jmax(1e-6, pk)) + "% of peak)");
     }
 
+    // ---- 5b. DEFAULT-patch Pulse must be AUDIBLE (regression guard for the b/256 duty-map: Modifier=0 default
+    //          → pulseWidth(0)=0 → difference-of-saws = 0 = silence, unless VAZ's min-edge clamp is applied) ----
+    {
+        VAZCloneAudioProcessor p;
+        setP(p, "o1_wave", 1.0f / 4.0f);            // select Pulse — leave OSC1 Waveshape at its DEFAULT (0.0 = Modifier 0)
+        setP(p, "e1_attack", 0.02f); setP(p, "e1_sustain", 1.0f);   // sustain so we measure the oscillator, not env decay
+        const int on = (int)(0.05 * sr);
+        auto b = render(p, sr, {{on, MidiMessage::noteOn(1, 60, 1.0f)}}, 0.40);
+        const double r = rms(b.getReadPointer(0), on + (int)(0.1 * sr), b.getNumSamples());
+        check("pulse_default_audible", r > 1e-3, "RMS=" + std::to_string(r) + " (default Pulse waveform must not be silent)");
+    }
+
     // ---- 6. polyphony gain / clipping (EXPECTED FAIL: no master limiter; unison sums > 1) ----
     {
         VAZCloneAudioProcessor p;
