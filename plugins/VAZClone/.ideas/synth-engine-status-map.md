@@ -44,7 +44,8 @@ by `tools/dump_vaz_tables.py`. Oracle: `plugins/VAZClone/Source/oracle_main.cpp`
 | **C** 2P/4P + Separation (2/3/8/14) | **40%** | `VAZTypeC.h` (reuses R) | ✅ **BIT-EXACT** | Route-B line-by-line vs decompile `vaz_big.c`:1179-1283 (biquad + cubic `>>0x21/0x22` + separation ±sep + closing 1-pole `kRC[+0x274·4]`) — faithful, no fudge |
 | **B** A-HP/BP + B LP/BP/HP (1/4/5/6/7) | ~24% | `VAZTypeB.h` (reuses A) | ✅ **BIT-EXACT** | Route-B line-by-line vs decompile `vaz_big.c`:1114-1177 (A biquad `s2·a2+s1·a1+in·b0` + LP/BP/HP taps); coef map confirmed (kA1=0x5945e4, kA2=0x5d45e4) |
 | **D-HP** (12) | small | `VAZTypeD.h` + tables | ✅ **BIT-EXACT** | Route-B line-by-line vs decompile `vaz_big.c`:1406-1440 (Chamberlin SVF, resoFB clamp ±0x1000000, `coefA=0x6d67e8`) — faithful |
-| **K** Sallen-Key (15/16) | small | `VAZTypeK.h` + tables | ⚠ **VERIFICERET (3 deviations found)** | Route-B (`vaz_big.c`:1499-1594) found the clone is a spectral approx, NOT bit-exact — see below |
+| **K** (`.v2p` 15/16 → internal 0x40/0x44) | small | `VAZTypeK.h` (Sallen-Key 0x6d87) | ⚠ **PÅSTÅET — likely WRONG engine** | pinning shows VAZ handles 0x40/0x44 with the **D-SVF tables 0x6d67** (branch `vaz_big.c`:1394-1465); `VAZTypeK`'s 0x6d87 Sallen-Key is VAZ's handler for `.v2p` 17–20 instead → engine↔mode **audit** needed (see below) |
+| **R** (`.v2p` 17/19/20 → internal 0x50-0x5d) | 13% | `VAZTypeR.h` (cubic 0x69) | ⚠ **re-open** | symmetric to K: VAZ's 0x50-0x5d is the **0x6d87 Sallen-Key**, not the 0x69 cubic cascade the clone uses — the "19.2 vs 18.5 dB" was spectral-only, never a bit-null |
 | Cutoff **base smoother** (`DAT_006d45e4`) | all | `SynthVoice.h`:148 | **BIT-EXACT** | VazOracle `cutoff_smoother` |
 | D-LP/BP, D-HP+LP, Comb | **0 factory patches** | `Synth.h` FLOAT | TILNÆRMET | float fallback |
 
@@ -69,6 +70,25 @@ by `tools/dump_vaz_tables.py`. Oracle: `plugins/VAZClone/Source/oracle_main.cpp`
 > 2-pole vs 4-pole). **Not done here** — it needs the VAZ-internal-mode→2P/4P mapping resolved and the (bounded) self-osc
 > behaviour confirmed against a numeric harness before touching a working, spectral-validated self-osc filter (**"gæt
 > ikke"**). Flagged as the next filter task.
+>
+> **⚠ PINNING RESULT (2026-07-11) — a bigger issue than the 3 deviations, do NOT patch K blindly.** Pinning the mode
+> map (the user's prerequisite) via the `.v2p`-index→internal-mode remap `FUN_004dffb0` @0x4dffb0 (`vaz_prims.c`:2519)
+> plus the render dispatch shows the clone's K is likely matched to the **wrong VAZ branch/tables**:
+> - `.v2p` index **15 (clone "K LP") → internal 0x40**, **16 (clone "K HP+LP") → internal 0x44** — both **< 0x45**, so
+>   VAZ handles them in the **0x35–0x44 branch** (`vaz_big.c`:1394-1465) using the **D-SVF tables `0x6d67e8/0x6d77e8`**.
+> - But the clone's `VAZTypeK` implements the **Sallen-Key `0x6d87e8/0x6d97e8` + `0x418937`** recurrence (`vaz_big.c`:
+>   1499-1594), which VAZ uses for internal **0x45–0x5d** — i.e. `.v2p` indices **17–20** (the clone's **"R"** modes).
+> - The clone dispatches the raw `.v2p` index straight to `setMode` (`PluginProcessor.cpp`:245), *not* through
+>   `FUN_004dffb0`, so its engine↔mode table disagrees with VAZ's for 15/16 (and, symmetrically, 17–20: VAZ's Sallen-Key
+>   vs the clone's `VAZTypeR` cubic cascade — which explains R's long-standing spectral-only "19.2 vs 18.5 dB", never a
+>   bit-null).
+>
+> **So the K "fix" is not RESO_TRIM/output/HP — it's that the clone's K (and R) engines appear SWAPPED vs VAZ's actual
+> `.v2p`→filter mapping.** Confirming this needs the numeric harness to (a) transcribe the real 0x40/0x44 handler
+> (0x6d67 SVF-variant) and diff it vs `VAZTypeK`, and (b) transcribe the 0x6d87 Sallen-Key and diff vs `VAZTypeR`.
+> **Not guessed, not patched** (per "gæt ikke") — this is now a **filter-engine↔mode AUDIT**, the real prerequisite. It
+> supersedes the "3 deviations" framing above (those were read from the 0x6d87 branch, which turns out to be R's, not
+> K's for modes 15/16).
 
 ### 1.3 Envelopes
 | Component | VAZ ref | Clone | Status | Method |
