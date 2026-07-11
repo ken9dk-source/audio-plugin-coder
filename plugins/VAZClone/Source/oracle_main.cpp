@@ -15,6 +15,7 @@
 #include "../../VAZPhaser/Source/VazPhaserEngine.h"          // the REAL clone phaser engine (tested below)
 #include "../../VAZDelay/Source/VazDelayEngine.h"            // the REAL clone delay engine (tested below)
 #include "../reference/vaz_autopan_rate_lut.h"                // dumped autopan LFO rate curve (FUN_00517ee0)
+#include "VAZTypeDreal.h"                                     // the REAL VAZ Type-D filter (2-stage cubic SVF, tested below)
 #include <cstdint>
 #include <cstdio>
 #include <cmath>
@@ -269,7 +270,7 @@ int main()
                 case 0: case 4: case 5: return "0x55 A";
                 case 1: case 6: case 7: return "0x55 A/B (B)";
                 case 2: case 3: case 8: case 9: case 14: return "0x69 cubic (C)";
-                case 10: case 11: case 12: case 13: return "0x6d67 SVF (D)";
+                case 10: case 11: case 12: case 13: return "0x6d65 cubic-SVF (Dreal)"; // FIXED: D → VAZTypeDreal (real D)
                 case 15: case 16: return "0x6d67 SVF (K→VAZTypeD)"; // FIXED 2026-07-11: K re-routed to VAZTypeD (VAZ's K)
                 case 17: case 18: case 19: case 20: return "0x6d87 Sallen-Key (K→R)"; // FIXED 2026-07-11: R re-routed to VAZTypeK
                 case 21: return "Comb"; default: return "?"; }; };
@@ -322,6 +323,50 @@ int main()
         }
         row ("filter_k", maxd == 0 ? "BIT-EXACT (K = VAZTypeD tap2)" : "DEVIATION (max=" + std::to_string (maxd) + ")",
              "VAZ K handler 0x4ddcfe (0x6d67 SVF, bp=resonant 2-pole LP) == VAZTypeD.process(tap 2) — so K LP re-routes to VAZTypeD, not a new engine");
+    }
+
+    // ── FILTER Dreal — independent iVar-style transcription of VAZ's REAL D handler 0x4ddaa8 (vaz_big.c:1349-1391)
+    //    vs the new VAZTypeDreal engine, all 3 taps. Real dumped tables (0x6d45/55/65/66). ─────────────────────────────
+    {
+        struct RefDreal {
+            double sr = 44100.0; int32_t s17c = 0, s180 = 0;
+            static int32_t mh (int32_t a, int32_t b) { return (int32_t) (((int64_t) a * b) >> 32); }
+            static int32_t sl (int32_t v, int n) { return (int32_t) ((uint32_t) v << n); }
+            static int32_t ad (int32_t a, int32_t b) { return (int32_t) ((uint32_t) a + (uint32_t) b); }
+            static int32_t sb (int32_t a, int32_t b) { return (int32_t) ((uint32_t) a - (uint32_t) b); }
+            double process (int tap, double in, double fc, double reso) {
+                const int c = std::clamp ((int) std::lround (1024.0 * std::log (std::clamp (fc, 1.0, sr * 0.49)) / 10.24), 0, 1023);
+                const int r = std::clamp (((int) std::lround (std::clamp (reso, 0.0, 1.0) * 255.0)) >> 2, 0, 63);
+                int32_t c168 = VAZTypeDrealT::kResC[r]; if (VAZTypeDrealT::kCutRlim[c] < c168) c168 = VAZTypeDrealT::kCutRlim[c];  // 1349-1353
+                const int32_t c16c = VAZTypeDrealT::kResD[r], coefA = VAZTypeDrealT::kCutA[c];   // 1354-1356
+                const int32_t in1 = (int32_t) std::lround (std::clamp (in, -2.0, 2.0) * 65536.0);
+                const int32_t i15 = s17c;
+                int32_t v170 = ad (mh (sl (i15, 2), coefA), s180);                              // 1358-1360
+                int32_t v178 = sb (sb (mh (sl (in1, 1), c16c), mh (sl (i15, 2), c168)), v170);   // 1361-1364
+                const int32_t i9 = ad (sb (i15, mh (sl (i15, 3), mh (sl (i15, 4), sl (i15, 4)))), mh (sl (v178, 2), coefA)); // 1365-1371
+                int32_t i8 = ad (mh (sl (i9, 2), coefA), v170);                                 // 1372-1373
+                v170 = ad (v170, i8); s180 = i8;                                                 // 1374-1375
+                i8 = sb (sb (mh (sl (in1, 1), c16c), mh (sl (i9, 2), c168)), i8);                // 1376-1380
+                v178 = ad (v178, i8);                                                            // 1381
+                s17c = ad (mh (sl (i8, 2), coefA), sb (i9, mh (sl (i9, 3), mh (sl (i9, 4), sl (i9, 4))))); // 1382-1389
+                const int32_t v174 = ad (s17c, i9);                                             // 1390
+                return (double) ((tap == 0) ? v170 : (tap == 1) ? v174 : v178) / 65536.0;
+            }
+        };
+        long maxd = 0;
+        for (int tp = 0; tp < 3; ++tp) {           // state is tap-independent; run a fresh pair per tap
+            RefDreal ref; VAZTypeDreal eng; eng.prepare (44100.0);
+            uint32_t rng = 0x1111u + (uint32_t) tp;
+            for (int i = 0; i < 40000; ++i) {
+                const double fc = 150.0 + (double) (i % 500) * 15.0, rs = 0.15 + (double) (i % 6) * 0.16;
+                const double s = (i == 0) ? 0.5 : ((double) (int32_t) ((rng = rng * 1664525u + 1013904223u) >> 9) / 4194304.0 - 0.5);
+                const int32_t a = (int32_t) std::llround (ref.process (tp, s, fc, rs) * 65536.0);
+                const int32_t b = (int32_t) std::llround (eng.process (tp, s, fc, rs) * 65536.0);
+                long d = (long) a - (long) b; if (d < 0) d = -d; if (d > maxd) maxd = d;
+            }
+        }
+        row ("filter_dreal", maxd == 0 ? "BIT-EXACT (real dumped tables)" : "DEVIATION (max=" + std::to_string (maxd) + ")",
+             "VAZ real D 0x4ddaa8 (2-stage cubic SVF, 0x6d45/55/65/66) — VAZTypeDreal vs independent transcription, taps LP/BP/HP");
     }
 
     // ── 2. Envelope per-sample step (attack→decay→release) ──────────────────────────────────────────

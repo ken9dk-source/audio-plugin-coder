@@ -53,6 +53,13 @@ ENVTABLES = [('env_rate_006db7e8', 0x6db7e8, 720),
              ('dcblock_006df6c4',   0x6df6c4, 4),
              ('cutsmooth_006d45e4',  0x6d45e4, 4)]      # output DC-block leak coef (R' = 1 + val/2^32)
 
+# Type-D (real) filter coef tables — the distorted resonant SVF handler @0x4ddaa8 (.v2p 10-13). RAW int32.
+# Spacing: 0x6d45e8→0x6d55e8→0x6d65e8 = 1024 ints each; 0x6d65e8→0x6d66e8→0x6d67e8 = 64 ints each.
+FILTABLES_D = [('filt_d_006d45e8', 0x6d45e8, 1024),
+               ('filt_d_006d55e8', 0x6d55e8, 1024),
+               ('filt_d_006d65e8', 0x6d65e8, 64),
+               ('filt_d_006d66e8', 0x6d66e8, 64)]
+
 def main():
     os.makedirs(OUT, exist_ok=True)
     pref = pefile.PE(CORE).OPTIONAL_HEADER.ImageBase
@@ -81,6 +88,16 @@ def main():
                 fp.write('\n'.join(str(v) for v in vals))
             u = [v & 0xffffffff for v in vals]
             print(f'  {name}: saved {cnt} ints  first12(hex): ' + ' '.join(f'{x:08x}' for x in u[:12]))
+        for name, va, cnt in FILTABLES_D:               # D filter coef tables → RAW int32
+            raw = readmem(h, va + delta, cnt*4)
+            if len(raw) < cnt*4:
+                print(f'  {name}: short read ({len(raw)}B)'); continue
+            vals = struct.unpack(f'<{cnt}i', raw)
+            with open(os.path.join(OUT, name+'.txt'), 'w') as fp:
+                fp.write('\n'.join(str(v) for v in vals))
+            u = [v & 0xffffffff for v in vals]
+            nz = sum(1 for v in vals if v != 0)
+            print(f'  {name}: saved {cnt} ints ({nz} nonzero)  first8(hex): ' + ' '.join(f'{x:08x}' for x in u[:8]))
         k32.CloseHandle(h)
     finally:
         vaz.close()

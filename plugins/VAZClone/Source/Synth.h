@@ -4,7 +4,8 @@
 #include "VAZTypeA.h"   // bit-exact VAZ Type-A Lowpass (integer recurrence + dumped coef tables)
 #include "VAZTypeR.h"   // bit-exact VAZ Type-R (cubic 4-pole integrator cascade, self-oscillating)
 #include "VAZTypeK.h"   // bit-exact VAZ Type-K (Sallen-Key, distorted self-oscillating resonance)
-#include "VAZTypeD.h"   // bit-exact VAZ Type-D (state-variable / Chamberlin SVF)
+#include "VAZTypeD.h"   // (mislabelled: this 0x6d67 SVF is actually VAZ's K — now used for K .v2p 15/16)
+#include "VAZTypeDreal.h" // the REAL VAZ Type-D (2-stage cubic resonant SVF, 0x6d45/55/65/66) for D .v2p 10-13
 #include "VAZTypeC.h"   // bit-exact VAZ Type-C (2P/4P resonant cascade + Separation, reuses R tables)
 #include "VAZTypeB.h"   // bit-exact VAZ Type-A/B taps (A-HP/BP + B-LP/BP/HP, reuses A biquad/tables)
 #include "VAZEnvTables.h" // exact envelope rate/curve tables dumped from Vaz2010Core.dll (one-pole ADSR coefs)
@@ -421,7 +422,8 @@ struct VAZMultiFilter
     VAZTypeA  typeA;                                      // engine A (bit-exact LP)
     VAZTypeR  typeR;                                      // engine R (bit-exact cubic cascade)
     VAZTypeK  typeK;                                      // engine K (bit-exact Sallen-Key)
-    VAZTypeD  typeD;                                      // engine D (bit-exact state-variable)
+    VAZTypeD  typeD;                                      // (0x6d67 SVF = VAZ's K; used by K .v2p 15/16 via engine 3 tap 2)
+    VAZTypeDreal typeDreal;                               // the REAL VAZ Type-D (2-stage cubic SVF) — engine 7, D .v2p 10-13
     VAZTypeC  typeC;                                      // engine C (bit-exact cascade + Separation)
     VAZTypeB  typeB;                                      // engines A-HP/BP + B (bit-exact A/B biquad taps)
     double a_ic1=0, a_ic2=0, c1_1=0, c1_2=0, c2_1=0, c2_2=0;
@@ -461,10 +463,12 @@ struct VAZMultiFilter
             case 3:  engine=2; poles=4; usesHP=true; modRoute=0; break;            // C 4P+HP RM
             case 8:  engine=2; poles=4; usesHP=true; modRoute=2; break;            // C 4P+HP SM
             case 9:  engine=2; poles=4; usesHP=true; modRoute=1; break;            // C 4P+HP HM
-            case 10: engine=3; tap=0; break;                                       // D LP
-            case 11: engine=3; tap=2; break;                                       // D BP
-            case 12: engine=3; tap=1; break;                                       // D HP
-            case 13: engine=3; tap=3; hpLP=true; modRoute=2; break;                // D HP+LP (Separation)
+            // D (.v2p 10-13): the REAL VAZ D (2-stage cubic SVF @0x4ddaa8, 0x6d45/55/65/66) = VAZTypeDreal (engine 7).
+            // taps 0=LP/1=BP/2=HP (mode&3). Was wrongly on engine 3 (=VAZTypeD = VAZ's K).
+            case 10: engine=7; tap=0; break;                                       // D LP  → VAZTypeDreal LP
+            case 11: engine=7; tap=1; break;                                       // D BP  → VAZTypeDreal BP
+            case 12: engine=7; tap=2; break;                                       // D HP  → VAZTypeDreal HP
+            case 13: engine=7; tap=0; break;                                       // D HP+LP → VAZTypeDreal LP core (⚠ mode-0x34 Separation variant TODO)
             // K (.v2p 15/16): PROVEN (oracle filter_k, BIT-EXACT) to be VAZ's 0x6d67 SVF (handler 0x4ddcfe) = exactly the
             // engine the clone calls VAZTypeD, bp tap (= resonant 2-pole LP), no post-HP. Re-routed engine 4 → engine 3.
             case 15: engine=3; tap=2; break;                                       // K LP  → VAZTypeD bp tap (BIT-EXACT)
@@ -536,6 +540,8 @@ struct VAZMultiFilter
             } break;
             case 4:                                                      // K = BIT-EXACT Sallen-Key (+ own post-HP)
                 out=typeK.process (x, fc, reso, hpHz); break;
+            case 7:                                                      // D (real) = 2-stage cubic SVF (LP/BP/HP taps)
+                out=typeDreal.process (tap, x, fc, reso); break;
             case 6: {                                                    // Comb delay-feedback
                 const int len=(int) juce::jlimit (8.0,4094.0, sr/juce::jlimit (40.0,2000.0,fc));
                 int rd=combIdx-len; if (rd<0) rd+=4096;
