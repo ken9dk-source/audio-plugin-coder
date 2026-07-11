@@ -8,7 +8,7 @@
 #include "VAZTypeDreal.h" // the REAL VAZ Type-D (2-stage cubic resonant SVF, 0x6d45/55/65/66) for D .v2p 10-13
 #include "VAZTypeC.h"   // bit-exact VAZ Type-C (2P/4P resonant cascade + Separation, reuses R tables)
 #include "VAZTypeB.h"   // bit-exact VAZ Type-A/B taps (A-HP/BP + B-LP/BP/HP, reuses A biquad/tables)
-#include "VAZPulseOsc.h" // bit-exact VAZ band-limited (BLEP) pulse oscillator (difference-of-ramps + dumped step tables)
+// #include "VAZPulseOsc.h" — BLEP pulse engine kept as an artifact but NOT wired in (port d473dad reverted; see case 1)
 #include "VAZEnvTables.h" // exact envelope rate/curve tables dumped from Vaz2010Core.dll (one-pole ADSR coefs)
 
 // ============================================================================
@@ -122,13 +122,12 @@ struct OscBlock
 {
     static constexpr int N = 4;
     double phase[N] = { 0.0, 0.0, 0.0, 0.0 };
-    uint32_t phaseU = 0;                   // 32-bit phase accumulator for the BIT-EXACT BLEP pulse (VAZPulseOsc)
     double sampleRate = 44100.0;
     const SampleData* sample = nullptr;   // Sample mode (mode 3) data — stable ptr from the processor
     double samplePhase = 0.0;             // playback position in sample frames
     bool   mainWrapped = false;                 // did the main phase wrap this sample? (for hard sync)
 
-    void hardReset() noexcept { phase[0] = 0.0; phaseU = 0; }   // slave reset on master cycle (OSC2 Sync)
+    void hardReset() noexcept { phase[0] = 0.0; }   // slave reset on master cycle (OSC2 Sync)
 
     // Random initial phases once at prepare → free-running, decorrelated (no click).
     void prepare (double sr) noexcept
@@ -136,7 +135,6 @@ struct OscBlock
         sampleRate = sr;
         waveTables();                                          // force table build off the audio thread
         for (int i = 0; i < N; ++i) phase[i] = juce::Random::getSystemRandom().nextDouble();
-        phaseU = (uint32_t) (phase[0] * 4294967296.0);         // seed the pulse accumulator (decorrelated like phase[0])
     }
 
     static double adv (double& p, double inc) noexcept
@@ -168,14 +166,19 @@ struct OscBlock
                 float t = WaveTables::read (wt.tri[mip], ph);
                 return (double) s * (1.0 - waveshape) + (double) t * waveshape;
             }
-            case 1: {  // Pulse — BIT-EXACT VAZ band-limited (BLEP) difference-of-ramps (vaz_big.c:206-241, tables dd2c0/de2c0).
-                // pw = WaveShape<<16 (the b/256 duty map + freq-dependent edge clamp live INSIDE the recurrence, iVar9).
-                const uint32_t incU = (uint32_t) std::llround (juce::jlimit (0.0, sampleRate * 0.5, hz) / sampleRate * 4294967296.0);
-                const uint32_t prev = phaseU; phaseU += incU;
-                mainWrapped = (phaseU < prev);                 // uint32 wrap = master cycle (for OSC2 hard-sync)
-                const int     b  = (int) std::lround (juce::jlimit (0.0, 1.0, waveshape) * 255.0);
-                const int32_t pw = (int32_t) ((uint32_t) b << 16);
-                return VAZPulseOsc::render (phaseU, incU, pw);
+            case 1: {  // Pulse = saw(t) − saw(t−pw); difference-of-saws. NOTE: the BLEP port (d473dad) was REVERTED —
+                // it sounded harsh/aliased ("C64") in FL vs real VAZ; the oracle only proved clone == my transcription,
+                // never == real VAZ, so a mis-transcribed band-limiting slipped through. BLEP re-port is gated on a real
+                // VAZ-render validation (VAZPulseOsc.h + tables kept as artifacts). Duty = b/256 + VAZ's edge clamp.
+                double ph  = adv (phase[0], inc);
+                double pw  = pulseWidth (waveshape);
+                const double pre = inc * 18874368.0 - 57344.0;                       // (inc<<24)+(inc<<21) − 0xe000
+                const double lo  = juce::jmin ((double) ((pre > 0.0 ? (int) (pre / 8192.0) : 0) + 1) / 1024.0, 0.5);
+                pw = juce::jlimit (lo, 1.0 - lo, pw);                                 // freq-dependent min/max edge (vaz_big.c:207-220)
+                double ph2 = ph - pw; if (ph2 < 0.0) ph2 += 1.0;
+                float a = WaveTables::read (wt.saw[mip], ph);
+                float b = WaveTables::read (wt.saw[mip], ph2);
+                return ((double) a - (double) b) * 0.5;
             }
             case 2: {  // Multi-Saw: 4 detuned saws, evenly spaced (detune from waveshape)
                 // Measured from VAZ (FFT of Multi-Saw Max): 4 saws at 0/+24/+48/+72.5 cents,

@@ -129,6 +129,45 @@ int main()
         check("aliasing_below_5pct", alias < 0.05, "inharmonic energy ratio=" + std::to_string(alias));
     }
 
+    // ---- 3b. PULSE aliasing across the note range (BLEP port — user reports "C64/aliased" in FL Studio) ----
+    {
+        std::cout << "--- PULSE aliasing sweep (o1_wave=Pulse) ---\n";
+        double worst = 0.0; int worstNote = 0; double worstSh = 0;
+        for (double sh : { 0.1, 0.5, 0.9 })
+        for (int note : { 36, 48, 60, 72, 84, 90, 96, 103 }) {
+            VAZCloneAudioProcessor p;
+            setP(p, "o1_wave", 1.0f / 4.0f); setP(p, "o1_shape", (float) sh);
+            setP(p, "e1_attack", 0.05f); setP(p, "e1_sustain", 1.0f);
+            const int on = (int)(0.05 * sr);
+            auto b = render(p, sr, {{on, MidiMessage::noteOn(1, note, 1.0f)}}, 0.50);
+            const double f0 = 440.0 * std::pow(2.0, (note - 69) / 12.0);
+            const double alias = aliasingRatio(b.getReadPointer(0), on + (int)(0.1 * sr), sr, f0);
+            std::printf("  shape=%.1f note %3d (%6.0f Hz)  aliasing=%.4f%s\n", sh, note, f0, alias, alias > 0.05 ? "  <== ALIASED" : "");
+            if (alias > worst) { worst = alias; worstNote = note; worstSh = sh; }
+        }
+        check("pulse_aliasing_below_5pct", worst < 0.05,
+              "worst=" + std::to_string(worst) + " @ note " + std::to_string(worstNote) + " shape " + std::to_string(worstSh));
+    }
+
+    // ---- 3c. reproduce the FL patch (unison + pulse) and test 44.1 kHz (FL default) ----
+    {
+        std::cout << "--- PULSE unison + sample-rate repro ---\n";
+        const double f0 = 440.0 * std::pow(2.0, (60 - 69) / 12.0);
+        { VAZCloneAudioProcessor p; setP(p, "o1_wave", 0.25f); setP(p, "o1_shape", 0.5f);
+          setP(p, "voice_mode", 1.0f); setP(p, "uni_voices", 3.0f / 31.0f); setP(p, "uni_detune", 0.3f);
+          setP(p, "e1_attack", 0.05f); setP(p, "e1_sustain", 1.0f);
+          const int on = (int)(0.05 * sr); auto b = render(p, sr, {{on, MidiMessage::noteOn(1, 60, 1.0f)}}, 0.5);
+          const double al = aliasingRatio(b.getReadPointer(0), on + (int)(0.1 * sr), sr, f0);
+          const double pk = peak(b.getReadPointer(0), on + (int)(0.1 * sr), b.getNumSamples());
+          std::printf("  unison4 pulse note60 @48000  aliasing=%.4f peak=%.4f%s\n", al, pk, al > 0.05 ? "  <== ALIASED" : ""); }
+        for (double sr2 : { 44100.0, 96000.0 }) {
+          VAZCloneAudioProcessor p; setP(p, "o1_wave", 0.25f); setP(p, "o1_shape", 0.5f);
+          setP(p, "e1_attack", 0.05f); setP(p, "e1_sustain", 1.0f);
+          const int on = (int)(0.05 * sr2); auto b = render(p, sr2, {{on, MidiMessage::noteOn(1, 60, 1.0f)}}, 0.5);
+          const double al = aliasingRatio(b.getReadPointer(0), on + (int)(0.1 * sr2), sr2, f0);
+          std::printf("  single  pulse note60 @%5.0f  aliasing=%.4f%s\n", sr2, al, al > 0.05 ? "  <== ALIASED" : ""); }
+    }
+
     // ---- 4. voice-drop on a held chord (expected OK) ----
     {
         VAZCloneAudioProcessor p;

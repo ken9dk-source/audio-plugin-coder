@@ -538,17 +538,15 @@ int main()
             for (int n = 0; n < N; ++n) { const double a = 2.0 * PI * f * n / s; re += x[n] * std::cos (a); im -= x[n] * std::sin (a); }
             return std::hypot (re, im) / N;
         };
-        double worst = 0.0; int worstH = 0; double worstHz = 0, worstSh = 0; long maxSamp = 0;
+        double worst = 0.0; int worstH = 0; double worstHz = 0, worstSh = 0;
         for (double hz : { 110.0, 261.63, 880.0 }) for (double sh : { 0.1, 0.5, 0.9 }) {
             const int b = (int) std::lround (std::clamp (sh, 0.0, 1.0) * 255.0);
             const int32_t pw = (int32_t) ((uint32_t) b << 16);
             const uint32_t inc = (uint32_t) std::llround (hz / sr * 4294967296.0);
             const int N = 16384;
             std::vector<double> ref (N), clo (N);
-            RefBLEP rb; OscBlock ob; ob.sampleRate = sr; ob.phase[0] = 0.0; ob.phaseU = 0;   // seed to match RefBLEP
-            for (int n = 0; n < N; ++n) { ref[n] = rb.next (inc, pw); clo[n] = (double) ob.next (hz, 1, sh);
-                const long d = std::llabs ((long) std::llround (ref[n] * 8388608.0) - (long) std::llround (clo[n] * 8388608.0));
-                if (d > maxSamp) maxSamp = d; }                                                // per-sample (post-port → 0)
+            RefBLEP rb; OscBlock ob; ob.sampleRate = sr; ob.phase[0] = 0.0;
+            for (int n = 0; n < N; ++n) { ref[n] = rb.next (inc, pw); clo[n] = (double) ob.next (hz, 1, sh); }
             const double rf = std::max (1e-9, mag (ref, hz, sr)), cf = std::max (1e-9, mag (clo, hz, sr));
             double dev = 0.0; int cnt = 0;
             for (int k = 2; k <= 40 && k * hz < sr * 0.5; ++k) {
@@ -559,10 +557,12 @@ int main()
             std::printf ("  [pulse-blep] hz=%6.1f shape=%.1f  harmonic-RMS-dev=%.4f\n", hz, sh, dev);
         }
         char buf[160]; std::snprintf (buf, sizeof buf,
-            "worst harmonic dev=%.3f (h%d @ %.0fHz sh%.1f) vs clone", worst, worstH, worstHz, worstSh);
-        row ("osc_pulse_blep", maxSamp == 0 ? "BIT-EXACT (clone == VAZ BLEP transcription, sample-exact)"
-                                            : std::string ("DEVIATION (max int ") + std::to_string (maxSamp) + "; " + buf + ")",
-             "transcription of vaz_big.c:206-241 (BLEP difference-of-ramps, dumped step tables) vs OscBlock::next pulse");
+            "harmonic dev up to %.3f (h%d @ %.0fHz sh%.1f) vs clone diff-of-saws", worst, worstH, worstHz, worstSh);
+        // NOTE: the BLEP port (d473dad) is REVERTED — it sounded harsh in FL vs real VAZ. This row is now the KNOWN GAP
+        // between my BLEP transcription and the clone's diff-of-saws; it is NOT a pass/fail (both differ from real VAZ,
+        // which the oracle never measured). Re-porting the BLEP requires validating the transcription vs a real VAZ render.
+        row ("osc_pulse_blep", std::string ("GAP (BLEP reverted, pending real-VAZ validation): ") + buf,
+             "transcription of vaz_big.c:206-241 (BLEP difference-of-ramps, dumped step tables) vs OscBlock diff-of-saws");
     }
 
     // ── FILTER R — independent transcription of VAZ's R handler 0x4ddf44 (vaz_big.c:1499-1594, Sallen-Key 0x6d87)
