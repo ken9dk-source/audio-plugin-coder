@@ -60,6 +60,11 @@ FILTABLES_D = [('filt_d_006d45e8', 0x6d45e8, 1024),
                ('filt_d_006d65e8', 0x6d65e8, 64),
                ('filt_d_006d66e8', 0x6d66e8, 64)]
 
+# Band-limited PULSE step tables — DAT_006dd2c0 (rising) / DAT_006de2c0 (falling), indexed by the freq-dependent
+# BLEP transition-width index iv8 (vaz_big.c:206-241). RAW int32 (the recurrence uses them as integer multipliers).
+PULSETABLES = [('pulse_step_006dd2c0', 0x6dd2c0, 1280),
+               ('pulse_step_006de2c0', 0x6de2c0, 1280)]
+
 def main():
     os.makedirs(OUT, exist_ok=True)
     pref = pefile.PE(CORE).OPTIONAL_HEADER.ImageBase
@@ -98,6 +103,14 @@ def main():
             u = [v & 0xffffffff for v in vals]
             nz = sum(1 for v in vals if v != 0)
             print(f'  {name}: saved {cnt} ints ({nz} nonzero)  first8(hex): ' + ' '.join(f'{x:08x}' for x in u[:8]))
+        for name, va, cnt in PULSETABLES:               # BLEP pulse step tables → RAW int32
+            raw = readmem(h, va + delta, cnt*4)
+            if len(raw) < cnt*4:
+                print(f'  {name}: short read ({len(raw)}B)'); continue
+            vals = struct.unpack(f'<{cnt}i', raw)
+            with open(os.path.join(OUT, name+'.txt'), 'w') as fp:
+                fp.write('\n'.join(str(v) for v in vals))
+            print(f'  {name}: saved {cnt} ints  first8: ' + ' '.join(str(v) for v in vals[:8]))
         k32.CloseHandle(h)
     finally:
         vaz.close()

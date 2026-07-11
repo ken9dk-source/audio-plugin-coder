@@ -16,6 +16,7 @@
 #include "../../VAZDelay/Source/VazDelayEngine.h"            // the REAL clone delay engine (tested below)
 #include "../reference/vaz_autopan_rate_lut.h"                // dumped autopan LFO rate curve (FUN_00517ee0)
 #include "VAZTypeDreal.h"                                     // the REAL VAZ Type-D filter (2-stage cubic SVF, tested below)
+#include "VAZPulseTables.h"                                   // RAW BLEP step tables (dd2c0/de2c0) for the pulse transcription
 #include <cstdint>
 #include <cstdio>
 #include <cmath>
@@ -497,6 +498,71 @@ int main()
         row ("osc_pulse_pwmap", ok ? "BIT-EXACT (duty = WaveShape/256; center=0; old ~5-pt extreme gone)"
                                    : std::string ("DEVIATION (") + buf + ")",
              std::string ("VAZ pulse duty (FUN_004de930 param[0xa4]=b<<16 → b/256 LINEAR) vs OscBlock::pulseWidth — ") + buf);
+    }
+
+    // ── OSC PULSE band-limited (BLEP) — independent transcription of vaz_big.c:206-241 (difference of two
+    //    band-limited ramps via the dumped step tables dd2c0/de2c0) vs the clone's CURRENT pulse (OscBlock — a
+    //    naive difference-of-saw-wavetables). Reports the HARMONIC-content deviation the user hears. Post-port → 0. ──
+    {
+        struct RefBLEP {
+            uint32_t phase = 0;
+            static int32_t rc (int64_t v) { return (int32_t) (v >> 19); }   // ((hi<<0xd)|(lo>>0x13)) == v>>19
+            double next (uint32_t inc, int32_t pw) {
+                phase += inc;                                               // vaz_big.c:161 (advance, then use)
+                const uint32_t u = phase;
+                const int32_t iVar19 = (int32_t) u >> 8;
+                int32_t pre = ((int32_t) inc >> 8) + ((int32_t) inc >> 0xb) - 0xe000;
+                if (pre < 0) pre = 0;
+                int iv8 = pre >> 0xd; if (iv8 > VAZPulseT::kN - 1) iv8 = VAZPulseT::kN - 1;
+                int32_t iVar15 = (iv8 + 1) * 0x2000;
+                int32_t iVar9 = pw >> 1;
+                if (iVar9 < iVar15) iVar9 = iVar15;
+                const int32_t hi = (iv8 + 1) * -0x2000 + 0x800000;
+                if (hi < iVar9) iVar9 = hi;
+                iVar15 = iVar15 - 0x800000;
+                const int32_t iVar16 = (int32_t) (iVar9 * 0x200 - (int32_t) u) >> 8;
+                const int32_t iVar17 = -iVar19;
+                const int32_t r1 = (-iVar15 == iVar19 || iVar17 < iVar15)
+                    ? rc ((int64_t) (iVar17 + 0x800000) * VAZPulseT::kStepRise[iv8])
+                    : rc ((int64_t) (iVar17 - 0x800000) * VAZPulseT::kStepFall[iv8]);
+                const int32_t r2 = (iVar15 < iVar16)
+                    ? rc ((int64_t) (iVar16 - 0x800000) * VAZPulseT::kStepFall[iv8])
+                    : rc ((int64_t) (iVar16 + 0x800000) * VAZPulseT::kStepRise[iv8]);
+                const int32_t out = (iVar9 * 2 + r1) - (r2 + 0x800000);
+                return (double) out / (double) 0x800000;
+            }
+        };
+        const double PI = 3.14159265358979323846, sr = 48000.0;
+        auto mag = [PI] (const std::vector<double>& x, double f, double s) {
+            double re = 0, im = 0; const int N = (int) x.size();
+            for (int n = 0; n < N; ++n) { const double a = 2.0 * PI * f * n / s; re += x[n] * std::cos (a); im -= x[n] * std::sin (a); }
+            return std::hypot (re, im) / N;
+        };
+        double worst = 0.0; int worstH = 0; double worstHz = 0, worstSh = 0; long maxSamp = 0;
+        for (double hz : { 110.0, 261.63, 880.0 }) for (double sh : { 0.1, 0.5, 0.9 }) {
+            const int b = (int) std::lround (std::clamp (sh, 0.0, 1.0) * 255.0);
+            const int32_t pw = (int32_t) ((uint32_t) b << 16);
+            const uint32_t inc = (uint32_t) std::llround (hz / sr * 4294967296.0);
+            const int N = 16384;
+            std::vector<double> ref (N), clo (N);
+            RefBLEP rb; OscBlock ob; ob.sampleRate = sr; ob.phase[0] = 0.0; ob.phaseU = 0;   // seed to match RefBLEP
+            for (int n = 0; n < N; ++n) { ref[n] = rb.next (inc, pw); clo[n] = (double) ob.next (hz, 1, sh);
+                const long d = std::llabs ((long) std::llround (ref[n] * 8388608.0) - (long) std::llround (clo[n] * 8388608.0));
+                if (d > maxSamp) maxSamp = d; }                                                // per-sample (post-port → 0)
+            const double rf = std::max (1e-9, mag (ref, hz, sr)), cf = std::max (1e-9, mag (clo, hz, sr));
+            double dev = 0.0; int cnt = 0;
+            for (int k = 2; k <= 40 && k * hz < sr * 0.5; ++k) {
+                const double d = std::abs (mag (ref, k * hz, sr) / rf - mag (clo, k * hz, sr) / cf);
+                dev += d * d; ++cnt; if (d > worst) { worst = d; worstH = k; worstHz = hz; worstSh = sh; }
+            }
+            dev = std::sqrt (dev / std::max (1, cnt));
+            std::printf ("  [pulse-blep] hz=%6.1f shape=%.1f  harmonic-RMS-dev=%.4f\n", hz, sh, dev);
+        }
+        char buf[160]; std::snprintf (buf, sizeof buf,
+            "worst harmonic dev=%.3f (h%d @ %.0fHz sh%.1f) vs clone", worst, worstH, worstHz, worstSh);
+        row ("osc_pulse_blep", maxSamp == 0 ? "BIT-EXACT (clone == VAZ BLEP transcription, sample-exact)"
+                                            : std::string ("DEVIATION (max int ") + std::to_string (maxSamp) + "; " + buf + ")",
+             "transcription of vaz_big.c:206-241 (BLEP difference-of-ramps, dumped step tables) vs OscBlock::next pulse");
     }
 
     // ── FILTER R — independent transcription of VAZ's R handler 0x4ddf44 (vaz_big.c:1499-1594, Sallen-Key 0x6d87)
