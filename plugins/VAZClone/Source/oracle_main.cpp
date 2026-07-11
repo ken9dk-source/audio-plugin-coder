@@ -414,6 +414,65 @@ int main()
              "VAZ D HP+LP Separation (mode 0x34, .v2p 13): section-1 HP@cut−Sep → section-2 LP@cut+Sep vs VAZTypeDreal::processHPLP");
     }
 
+    // ── FILTER K HP+LP (mode 0x44, .v2p 16) — independent transcription of the WHOLE cascade: the LINEAR HP
+    //    pre-section (vaz_big.c:1394-1451, own cutoff/reso, states 0x184/0x188/0x18c) feeding the main K SVF
+    //    section (vaz_big.c:1455-1496, states 0x17c/0x180) — vs VAZTypeD::processHPLP. ──
+    {
+        struct RefKHPLP {
+            double sr = 44100.0;
+            int32_t sA = 0, sB = 0, sC = 0;    // pre-section (0x184/0x188/0x18c)
+            int32_t m1 = 0, m2 = 0;            // main section (0x17c/0x180)
+            static int32_t mh (int32_t a, int32_t b) { return (int32_t) (((int64_t) a * b) >> 32); }
+            static int32_t sl (int32_t v, int n) { return (int32_t) ((uint32_t) v << n); }
+            static int32_t ad (int32_t a, int32_t b) { return (int32_t) ((uint32_t) a + (uint32_t) b); }
+            static int32_t sb (int32_t a, int32_t b) { return (int32_t) ((uint32_t) a - (uint32_t) b); }
+            static int32_t cl (int32_t v) { return std::clamp (v, (int32_t) 0xff000000, (int32_t) 0x1000000); }
+            static int32_t rgain (int32_t cb, double reso) {
+                return sl (mh (cb, sl ((int) std::lround (std::clamp (reso, 0.0, 1.0) * 255.0), 22)), 2);
+            }
+            double process (double in, double fc, double reso, double hpCut, double hpReso) {
+                const int hci = std::clamp (((int) std::lround (std::clamp (hpCut, 0.0, 1.0) * 255.0)) << 2, 0, 0x3ff);
+                const int32_t hA = VAZTypeDT::kCoefA[hci], hR = rgain (VAZTypeDT::kCoefB[hci], hpReso);
+                const int32_t in1 = (int32_t) std::lround (std::clamp (in, -2.0, 2.0) * 65536.0);
+                // pre-section HP, 2x oversample (1406-1451)
+                int32_t q = cl (mh (sl (sC, 4), hR));
+                sA = ad (sA, mh (sl (sb (sb (0, sA), q), 2), hA));
+                sB = ad (sB, mh (sl (sb (sb (ad (sA, q), sB), in1), 2), hA));
+                const int32_t hp1 = ad (sB, in1);
+                q = cl (mh (sl (hp1, 4), hR));
+                sA = ad (sA, mh (sl (sb (sb (0, sA), q), 2), hA));
+                sB = ad (sB, mh (sl (sb (sb (ad (sA, q), sB), in1), 2), hA));
+                const int32_t hp2 = ad (sB, in1);
+                sC = hp2;
+                const int32_t preOut = ad (hp2, hp1) >> 1;
+                // main K section, 2x oversample (1455-1496), input = preOut
+                const int mci = std::clamp ((int) std::lround (1024.0 * std::log (std::clamp (fc, 1.0, sr * 0.49)) / 10.24), 0, 1023);
+                const int32_t mA = VAZTypeDT::kCoefA[mci], mR = rgain (VAZTypeDT::kCoefB[mci], reso);
+                int32_t t0 = 0, t1 = 0;
+                for (int p = 0; p < 2; ++p) {
+                    const int32_t qq = cl (mh (sl (m2, 4), mR));
+                    m1 = ad (m1, mh (sl (sb (sb (preOut, qq), m1), 2), mA));
+                    m2 = ad (m2, mh (sl (sb (ad (m1, qq), m2), 2), mA));
+                    (p == 0 ? t0 : t1) = m2;
+                }
+                return (double) (ad (t1, t0) >> 1) / 65536.0;
+            }
+        };
+        long maxd = 0;
+        RefKHPLP ref; VAZTypeD eng; eng.prepare (44100.0);
+        uint32_t rng = 0x51u;
+        for (int i = 0; i < 50000; ++i) {
+            const double fc = 150.0 + (double) (i % 380) * 19.0, rs = 0.15 + (double) (i % 6) * 0.16;
+            const double hc = (double) (i % 9) / 8.0, hr = (double) (i % 7) / 6.0;
+            const double s = (i == 0) ? 0.5 : ((double) (int32_t) ((rng = rng * 1664525u + 1013904223u) >> 9) / 4194304.0 - 0.5);
+            const int32_t a = (int32_t) std::llround (ref.process (s, fc, rs, hc, hr) * 65536.0);
+            const int32_t b = (int32_t) std::llround (eng.processHPLP (s, fc, rs, hc, hr) * 65536.0);
+            const long d = std::llabs ((long) a - (long) b); if (d > maxd) maxd = d;
+        }
+        row ("filter_k_hplp", maxd == 0 ? "BIT-EXACT" : "DEVIATION (max=" + std::to_string (maxd) + ")",
+             "VAZ K HP+LP (mode 0x44, .v2p 16): linear HP pre-section (cut=aux, reso=hpHz) → main K SVF vs VAZTypeD::processHPLP");
+    }
+
     // ── FILTER R — independent transcription of VAZ's R handler 0x4ddf44 (vaz_big.c:1499-1594, Sallen-Key 0x6d87)
     //    vs VAZTypeK. Faithful = no reso-trim, mode-select 2P|4P output, LINEAR post-HP index. ─────────────────────────
     {

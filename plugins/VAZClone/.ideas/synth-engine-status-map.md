@@ -45,7 +45,7 @@ by `tools/dump_vaz_tables.py`. Oracle: `plugins/VAZClone/Source/oracle_main.cpp`
 | **B** A-HP/BP + B LP/BP/HP (1/4/5/6/7) | ~24% | `VAZTypeB.h` (reuses A) | ✅ **BIT-EXACT** | Route-B line-by-line vs decompile `vaz_big.c`:1114-1177 (A biquad `s2·a2+s1·a1+in·b0` + LP/BP/HP taps); coef map confirmed (kA1=0x5945e4, kA2=0x5d45e4) |
 | **D** (`.v2p` 10-13 → internal 0x30-0x34) | small | **`VAZTypeDreal.h`** (0x6d45/55/65/66 + cubic) | ✅ **BIT-EXACT — new engine (2026-07-11)** | built the real D handler `@0x4ddaa8` (2-stage cubic resonant SVF, `vaz_big.c`:1305-1391); 4 coef tables runtime-dumped → `VAZTypeDrealTables.h`. **oracle `filter_dreal` BIT-EXACT** (LP/BP/HP) + **`filter_dreal_hplp` BIT-EXACT** (mode-0x34 HP+LP Separation = HP@cut−Sep → LP@cut+Sep, per `vaz_big.c`:1296/1301/1312/1347). Routed 10-13 → engine 7. |
 | **R** (`.v2p` 17-20 → internal 0x50-0x5d) | 13% | `VAZTypeK.h` (Sallen-Key 0x6d87) | ✅ **BIT-EXACT (2026-07-11)** | re-routed cubic→`VAZTypeK` (0x6d87 handler @0x4ddf44) **and** rewrote it faithfully: removed the reso ÷2, replaced avg output with mode-SELECT 2P(17/18)\|4P(19/20), linear post-HP index `kRC[hp·4]`. **oracle `filter_r` BIT-EXACT** (2P & 4P; pre-fix RMS was 1.36). VAZTypeR (cubic=C-dup) deprecated. Self-osc bounded by the ±0xd105e8 cubic clip. |
-| **K** (`.v2p` 15/16 → internal 0x40/0x44) | small | `VAZTypeD.h` (bp tap) | ✅ **ROUTE FIXED (2026-07-11)** | K = VAZ's 0x6d67 SVF (`0x4ddcfe`) = `VAZTypeD` bp tap (resonant 2-pole LP, no post-HP) — **oracle `filter_k` BIT-EXACT**. Re-routed 15/16 → `VAZTypeD` tap 2. `filter_route_map` 15/16 now MATCH. *(mode-0x44 HP pre-section still TODO for K HP+LP)* |
+| **K** (`.v2p` 15/16 → internal 0x40/0x44) | small | `VAZTypeD.h` (bp tap + `processHPLP`) | ✅ **BIT-EXACT (2026-07-11)** | K = VAZ's 0x6d67 SVF (`0x4ddcfe`) = `VAZTypeD` bp tap — **oracle `filter_k` BIT-EXACT**; .v2p 15 (K LP) → tap 2. .v2p 16 (K HP+LP, mode 0x44) = a LINEAR HP pre-section (cut=aux/param 0x270·4, reso=hpHz/param 0x274; `vaz_big.c`:1394-1451) → main K — **oracle `filter_k_hplp` BIT-EXACT**. `filter_route_map` 15/16 MATCH. |
 | Cutoff **base smoother** (`DAT_006d45e4`) | all | `SynthVoice.h`:148 | **BIT-EXACT** | VazOracle `cutoff_smoother` |
 | D-LP/BP, D-HP+LP, Comb | **0 factory patches** | `Synth.h` FLOAT | TILNÆRMET | float fallback |
 
@@ -106,8 +106,10 @@ by `tools/dump_vaz_tables.py`. Oracle: `plugins/VAZClone/Source/oracle_main.cpp`
 > 3. **D `.v2p` 10-13 → new `VAZTypeDreal`** ✅ (commit e3cce59; the real 0x6d45/55/65/66 + cubic 2-stage SVF @0x4ddaa8,
 >    tables RPM-dumped, oracle `filter_dreal` BIT-EXACT). The genuinely-missing engine.
 >
-> Every `.v2p` filter mode now routes to VAZ's coef table (oracle `filter_route_map` ALL MATCH). Only the mode-0x34
-> **D HP+LP Separation** variant + `VAZTypeK`'s reso-trim/output/HP-index refinements remain as minor TODOs.
+> Every `.v2p` filter mode now routes to VAZ's coef table (oracle `filter_route_map` ALL MATCH). **The whole D/K/R
+> filter family is now BIT-EXACT**, including both HP+LP-Separation variants: D mode-0x34 (HP@cut−Sep → LP@cut+Sep,
+> `filter_dreal_hplp`) and K mode-0x44 (linear HP pre-section → main K, `filter_k_hplp`), plus `VAZTypeK`'s
+> reso-trim/output/HP-index fudge removals (`filter_r`). No filter TODOs remain.
 
 ### 1.3 Envelopes
 | Component | VAZ ref | Clone | Status | Method |

@@ -472,7 +472,7 @@ struct VAZMultiFilter
             // K (.v2p 15/16): PROVEN (oracle filter_k, BIT-EXACT) to be VAZ's 0x6d67 SVF (handler 0x4ddcfe) = exactly the
             // engine the clone calls VAZTypeD, bp tap (= resonant 2-pole LP), no post-HP. Re-routed engine 4 → engine 3.
             case 15: engine=3; tap=2; break;                                       // K LP  → VAZTypeD bp tap (BIT-EXACT)
-            case 16: engine=3; tap=2; break;                                       // K HP+LP → VAZTypeD bp tap (LP core exact); ⚠ TODO: the mode-0x44 HP pre-section (vaz_big.c:1394-1454) not yet ported
+            case 16: engine=3; tap=2; hpLP=true; break;                            // K HP+LP (mode 0x44) → VAZTypeD::processHPLP: HP pre-section (cut=aux, reso=hpHz) → main K
             // R (.v2p 17-20): PROVEN to be VAZ's Sallen-Key 0x6d87 handler (0x4ddf44) — the exact recurrence VAZTypeK
             // implements — NOT the 0x69 cubic. Re-routed cubic→Sallen-Key (filter_route_map: these 4 now match VAZ).
             // VAZTypeR (cubic) turned out to be a duplicate of the C engine (0x4dd82b), never VAZ's R → deprecated below.
@@ -525,17 +525,12 @@ struct VAZMultiFilter
                 const double hpNorm = std::log (juce::jlimit (20.0, sr*0.45, hpHz) / 20.0) / std::log (100.0);
                 out = typeC.process (poles, x, fc, reso, aux, hpNorm);   // poles 2/4; aux = Separation
             } break;
-            case 3: {                                                    // D state-variable
-                if (!hpLP) {                                             // D LP/HP/BP → BIT-EXACT typeD (all 3 taps; D-HP validated 2.9 dB)
+            case 3: {                                                    // K SVF (VAZ's K = 0x6d67 handler); .v2p 15/16
+                if (!hpLP) {                                             // K LP → BIT-EXACT typeD tap 2 (filter_k)
                     out = typeD.process (tap, x, fc, reso);
-                } else {                                                 // D HP+LP (Separation, 2-section cascade) → float Chamberlin (no factory patch)
-                    const double fcd=juce::jlimit (20.0,sr/6.0,fc);
-                    const double f=2.0*std::sin (M_PI*fcd/sr), q=juce::jlimit (0.08,1.0,1.0-0.9*reso);
-                    d_lp+=f*d_bp; const double hp=x-d_lp-q*d_bp; d_bp+=f*hp; d_bp=soft (d_bp);
-                    if (hpLP) {                                          // HP→LP series, gap = Separation (aux)
-                        const double f2=2.0*std::sin (M_PI*juce::jlimit (20.0,sr/6.0,fc*(0.2+1.4*aux))/sr);
-                        d2_lp+=f2*d2_bp; const double hp2=hp-d2_lp-q*d2_bp; d2_bp+=f2*hp2; out=d2_lp;
-                    } else out=(tap==2?d_bp:d_lp);
+                } else {                                                 // K HP+LP (.v2p 16, mode 0x44) → BIT-EXACT: HP pre-section → main K
+                    const double hpNorm = std::log (juce::jlimit (20.0, sr*0.45, hpHz) / 20.0) / std::log (100.0);
+                    out = typeD.processHPLP (x, fc, reso, aux, hpNorm); // HP cut = aux (param 0x270), HP reso = hpHz byte (param 0x274)
                 }
             } break;
             case 4: {                                                    // R (VAZ's real R) = BIT-EXACT Sallen-Key, mode-select 2P|4P + linear post-HP
