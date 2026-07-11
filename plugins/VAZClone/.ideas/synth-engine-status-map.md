@@ -115,9 +115,14 @@ by `tools/dump_vaz_tables.py`. Oracle: `plugins/VAZClone/Source/oracle_main.cpp`
 > per mode. Extracted the authoritative config from Core.dll — the DFM radio captions + the knob-label pool at
 > file-off `1111113` (Bandwidth / Separation / Highpass Cutoff / Damping / Unused / Highpass Resonance / Input-Output
 > Mix / {Resonance,Separation,Highpass} Modulation) — cross-checked with the DSP param reads (aux=`0x270`, hp=`0x274`).
-> Clone had **static** labels; now relabels per-mode (`FILTER_LABELS` in `index.html`, `bindFilterModeLabels`).
+> Clone had **static** labels; now relabels per-mode (`FILTER_LABELS[22]` in `index.html`, `bindFilterModeLabels`,
+> guarded by `Source/ui/test/filter_labels.test.js` — instruments the real getChoiceIndex→apply path, all 22 green).
 > Key confirmations vs screenshots: **R 2P/4P aux = Unused** (no separation, see R row); C-4P-Sep & D-HP+LP = Separation;
 > K-HP+LP = Highpass Cutoff / Highpass Resonance; Comb = Damping / Input-Output Mix.
+> **B family (1/6/7):** VAZ puts **Bandwidth on knob-2** (not aux) with aux=Unused. Since the biquad row (`rowReso`)
+> reads `flt_aux` (`VAZTypeB`), knob-2 is **re-targeted** onto `flt_aux` for B (`bindFilterKnob2` / `k2SetTarget`) and
+> the aux row hides — matching VAZ's *Cutoff / Bandwidth / Unused* layout. DSP + `.v2p`→param mapping untouched.
+> (The `bindFilterModeLabels` indexing was verified clean — the earlier "some modes wrong" was this B knob-position.)
 
 ### 1.3 Envelopes
 | Component | VAZ ref | Clone | Status | Method |

@@ -565,8 +565,8 @@ body {
       <option value="21">Comb Filter</option>
     </select></div>
     <div class="lbl">Cutoff</div><div class="slider" data-param="cutoff"><div class="thumb" style="left:75%;"></div></div>
-    <div class="lbl">Resonance</div><div class="slider" data-param="resonance"><div class="thumb" style="left:40%;"></div></div>
-    <div class="lbl" id="auxLbl">Bandwidth / Sep</div><div class="slider" data-param="flt_aux"><div class="thumb" style="left:50%;"></div></div>
+    <div class="lbl" id="resLbl">Resonance</div><div class="slider" id="resSlider" data-param="resonance"><div class="thumb" style="left:40%;"></div></div>
+    <div class="lbl" id="auxLbl">Bandwidth / Sep</div><div class="slider" id="auxSlider" data-param="flt_aux"><div class="thumb" style="left:50%;"></div></div>
     <div class="lbl" id="hpLbl">Highpass Cutoff</div><div class="slider" data-param="hp_cutoff"><div class="thumb" style="left:20%;"></div></div>
   </div>
   <div class="sb">
@@ -1555,47 +1555,95 @@ function bindCombo(paramId, el) {
   el.addEventListener("change", () => state.setChoiceIndex(el.selectedIndex));
 }
 
-// Per-mode filter knob labels. VAZ dynamically relabels flt_aux / hp_cutoff / the filter mod-slot per filter mode
-// (Core.dll DFM radio captions + the knob-label pool at file-off 1111113: Bandwidth/Separation/Highpass Cutoff/
-// Damping/Unused/Highpass Resonance/Input-Output Mix + the three Modulation labels). Assignment cross-checked with
-// the DSP param reads in vaz_big.c (aux=param[0x270], hp=param[0x274]): C-Sep + D-HP+LP read separation; K-HP+LP
-// reads 0x270 as HP-cutoff + 0x274 as HP-reso; Comb = Damping / I-O Mix. R (2P & 4P) NEVER reads 0x270 → aux=Unused
-// (there is no rbTypeR4SM radio; only C has a Separation-Modulation variant). Rows: [flt_aux, hp_cutoff, modSlot].
+// Per-mode filter knob labels. VAZ dynamically relabels knob-2 (the Resonance slot) / flt_aux / hp_cutoff + the filter
+// mod-slot per mode (Core.dll DFM captions + the knob-label pool at file-off 1111113: Bandwidth/Separation/Highpass
+// Cutoff/Damping/Unused/Highpass Resonance/Input-Output Mix + the three Modulation labels). Cross-checked with the DSP
+// param reads in vaz_big.c (aux=param[0x270], hp=param[0x274]): C-Sep + D-HP+LP read separation; K-HP+LP reads 0x270 as
+// HP-cutoff + 0x274 as HP-reso; Comb = Damping / I-O Mix. R (2P & 4P) NEVER reads 0x270 → aux=Unused (no rbTypeR4SM
+// radio; only C has a Sep-Mod variant). For the B family, knob-2 is BANDWIDTH — the biquad row (rowReso) comes from
+// flt_aux (Synth.h VAZTypeB), so knob-2 is re-targeted onto flt_aux and the aux row is hidden (VAZ shows no B
+// resonance knob; mixReso still loads from the preset). Rows: [knob2 (Resonance-slot), flt_aux, hp_cutoff, modSlot].
 const FILTER_LABELS = [
-  ["Unused",          "Unused",             "Resonance Modulation"],  // 0  A LP 2P
-  ["Bandwidth",       "Unused",             "Resonance Modulation"],  // 1  B LP 2P
-  ["Unused",          "Highpass Cutoff",    "Resonance Modulation"],  // 2  C 2P LP Res Mod
-  ["Unused",          "Highpass Cutoff",    "Resonance Modulation"],  // 3  C 4P LP Res Mod
-  ["Unused",          "Unused",             "Resonance Modulation"],  // 4  A HP 2P
-  ["Unused",          "Unused",             "Resonance Modulation"],  // 5  A BP 2P
-  ["Bandwidth",       "Unused",             "Resonance Modulation"],  // 6  B HP 2P
-  ["Bandwidth",       "Unused",             "Resonance Modulation"],  // 7  B BP 2P
-  ["Separation",      "Highpass Cutoff",    "Separation Modulation"], // 8  C 4P LP Sep Mod
-  ["Unused",          "Highpass Cutoff",    "Highpass Modulation"],   // 9  C 4P LP HP Mod
-  ["Unused",          "Unused",             "Resonance Modulation"],  // 10 D LP 2P
-  ["Unused",          "Unused",             "Resonance Modulation"],  // 11 D BP 2P
-  ["Unused",          "Unused",             "Resonance Modulation"],  // 12 D HP 2P
-  ["Separation",      "Highpass Cutoff",    "Separation Modulation"], // 13 D HP+LP
-  ["Unused",          "Highpass Cutoff",    "Highpass Modulation"],   // 14 C 2P LP HP Mod
-  ["Unused",          "Unused",             "Resonance Modulation"],  // 15 K LP Sallen-Key
-  ["Highpass Cutoff", "Highpass Resonance", "Highpass Modulation"],   // 16 K HP+LP
-  ["Unused",          "Highpass Cutoff",    "Resonance Modulation"],  // 17 R 2P LP Res Mod
-  ["Unused",          "Highpass Cutoff",    "Highpass Modulation"],   // 18 R 2P LP HP Mod
-  ["Unused",          "Highpass Cutoff",    "Resonance Modulation"],  // 19 R 4P LP Res Mod
-  ["Unused",          "Highpass Cutoff",    "Highpass Modulation"],   // 20 R 4P LP HP Mod
-  ["Damping",         "Input/Output Mix",   "Resonance Modulation"],  // 21 Comb Filter
+  ["Resonance", "Unused",          "Unused",             "Resonance Modulation"],  // 0  A LP 2P
+  ["Bandwidth", "Unused",          "Unused",             "Resonance Modulation"],  // 1  B LP 2P
+  ["Resonance", "Unused",          "Highpass Cutoff",    "Resonance Modulation"],  // 2  C 2P LP Res Mod
+  ["Resonance", "Unused",          "Highpass Cutoff",    "Resonance Modulation"],  // 3  C 4P LP Res Mod
+  ["Resonance", "Unused",          "Unused",             "Resonance Modulation"],  // 4  A HP 2P
+  ["Resonance", "Unused",          "Unused",             "Resonance Modulation"],  // 5  A BP 2P
+  ["Bandwidth", "Unused",          "Unused",             "Resonance Modulation"],  // 6  B HP 2P
+  ["Bandwidth", "Unused",          "Unused",             "Resonance Modulation"],  // 7  B BP 2P
+  ["Resonance", "Separation",      "Highpass Cutoff",    "Separation Modulation"], // 8  C 4P LP Sep Mod
+  ["Resonance", "Unused",          "Highpass Cutoff",    "Highpass Modulation"],   // 9  C 4P LP HP Mod
+  ["Resonance", "Unused",          "Unused",             "Resonance Modulation"],  // 10 D LP 2P
+  ["Resonance", "Unused",          "Unused",             "Resonance Modulation"],  // 11 D BP 2P
+  ["Resonance", "Unused",          "Unused",             "Resonance Modulation"],  // 12 D HP 2P
+  ["Resonance", "Separation",      "Highpass Cutoff",    "Separation Modulation"], // 13 D HP+LP
+  ["Resonance", "Unused",          "Highpass Cutoff",    "Highpass Modulation"],   // 14 C 2P LP HP Mod
+  ["Resonance", "Unused",          "Unused",             "Resonance Modulation"],  // 15 K LP Sallen-Key
+  ["Resonance", "Highpass Cutoff", "Highpass Resonance", "Highpass Modulation"],   // 16 K HP+LP
+  ["Resonance", "Unused",          "Highpass Cutoff",    "Resonance Modulation"],  // 17 R 2P LP Res Mod
+  ["Resonance", "Unused",          "Highpass Cutoff",    "Highpass Modulation"],   // 18 R 2P LP HP Mod
+  ["Resonance", "Unused",          "Highpass Cutoff",    "Resonance Modulation"],  // 19 R 4P LP Res Mod
+  ["Resonance", "Unused",          "Highpass Cutoff",    "Highpass Modulation"],   // 20 R 4P LP HP Mod
+  ["Resonance", "Damping",         "Input/Output Mix",   "Resonance Modulation"],  // 21 Comb Filter
 ];
+
+// Knob-2 (the "Resonance" slot) is re-targetable: normally it drives the resonance param, but for the B family it
+// drives flt_aux (Bandwidth). A dedicated binding owns it (the generic bindSlider skips #resSlider); k2SetTarget
+// switches the write/read param + Ableton controlparameterindex. DSP/preset mapping is unchanged.
+let k2SetTarget = () => {};
+function bindFilterKnob2() {
+  const el = document.getElementById("resSlider");
+  if (!el) return;
+  const thumb = el.querySelector(".thumb");
+  let resSt = null, auxSt = null;
+  try { resSt = getSliderState("resonance"); } catch (e) {}
+  try { auxSt = getSliderState("flt_aux"); }   catch (e) {}
+  if (!resSt) return;
+  let target = resSt, targetId = "resonance";
+  const updateThumb = () => { if (thumb) thumb.style.left = (target.getNormalisedValue() * 92) + "%"; };
+  const setIdx = () => { const i = target.properties ? target.properties.parameterIndex : -1; if (i != null && i >= 0) el.setAttribute("controlparameterindex", i); };
+  [resSt, auxSt].forEach((s) => {
+    if (!s) return;
+    if (s.valueChangedEvent && s.valueChangedEvent.addListener)         s.valueChangedEvent.addListener(() => updateThumb());
+    if (s.propertiesChangedEvent && s.propertiesChangedEvent.addListener) s.propertiesChangedEvent.addListener(() => setIdx());
+  });
+  updateThumb(); setIdx();
+  let dragging = false, startX = 0, startVal = 0;
+  el.addEventListener("pointerdown", (e) => {
+    if (e.metaKey || e.ctrlKey) { try { Juce.getNativeFunction("resetParam")(targetId); } catch (err) {} e.preventDefault(); return; }
+    dragging = true; el.classList.remove("center");
+    try { el.setPointerCapture(e.pointerId); } catch (err) {}
+    startX = e.clientX; startVal = target.getNormalisedValue(); e.preventDefault();
+  });
+  el.addEventListener("pointermove", (e) => {
+    if (!dragging) return;
+    const r = el.getBoundingClientRect();
+    let p = startVal + (e.clientX - startX) / r.width; p = Math.max(0, Math.min(1, p));
+    target.setNormalisedValue(p); if (thumb) thumb.style.left = (p * 92) + "%";
+  });
+  el.addEventListener("pointerup",     (e) => { dragging = false; try { el.releasePointerCapture(e.pointerId); } catch (err) {} });
+  el.addEventListener("pointercancel", ()  => { dragging = false; });
+  k2SetTarget = (useAux) => { target = (useAux && auxSt) ? auxSt : resSt; targetId = (useAux && auxSt) ? "flt_aux" : "resonance"; updateThumb(); setIdx(); };
+}
+
 function bindFilterModeLabels() {
   let st; try { st = getComboBoxState("filter_mode"); } catch (e) { st = null; }
   if (!st) return;
+  const resEl = document.getElementById("resLbl");
   const auxEl = document.getElementById("auxLbl");
+  const auxSl = document.getElementById("auxSlider");
   const hpEl  = document.getElementById("hpLbl");
   const rmEl  = document.getElementById("resModLbl");
   const apply = () => {
-    const r = FILTER_LABELS[st.getChoiceIndex()] || ["Unused", "Unused", "Resonance Modulation"];
-    if (auxEl) { auxEl.textContent = r[0]; auxEl.classList.toggle("dim", r[0] === "Unused"); }
-    if (hpEl)  { hpEl.textContent  = r[1]; hpEl.classList.toggle("dim", r[1] === "Unused"); }
-    if (rmEl)  rmEl.textContent  = r[2];
+    const r = FILTER_LABELS[st.getChoiceIndex()] || ["Resonance", "Unused", "Unused", "Resonance Modulation"];
+    const useAux = (r[0] === "Bandwidth");                       // B family: knob-2 = Bandwidth, driving flt_aux
+    if (resEl) resEl.textContent = r[0];
+    k2SetTarget(useAux);
+    if (auxEl) { auxEl.textContent = r[1]; auxEl.classList.toggle("dim", r[1] === "Unused"); auxEl.style.display = useAux ? "none" : ""; }
+    if (auxSl) auxSl.style.display = useAux ? "none" : "";       // hide the flt_aux row — knob-2 controls it now
+    if (hpEl)  { hpEl.textContent  = r[2]; hpEl.classList.toggle("dim", r[2] === "Unused"); }
+    if (rmEl)  rmEl.textContent  = r[3];
   };
   if (st.valueChangedEvent && st.valueChangedEvent.addListener) st.valueChangedEvent.addListener(apply);
   apply();
@@ -1852,12 +1900,14 @@ function init() {
     bindToggle(el.getAttribute("data-toggle"), el);
   });
   document.querySelectorAll("[data-param]").forEach((el) => {
+    if (el.id === "resSlider") return;              // filter knob-2 is bound by bindFilterKnob2 (re-targetable for B)
     bindSlider(el.getAttribute("data-param"), el);
   });
   document.querySelectorAll("[data-combo]").forEach((el) => {
     bindCombo(el.getAttribute("data-combo"), el);
   });
-  bindFilterModeLabels();                           // per-mode flt_aux / hp_cutoff / mod-slot relabeling
+  bindFilterKnob2();                                // re-targetable filter knob-2 (Resonance ↔ Bandwidth/flt_aux)
+  bindFilterModeLabels();                           // per-mode knob-2 / flt_aux / hp_cutoff / mod-slot relabeling
   bindLfo1Identity();                               // LFO1 header ↔ "Oscillator 3" when mix3 source = Oscillator 3
   bindSigns();                                      // +/- modulation-polarity buttons
   bindButtonGroup('[data-wg="wf1"]', "o1_wave");    // waveform buttons OSC1
