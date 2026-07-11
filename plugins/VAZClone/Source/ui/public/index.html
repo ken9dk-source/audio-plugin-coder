@@ -389,7 +389,7 @@ body {
     <div class="slider" data-param="o1_ws_amt"><div class="thumb" style="left:0;"></div></div>
   </div>
 
-  <div class="lfo-hdr"><span class="reddot"></span><span class="lfo-lbl">LFO 1</span></div>
+  <div class="lfo-hdr"><span class="reddot"></span><span class="lfo-lbl" id="lfo1Lbl">LFO 1</span></div>
   <div class="sb">
     <div class="row">
       <span class="lbl">Rate</span>
@@ -1601,6 +1601,20 @@ function bindFilterModeLabels() {
   apply();
 }
 
+// LFO1 ↔ Oscillator 3 dual identity. In VAZ the LFO1/Osc3 shared object (voice+0x28) has ONE physical panel that
+// relabels between "LFO 1" and "Oscillator 3" (Core.dll code-driven relabel; the string pair sits at file-off
+// 1109628/1109645). The trigger is the explicit mixer-source selection (a mode-flag, NOT a rate threshold): only
+// mixer channel 3 offers "Oscillator 3", and the clone's audio engine already keys the audio-rate Osc3 off
+// mix3Src==1 (SynthVoice.h). So when mix3 source = Oscillator 3, the LFO1 panel header becomes "Oscillator 3".
+function bindLfo1Identity() {
+  let st; try { st = getComboBoxState("mix3_src"); } catch (e) { st = null; }
+  const el = document.getElementById("lfo1Lbl");
+  if (!st || !el) return;
+  const apply = () => { el.textContent = (st.getChoiceIndex() === 1) ? "Oscillator 3" : "LFO 1"; };
+  if (st.valueChangedEvent && st.valueChangedEvent.addListener) st.valueChangedEvent.addListener(apply);
+  apply();
+}
+
 // Button group (waveform / octave) bound to a WebComboBoxRelay: button position = choice index.
 function bindButtonGroup(selector, paramId) {
   let state;
@@ -1844,6 +1858,7 @@ function init() {
     bindCombo(el.getAttribute("data-combo"), el);
   });
   bindFilterModeLabels();                           // per-mode flt_aux / hp_cutoff / mod-slot relabeling
+  bindLfo1Identity();                               // LFO1 header ↔ "Oscillator 3" when mix3 source = Oscillator 3
   bindSigns();                                      // +/- modulation-polarity buttons
   bindButtonGroup('[data-wg="wf1"]', "o1_wave");    // waveform buttons OSC1
   bindButtonGroup('[data-wg="wf2"]', "o2_wave");    // waveform buttons OSC2
