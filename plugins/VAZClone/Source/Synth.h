@@ -465,14 +465,17 @@ struct VAZMultiFilter
             case 11: engine=3; tap=2; break;                                       // D BP
             case 12: engine=3; tap=1; break;                                       // D HP
             case 13: engine=3; tap=3; hpLP=true; modRoute=2; break;                // D HP+LP (Separation)
-            case 15: engine=4; tap=0; break;                                       // K LP
-            case 16: engine=4; tap=3; hpLP=true; usesHP=true; break;               // K HP+LP
-            case 17: engine=5; poles=2; usesHP=true; modRoute=0; break;            // R 2P+HP RM
-            case 18: engine=5; poles=2; usesHP=true; modRoute=1; break;            // R 2P+HP HM
-            case 19: engine=5; poles=4; usesHP=true; modRoute=0; break;            // R 4P+HP RM (default)
-            case 20: engine=5; poles=4; usesHP=true; modRoute=1; break;            // R 4P+HP HM
+            case 15: engine=4; tap=0; break;                                       // K LP  (⚠ TEMP: wrong engine — .v2p 15 needs the 0x4ddcfe SVF-variant; unchanged this commit, see status-map §1.2)
+            case 16: engine=4; tap=3; hpLP=true; usesHP=true; break;               // K HP+LP  (⚠ TEMP, same as 15)
+            // R (.v2p 17-20): PROVEN to be VAZ's Sallen-Key 0x6d87 handler (0x4ddf44) — the exact recurrence VAZTypeK
+            // implements — NOT the 0x69 cubic. Re-routed cubic→Sallen-Key (filter_route_map: these 4 now match VAZ).
+            // VAZTypeR (cubic) turned out to be a duplicate of the C engine (0x4dd82b), never VAZ's R → deprecated below.
+            case 17: engine=4; poles=2; usesHP=true; modRoute=0; break;            // R 2P+HP RM
+            case 18: engine=4; poles=2; usesHP=true; modRoute=1; break;            // R 2P+HP HM
+            case 19: engine=4; poles=4; usesHP=true; modRoute=0; break;            // R 4P+HP RM (default)
+            case 20: engine=4; poles=4; usesHP=true; modRoute=1; break;            // R 4P+HP HM
             case 21: engine=6; break;                                              // Comb
-            default: engine=5; poles=4; break;
+            default: engine=4; poles=4; break;                                     // default filter = R 4P → Sallen-Key
         }
         ladderR.setMode (poles==2 ? 1 : 0);
     }
@@ -539,9 +542,12 @@ struct VAZMultiFilter
                 comb[combIdx]=x+juce::jlimit (0.0,0.97,reso*0.97)*cube (combLP);
                 combIdx=(combIdx+1)&4095; out=y;
             } break;
-            default: out=typeR.process (poles, x, fc, reso, hpHz); break;  // R: BIT-EXACT cubic cascade (+ own post-HP)
+            // ⚠ DEPRECATED: VAZTypeR (0x69 cubic) was proven to be a DUPLICATE of the C engine (0x4dd82b), NOT VAZ's R
+            // (which is the Sallen-Key 0x6d87 @0x4ddf44 = VAZTypeK). No mode routes here anymore (engine 5 is never set);
+            // kept only as a defensive fallback. VAZ's real R now runs through case 4 (VAZTypeK).
+            default: out=typeK.process (x, fc, reso, hpHz); break;
         }
-        // engines R, K and C do their own exact integer closing stage; others use the float post-HP
+        // engines K and C do their own exact integer closing stage; others use the float post-HP
         if (usesHP && engine!=5 && engine!=4 && engine!=2) { const double rc=1.0/(2.0*M_PI*juce::jlimit (20.0,sr*0.45,hpHz)), dt=1.0/sr, a=rc/(rc+dt);
                       const double y=a*(hpY+out-hpX); hpX=out; hpY=y; out=y; }
         return out;

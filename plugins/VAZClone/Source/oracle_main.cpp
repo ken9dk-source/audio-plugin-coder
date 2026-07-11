@@ -270,8 +270,8 @@ int main()
                 case 1: case 6: case 7: return "0x55 A/B (B)";
                 case 2: case 3: case 8: case 9: case 14: return "0x69 cubic (C)";
                 case 10: case 11: case 12: case 13: return "0x6d67 SVF (D)";
-                case 15: case 16: return "0x6d87 Sallen-Key (K)";   // ← clone uses K here
-                case 17: case 18: case 19: case 20: return "0x69 cubic (R)"; // ← clone uses cubic here
+                case 15: case 16: return "0x6d87 Sallen-Key (K)";   // ← clone still (temp) on K; .v2p 15/16 mismatch remains
+                case 17: case 18: case 19: case 20: return "0x6d87 Sallen-Key (K→R)"; // FIXED 2026-07-11: R re-routed to VAZTypeK
                 case 21: return "Comb"; default: return "?"; }; };
         int mism = 0; std::string bad;
         for (int m = 0; m < 22; ++m) {
