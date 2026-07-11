@@ -139,6 +139,14 @@ struct OscBlock
     static double adv (double& p, double inc) noexcept
     { double cur = p; p += inc; if (p >= 1.0) p -= 1.0; return cur; }
 
+    // VAZ pulse width: WaveShape byte b = round(shape·255) → param[0xa4] = b<<16 → the 2nd pulse edge sits at
+    // b<<24 against a 32-bit phase, i.e. duty = b/256 — LINEAR, exact square at b=128 (shape 0.5). Traced from
+    // the WaveShape setter FUN_004de930 @0x4de930 + the band-limited pulse branch vaz_big.c:213/222. (Replaces the
+    // earlier asserted 0.05+0.9·shape compression. VAZ's band-limiting is BLEP 006dd2c0/006de2c0 — the clone's
+    // difference-of-saws matches this DUTY map but not per-sample; a full BLEP-pulse port is tracked separately.)
+    static double pulseWidth (double shape) noexcept
+    { return (double) (int) std::lround (juce::jlimit (0.0, 1.0, shape) * 255.0) / 256.0; }
+
     // VAZ 5 waveform modes (waveshape = the Waveshape slider 0..1):
     //   0 Sawtooth (saw→triangle morph)  1 Pulse (variable pulsewidth)
     //   2 Multi-Saw (4 detuned saws)     3 Sample (default sine)  4 Ext/Sync (→saw)
@@ -157,12 +165,9 @@ struct OscBlock
                 float t = WaveTables::read (wt.tri[mip], ph);
                 return (double) s * (1.0 - waveshape) + (double) t * waveshape;
             }
-            case 1: {  // Pulse = saw(t) − saw(t−pw); pw set by waveshape (band-limited difference-of-saws)
+            case 1: {  // Pulse = saw(t) − saw(t−pw); duty from waveshape (difference-of-saws; band-limiting differs from VAZ's BLEP)
                 double ph  = adv (phase[0], inc);
-                // VAZ pulse width: SQUARE at waveshape 0.5 (shape byte 128), narrowing to 5%/widening to 95% at
-                // the extremes. The difference-of-saws (below) is a true square at pw=0.5 (even harmonics cancel),
-                // so the earlier "flat near pw=0.5" caveat does not apply to this impl. (DSP audit fix D5.)
-                double pw  = 0.05 + 0.9 * waveshape;            // 0.05 (narrow) … 0.5 (square) … 0.95 (wide)
+                double pw  = pulseWidth (waveshape);            // VAZ duty = WaveShape/256 — LINEAR, square at 0.5 (FUN_004de930)
                 double ph2 = ph - pw; if (ph2 < 0.0) ph2 += 1.0;
                 float a = WaveTables::read (wt.saw[mip], ph);
                 float b = WaveTables::read (wt.saw[mip], ph2);

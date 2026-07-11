@@ -473,6 +473,24 @@ int main()
              "VAZ K HP+LP (mode 0x44, .v2p 16): linear HP pre-section (cut=aux, reso=hpHz) → main K SVF vs VAZTypeD::processHPLP");
     }
 
+    // ── OSC PULSE-WIDTH MAP (WaveShape → duty) — independent transcription of the WaveShape setter FUN_004de930
+    //    (@0x4de930: param[0xa4] = b<<16) + the band-limited pulse edge (vaz_big.c:213/222: edge = (param[0xa4]>>1)
+    //    ·0x200 = b<<24 vs a 32-bit phase → duty = b/256) vs the clone's OscBlock::pulseWidth. Proves the duty MAP,
+    //    not the band-limiting (VAZ = BLEP 006dd2c0/006de2c0; the clone's difference-of-saws matches this map only). ──
+    {
+        double maxd = 0.0;
+        for (int b = 0; b <= 255; ++b) {
+            const int32_t  pa4  = (int32_t) ((uint32_t) b << 16);       // FUN_004de930: param[0xa4] = b<<16
+            const uint32_t edge = (uint32_t) (pa4 >> 1) << 9;           // (param[0xa4]>>1)·0x200 = b<<24
+            const double vazDuty   = (double) edge / 4294967296.0;      // /2^32 = b/256
+            const double cloneDuty = OscBlock::pulseWidth ((double) b / 255.0);
+            maxd = std::max (maxd, std::abs (vazDuty - cloneDuty));
+        }
+        char buf[48]; std::snprintf (buf, sizeof buf, "%.5f", maxd);
+        row ("osc_pulse_pwmap", maxd < 1e-9 ? "BIT-EXACT (duty = WaveShape/256)" : std::string ("DEVIATION (max=") + buf + ")",
+             "VAZ pulse duty (FUN_004de930 param[0xa4]=b<<16 → b/256 LINEAR, square@128) vs OscBlock::pulseWidth — the WaveShape→pulsewidth map");
+    }
+
     // ── FILTER R — independent transcription of VAZ's R handler 0x4ddf44 (vaz_big.c:1499-1594, Sallen-Key 0x6d87)
     //    vs VAZTypeK. Faithful = no reso-trim, mode-select 2P|4P output, LINEAR post-HP index. ─────────────────────────
     {
