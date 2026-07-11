@@ -258,10 +258,10 @@ int main()
         auto vazTable = [] (int im) -> const char* {
             if (im <= 0x02) return "0x55 A";
             if (im <= 0x12) return "0x55 A/B";
-            if (im <= 0x2d) return "0x69 cubic (0x4dd82b)";       // C
-            if (im <= 0x34) return "0x6d67 SVF (D, inline)";      // D
-            if (im <= 0x44) return "0x6d67 SVF-variant (0x4ddcfe)"; // K modes 0x40/0x44
-            if (im <= 0x5d) return "0x6d87 Sallen-Key (0x4ddf44)";  // R modes 0x50-0x5d
+            if (im <= 0x2d) return "0x69 cubic (0x4dd82b)";        // C
+            if (im <= 0x34) return "0x6d65 cubic-SVF (D, 0x4ddaa8)"; // real D = 0x6d45/55/65/66 + cubic + tap(mode&3)
+            if (im <= 0x44) return "0x6d67 SVF (K, 0x4ddcfe)";     // real K modes 0x40/0x44 = 0x6d67 SVF
+            if (im <= 0x5d) return "0x6d87 Sallen-Key (0x4ddf44)"; // real R modes 0x50-0x5d
             return "Comb"; };
         // The clone's setMode (Synth.h:448) → which engine/table it actually runs for each .v2p index.
         auto cloneTable = [] (int m) -> const char* {

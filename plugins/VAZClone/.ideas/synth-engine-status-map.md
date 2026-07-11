@@ -43,9 +43,9 @@ by `tools/dump_vaz_tables.py`. Oracle: `plugins/VAZClone/Source/oracle_main.cpp`
 | **R** cubic cascade (17/19/20) | 13% | `VAZTypeR.h` + tables | **BIT-EXACT** | line-by-line |
 | **C** 2P/4P + Separation (2/3/8/14) | **40%** | `VAZTypeC.h` (reuses R) | ✅ **BIT-EXACT** | Route-B line-by-line vs decompile `vaz_big.c`:1179-1283 (biquad + cubic `>>0x21/0x22` + separation ±sep + closing 1-pole `kRC[+0x274·4]`) — faithful, no fudge |
 | **B** A-HP/BP + B LP/BP/HP (1/4/5/6/7) | ~24% | `VAZTypeB.h` (reuses A) | ✅ **BIT-EXACT** | Route-B line-by-line vs decompile `vaz_big.c`:1114-1177 (A biquad `s2·a2+s1·a1+in·b0` + LP/BP/HP taps); coef map confirmed (kA1=0x5945e4, kA2=0x5d45e4) |
-| **D-HP** (12) | small | `VAZTypeD.h` + tables | ✅ **BIT-EXACT** | Route-B line-by-line vs decompile `vaz_big.c`:1406-1440 (Chamberlin SVF, resoFB clamp ±0x1000000, `coefA=0x6d67e8`) — faithful |
+| **D** (`.v2p` 10-13 → internal 0x30-0x34) | small | `VAZTypeD.h` (0x6d67 SVF) | ⚠ **WRONG engine (re-opened 2026-07-11)** | numeric `filter_route_map` catches it: VAZ's real D handler `@0x4ddaa8` uses **0x6d45/55/65/66 + a cubic + tap(mode&3)** (`vaz_big.c`:1305-1391), a distinct filter. `VAZTypeD` (0x6d67) is actually VAZ's **K** engine (rotation note below). My earlier "D-HP BIT-EXACT" mis-read the K branch (1406 is the K mode-0x44 special). Real D engine MISSING. |
 | **R** (`.v2p` 17-20 → internal 0x50-0x5d) | 13% | `VAZTypeK.h` (Sallen-Key 0x6d87) | ✅ **ROUTE FIXED (2026-07-11)** | re-routed cubic→**VAZTypeK** (the proven 0x6d87 handler @0x4ddf44). `filter_route_map` = MATCH for 17-20. VAZTypeR (cubic = C-dup) deprecated. *(VAZTypeK's reso-trim/2P-4P-output/HP-index refinements → full bit-null is a follow-up, but the engine FAMILY is now correct)* |
-| **K** (`.v2p` 15/16 → internal 0x40/0x44) | small | `VAZTypeK.h` (⚠ TEMP wrong) | ⚠ **PÅSTÅET — needs a NEW engine** | VAZ handles 0x40/0x44 with the **SVF-variant 0x6d67** (handler `0x4ddcfe`), which the clone lacks. Left on VAZTypeK unchanged this commit; the 0x4ddcfe engine is the separate next task |
+| **K** (`.v2p` 15/16 → internal 0x40/0x44) | small | `VAZTypeK.h` (⚠ TEMP wrong = R engine) | ⚠ **RE-ROUTE (not a new engine)** | VAZ's K = **0x6d67 SVF** (`0x4ddcfe`) = exactly what the clone calls `VAZTypeD`. Fix = route 15/16 → `VAZTypeD` (2nd-integrator tap + mode-0x44 HP+LP variant), NOT a new engine. The genuinely-missing engine is **D** (0x6d45/55/65/66+cubic). See rotation note. |
 | Cutoff **base smoother** (`DAT_006d45e4`) | all | `SynthVoice.h`:148 | **BIT-EXACT** | VazOracle `cutoff_smoother` |
 | D-LP/BP, D-HP+LP, Comb | **0 factory patches** | `Synth.h` FLOAT | TILNÆRMET | float fallback |
 
@@ -86,14 +86,28 @@ by `tools/dump_vaz_tables.py`. Oracle: `plugins/VAZClone/Source/oracle_main.cpp`
 > (cubic) is a duplicate of the **C** engine (0x4dd82b), never VAZ's R. (This is why "R" was only ever spectral-close,
 > 19.2 vs 18.5 dB, never a bit-null.)
 >
-> **Correct fix (NOT the clean K↔R swap — that would leave K on cubic):**
-> 1. **R `.v2p` 17–20 → route to `VAZTypeK`** (the clone already has the exact Sallen-Key engine; retire `VAZTypeR`/cubic
->    for R). ⚠ this flips the **default** filter (`.v2p` 19 = R 4P HM) from cubic to Sallen-Key = a real audible change.
-> 2. **K `.v2p` 15/16 → needs the 0x4ddcfe SVF-variant** (0x6d67, distinct from `VAZTypeD`'s 0x30-0x34 SVF @0x4dde5c) —
->    a NEW engine to transcribe, *not* a routing swap.
+> **FULL PICTURE (2026-07-11) — it is a 3-WAY ROTATION of the clone's D/K/R engines, not just K/R.** The D-vs-K handler
+> diff (disasm of the render dispatch @0x4dda96 + each handler) proves the clone's three engines each implement the VAZ
+> filter *one slot over*:
 >
-> **Reported, not patched** — it touches a whole filter choice + the default, and the fix diverges from a swap, so it
-> awaits the user's go-ahead per "rapportér FØR du bytter". `filter_route_map` in VazOracle makes it reproducible.
+> | clone engine | tables | = which VAZ filter | clone uses it for | VAZ uses that filter for |
+> |---|---|---|---|---|
+> | `VAZTypeR` | 0x69 cubic | VAZ **C** (dup of `VAZTypeC`) | `.v2p` 17-20 (R) | `.v2p` 2/3/8/9/14 (C) |
+> | `VAZTypeD` | 0x6d67 SVF | VAZ **K** (0x4ddcfe) | `.v2p` 10-13 (D) | `.v2p` 15/16 (K) |
+> | `VAZTypeK` | 0x6d87 Sallen-Key | VAZ **R** (0x4ddf44) | `.v2p` 15/16 (K) | `.v2p` 17-20 (R) |
+> | *(none)* | 0x6d45/55/65/66 + cubic | VAZ **D** (0x4ddaa8) | — | `.v2p` 10-13 (D) — **MISSING** |
+>
+> `filter_route_map` = **6 MISMATCH** (`.v2p` 10-13 D + 15/16 K; R fixed in commit 6fe9c39).
+>
+> **Correct fix for the whole group:**
+> 1. **R `.v2p` 17-20 → `VAZTypeK`** ✅ DONE (commit 6fe9c39; flips the default filter cubic→Sallen-Key).
+> 2. **K `.v2p` 15/16 → route to `VAZTypeD`** (which IS VAZ's K engine, 0x6d67 SVF) with the 2nd-integrator output tap +
+>    the mode-0x44 HP+LP variant. This is a **re-route + tap**, NOT a new engine — the clone already has K's recurrence.
+> 3. **D `.v2p` 10-13 → build the REAL D engine** (0x6d45/55/65/66 + cubic + tap(mode&3) @0x4ddaa8). This is the actual
+>    **missing** engine (the one I mistakenly thought was "K's missing SVF"). Route-B transcription + oracle.
+>
+> **Reported, not patched** (steps 2-3) — the scope grew: K is a re-route, and the genuinely-new engine is for **D**
+> (another whole filter choice, `.v2p` 10-13). Awaits the user's direction. `filter_route_map` makes it all reproducible.
 
 ### 1.3 Envelopes
 | Component | VAZ ref | Clone | Status | Method |
