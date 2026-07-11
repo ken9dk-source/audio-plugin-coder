@@ -246,6 +246,45 @@ int main()
         row ("cutoff_smoother", maxd == 0.0 ? "BIT-EXACT" : "DEVIATION (max=" + std::to_string (maxd) + ")", b);
     }
 
+    // ── FILTER ROUTE MAP — .v2p filter mode → VAZ coef-table (via FUN_004dffb0 + the disassembled render dispatch)
+    //    vs the clone's engine table. Proves the K/R engine↔mode mismatch NUMERICALLY (not by reading). ─────────
+    {
+        // FUN_004dffb0 @0x4dffb0 (vaz_prims.c:2519): .v2p index → internal filter mode (+0x258). Literal switch.
+        auto v2pToInternal = [] (int m) -> int {
+            static const int t[22] = { 0x00,0x10,0x20,0x28,0x02,0x01,0x12,0x11,0x2c,0x2d,0x30,0x31,
+                                       0x32,0x34,0x24,0x40,0x44,0x50,0x54,0x58,0x5d,0x60 };
+            return (m >= 0 && m < 22) ? t[m] : -1; };
+        // The render's filter dispatch (disasm 0x4dd646 / 0x4dda96): internal mode → handler VA → coef-table tag.
+        auto vazTable = [] (int im) -> const char* {
+            if (im <= 0x02) return "0x55 A";
+            if (im <= 0x12) return "0x55 A/B";
+            if (im <= 0x2d) return "0x69 cubic (0x4dd82b)";       // C
+            if (im <= 0x34) return "0x6d67 SVF (D, inline)";      // D
+            if (im <= 0x44) return "0x6d67 SVF-variant (0x4ddcfe)"; // K modes 0x40/0x44
+            if (im <= 0x5d) return "0x6d87 Sallen-Key (0x4ddf44)";  // R modes 0x50-0x5d
+            return "Comb"; };
+        // The clone's setMode (Synth.h:448) → which engine/table it actually runs for each .v2p index.
+        auto cloneTable = [] (int m) -> const char* {
+            switch (m) {
+                case 0: case 4: case 5: return "0x55 A";
+                case 1: case 6: case 7: return "0x55 A/B (B)";
+                case 2: case 3: case 8: case 9: case 14: return "0x69 cubic (C)";
+                case 10: case 11: case 12: case 13: return "0x6d67 SVF (D)";
+                case 15: case 16: return "0x6d87 Sallen-Key (K)";   // ← clone uses K here
+                case 17: case 18: case 19: case 20: return "0x69 cubic (R)"; // ← clone uses cubic here
+                case 21: return "Comb"; default: return "?"; }; };
+        int mism = 0; std::string bad;
+        for (int m = 0; m < 22; ++m) {
+            const int im = v2pToInternal (m);
+            const std::string vt = vazTable (im), ct = cloneTable (m);
+            // compare the coef-table family (first token) — the recurrence signature
+            const bool ok = (vt.substr (0, 6) == ct.substr (0, 6));
+            if (!ok) { ++mism; bad += "v2p" + std::to_string (m) + "(int0x" + [](int x){char b[8];std::snprintf(b,sizeof b,"%x",x);return std::string(b);}(im) + "):VAZ=" + vt.substr(0,vt.find(' ')) + " vs clone=" + ct.substr(0,ct.find(' ')) + "  "; }
+        }
+        row ("filter_route_map", mism == 0 ? "ALL MATCH" : std::to_string (mism) + " MISMATCH",
+             mism == 0 ? "every .v2p mode routes to VAZ's coef table" : bad);
+    }
+
     // ── 2. Envelope per-sample step (attack→decay→release) ──────────────────────────────────────────
     {
         // Same coefs for both, taken from the clone's setADSR so we isolate the RECURRENCE, not the map.

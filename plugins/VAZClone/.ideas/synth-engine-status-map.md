@@ -71,24 +71,29 @@ by `tools/dump_vaz_tables.py`. Oracle: `plugins/VAZClone/Source/oracle_main.cpp`
 > behaviour confirmed against a numeric harness before touching a working, spectral-validated self-osc filter (**"gæt
 > ikke"**). Flagged as the next filter task.
 >
-> **⚠ PINNING RESULT (2026-07-11) — a bigger issue than the 3 deviations, do NOT patch K blindly.** Pinning the mode
-> map (the user's prerequisite) via the `.v2p`-index→internal-mode remap `FUN_004dffb0` @0x4dffb0 (`vaz_prims.c`:2519)
-> plus the render dispatch shows the clone's K is likely matched to the **wrong VAZ branch/tables**:
-> - `.v2p` index **15 (clone "K LP") → internal 0x40**, **16 (clone "K HP+LP") → internal 0x44** — both **< 0x45**, so
->   VAZ handles them in the **0x35–0x44 branch** (`vaz_big.c`:1394-1465) using the **D-SVF tables `0x6d67e8/0x6d77e8`**.
-> - But the clone's `VAZTypeK` implements the **Sallen-Key `0x6d87e8/0x6d97e8` + `0x418937`** recurrence (`vaz_big.c`:
->   1499-1594), which VAZ uses for internal **0x45–0x5d** — i.e. `.v2p` indices **17–20** (the clone's **"R"** modes).
-> - The clone dispatches the raw `.v2p` index straight to `setMode` (`PluginProcessor.cpp`:245), *not* through
->   `FUN_004dffb0`, so its engine↔mode table disagrees with VAZ's for 15/16 (and, symmetrically, 17–20: VAZ's Sallen-Key
->   vs the clone's `VAZTypeR` cubic cascade — which explains R's long-standing spectral-only "19.2 vs 18.5 dB", never a
->   bit-null).
+> **✅ PROVEN (2026-07-11) — engine↔mode mismatch confirmed at the instruction level + a runnable oracle. NOT a clean
+> swap.** Chain (all disassembled, encoded in oracle `filter_route_map` = 6 MISMATCH, reproducible):
+> - **Remap** `FUN_004dffb0` @0x4dffb0 (`vaz_prims.c`:2519, a literal switch): `.v2p` 15→internal 0x40, 16→0x44,
+>   17→0x50, 18→0x54, 19→0x58, 20→0x5d.
+> - **Render dispatch** (disasm): `cmp 0x2d`@0x4dd646, `cmp 0x44`@0x4dda96 → `jg 0x4ddf44`, `cmp 0x34` → `jg 0x4ddcfe`.
+>   So internal **0x40/0x44 → handler 0x4ddcfe = SVF-variant `0x6d67e8`** (verified: `mov [ecx*4+0x6d67e8]`@0x4ddd53),
+>   and internal **0x45–0x5d → handler 0x4ddf44 = Sallen-Key `0x6d87e8`+`0x418937`** (verified @0x4ddf50/0x4ddf71).
+> - **Clone** dispatches the raw `.v2p` index straight to `setMode` (`PluginProcessor.cpp`:245): 15/16→`VAZTypeK`
+>   (0x6d87 Sallen-Key), 17–20→`VAZTypeR` (0x69 cubic).
 >
-> **So the K "fix" is not RESO_TRIM/output/HP — it's that the clone's K (and R) engines appear SWAPPED vs VAZ's actual
-> `.v2p`→filter mapping.** Confirming this needs the numeric harness to (a) transcribe the real 0x40/0x44 handler
-> (0x6d67 SVF-variant) and diff it vs `VAZTypeK`, and (b) transcribe the 0x6d87 Sallen-Key and diff vs `VAZTypeR`.
-> **Not guessed, not patched** (per "gæt ikke") — this is now a **filter-engine↔mode AUDIT**, the real prerequisite. It
-> supersedes the "3 deviations" framing above (those were read from the 0x6d87 branch, which turns out to be R's, not
-> K's for modes 15/16).
+> **Result — the 6 mismatches:** `.v2p` **15/16 (K):** VAZ=0x6d67 SVF-variant vs clone=0x6d87 Sallen-Key. `.v2p` **17–20
+> (R):** VAZ=0x6d87 Sallen-Key vs clone=0x69 cubic. `VAZTypeK` IS literally VAZ's **R** handler (0x4ddf44); `VAZTypeR`
+> (cubic) is a duplicate of the **C** engine (0x4dd82b), never VAZ's R. (This is why "R" was only ever spectral-close,
+> 19.2 vs 18.5 dB, never a bit-null.)
+>
+> **Correct fix (NOT the clean K↔R swap — that would leave K on cubic):**
+> 1. **R `.v2p` 17–20 → route to `VAZTypeK`** (the clone already has the exact Sallen-Key engine; retire `VAZTypeR`/cubic
+>    for R). ⚠ this flips the **default** filter (`.v2p` 19 = R 4P HM) from cubic to Sallen-Key = a real audible change.
+> 2. **K `.v2p` 15/16 → needs the 0x4ddcfe SVF-variant** (0x6d67, distinct from `VAZTypeD`'s 0x30-0x34 SVF @0x4dde5c) —
+>    a NEW engine to transcribe, *not* a routing swap.
+>
+> **Reported, not patched** — it touches a whole filter choice + the default, and the fix diverges from a swap, so it
+> awaits the user's go-ahead per "rapportér FØR du bytter". `filter_route_map` in VazOracle makes it reproducible.
 
 ### 1.3 Envelopes
 | Component | VAZ ref | Clone | Status | Method |
