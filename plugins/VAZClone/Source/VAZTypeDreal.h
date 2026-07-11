@@ -60,15 +60,16 @@ struct VAZTypeDreal
         return (double) stepCi (tap, input, cutIdx (fc), resoIdx (reso), s1, s2) / SCALE;
     }
 
-    // mode 0x34 — D HP+LP Separation: section-1 HP at cutoff+Sep → section-2 LP at cutoff−Sep. sepNorm = Separation 0..1.
+    // mode 0x34 — D HP+LP Separation: section-1 HP at cutoff−Sep → section-2 LP at cutoff+Sep. sepNorm = Separation 0..1.
+    // (vaz_big.c:1296/1301/1312/1347 — HP pre-section runs at cut−Sep, main LP section at cut+Sep.)
     double processHPLP (double in, double fc, double reso, double sepNorm) noexcept
     {
         const int ci = cutIdx (fc), ri = resoIdx (reso);
         const int sep = std::max (3, ((int) std::lround (std::clamp (sepNorm, 0.0, 1.0) * 255.0)) * 2);   // (sepParam<<15)>>14 = ·2, min 3
         const int ciU = std::clamp (ci + sep, 0, 0x3ff), ciL = std::clamp (ci - sep, 0, 0x3ff);
         const int32_t input = (int32_t) std::lround (std::clamp (in, -2.0, 2.0) * SCALE);
-        const int32_t mid = stepCi (2, input, ciU, ri, s1b, s2b);    // section 1: cut+Sep, HP tap → feeds section 2
-        const int32_t out = stepCi (0, mid,   ciL, ri, s1,  s2);     // section 2: cut−Sep, LP tap
+        const int32_t mid = stepCi (2, input, ciL, ri, s1b, s2b);    // section 1: cut−Sep, HP tap → feeds section 2
+        const int32_t out = stepCi (0, mid,   ciU, ri, s1,  s2);     // section 2: cut+Sep, LP tap
         return (double) out / SCALE;
     }
 };

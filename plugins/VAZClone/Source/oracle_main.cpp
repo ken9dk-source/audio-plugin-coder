@@ -396,8 +396,8 @@ int main()
                 const int sep = std::max (3, ((int) std::lround (std::clamp (sepN, 0.0, 1.0) * 255.0)) * 2);
                 const int cU = std::clamp (c + sep, 0, 0x3ff), cL = std::clamp (c - sep, 0, 0x3ff);
                 const int32_t in1 = (int32_t) std::lround (std::clamp (in, -2.0, 2.0) * 65536.0);
-                const int32_t mid = sect (2, in1, cU, r, a1, a2);      // section 1: cut+Sep, HP
-                return (double) sect (0, mid, cL, r, b1, b2) / 65536.0; // section 2: cut−Sep, LP
+                const int32_t mid = sect (2, in1, cL, r, a1, a2);      // section 1 (vaz_big.c:1312): cut−Sep, HP
+                return (double) sect (0, mid, cU, r, b1, b2) / 65536.0; // section 2 (vaz_big.c:1347): cut+Sep, LP
             }
         };
         long maxd = 0;
@@ -411,7 +411,7 @@ int main()
             const long d = std::llabs ((long) a - (long) b); if (d > maxd) maxd = d;
         }
         row ("filter_dreal_hplp", maxd == 0 ? "BIT-EXACT" : "DEVIATION (max=" + std::to_string (maxd) + ")",
-             "VAZ D HP+LP Separation (mode 0x34, .v2p 13): section-1 HP@cut+Sep → section-2 LP@cut−Sep vs VAZTypeDreal::processHPLP");
+             "VAZ D HP+LP Separation (mode 0x34, .v2p 13): section-1 HP@cut−Sep → section-2 LP@cut+Sep vs VAZTypeDreal::processHPLP");
     }
 
     // ── FILTER R — independent transcription of VAZ's R handler 0x4ddf44 (vaz_big.c:1499-1594, Sallen-Key 0x6d87)
