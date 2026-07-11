@@ -1,9 +1,12 @@
-// VAZTypeK.h - BIT-EXACT VAZ Type-K filter (2-pole Sallen-Key, distorted self-oscillating resonance).
-// Ported from Vaz2010Core.dll (disasm @0x4DDF44-0x4DE106): 2x-oversampled. Each pass = a resonance
-// feedback section (states 0x188/0x18c, fixed coef 0x418937) -> input - resoFeedback, saturation-clamped
-// (+-0xD105E8) -> cubic soft-clip -> 4 cascaded one-pole LPs (coefA=0x6d87e8[cutIdx]); the 4th one-pole
-// (0x188) is the output fed back to the resonance section. resoGain = coefB(0x6d97e8[cutIdx])*reso. Output =
-// (2-pole tap + final 4-pole)/2, then a one-pole post-HP. Python-validated: rises 0->38 dB (near self-osc).
+// VAZTypeK.h — BIT-EXACT VAZ Type-R filter (the clone historically mislabelled it "K"): a distorted, self-oscillating
+// 4-pole Sallen-Key/ladder. This is VAZ's handler @0x4ddf44 for .v2p 17-20 (internal 0x50-0x5d) — vaz_big.c:1499-1594.
+// (VAZ's actual K is the 0x6d67 SVF = VAZTypeD; VAZ's actual R is THIS.) 2x-oversampled. Per pass: resonance-feedback
+// section (states 0x188/0x18c, fixed coef 0x418937) → input − resoFeedback, saturation-clamp ±0xd105e8 → cubic soft-clip
+// → 4 cascaded one-pole LPs (coefA = 0x6d87e8[cutIdx]); the 4th one-pole feeds the resonance section back.
+//   resoGain = mulhi(0x6d97e8[cutIdx], reso<<22) << 2   (NO ÷2 — the decompile has none, line 1501).
+//   2-pole tap (0x174) = both passes' 2nd one-pole; 4-pole tap = pass-1 4th (0x170) + pass-2 4th, accumulated.
+//   OUTPUT = mode-SELECT: 2-pole if internal mode < 0x55 (.v2p 17/18), else 4-pole (.v2p 19/20) — never averaged.
+//   post-HP one-pole coef = kRC[ hp_cutoff_byte · 4 ]  (LINEAR index, line 1580/1593), applied to (tap >> 1).
 #pragma once
 #include <cstdint>
 #include <cmath>
@@ -14,55 +17,50 @@
 struct VAZTypeK
 {
     double  sr = 44100.0;
-    int32_t s17c = 0, s180 = 0, s184 = 0, s188 = 0, s18c = 0, hpS = 0;
+    int32_t s17c = 0, s180 = 0, s184 = 0, s188 = 0, s18c = 0, s400 = 0;   // 4 one-poles + reso section + post-HP
     static constexpr double  SCALE = 65536.0;
-    static constexpr int32_t KC = 0x418937, CHI = 0xd105e8, CLO = (int32_t) 0xff2efa18;
+    static constexpr int32_t KC = 0x418937, CHI = 0xd105e8, CLO = (int32_t) 0xff2efa18;   // CLO = −CHI
 
     void prepare (double s) noexcept { sr = s > 0.0 ? s : 44100.0; reset(); }
-    void reset()           noexcept { s17c = s180 = s184 = s188 = s18c = hpS = 0; }
+    void reset()           noexcept { s17c = s180 = s184 = s188 = s18c = s400 = 0; }
 
     static inline int32_t mulhi (int32_t a, int32_t b) noexcept { return (int32_t) (((int64_t) a * b) >> 32); }
     static inline int32_t shl   (int32_t v, int n)     noexcept { return (int32_t) ((uint32_t) v << n); }
     static inline int32_t sub32 (int32_t a, int32_t b) noexcept { return (int32_t) ((uint32_t) a - (uint32_t) b); }
     static inline int32_t add32 (int32_t a, int32_t b) noexcept { return (int32_t) ((uint32_t) a + (uint32_t) b); }
 
-    double process (double in, double fc, double reso, double hpFc) noexcept
+    // fourPole = false → 2-pole tap (.v2p 17/18); true → 4-pole (.v2p 19/20). hpNorm 0..1 = hp_cutoff param.
+    double process (bool fourPole, double in, double fc, double reso, double hpNorm) noexcept
     {
         int ci = (int) std::lround (1024.0 * std::log (std::clamp (fc, 1.0, sr * 0.49)) / 10.24);
         ci = std::clamp (ci, 0, 1023);
         const int32_t coefA = VAZTypeKT::kCoefA[ci], coefB = VAZTypeKT::kCoefB[ci];
         const int r255 = (int) std::lround (std::clamp (reso, 0.0, 1.0) * 255.0);
-        // The decoded resoGain self-oscillates from ~reso 170, but real VAZ's K stays sub-self-oscillation
-        // through reso 255 (note-dominant) — the resonance loop gain reads ~1.5x too high vs the measured real.
-        // RESO_TRIM scales it so the self-osc threshold moves above 255 (matches real's strong-but-controlled K).
-        static constexpr int64_t RESO_NUM = 1, RESO_DEN = 2;   // x0.5 (calibration, like A's SCALE)
-        const int32_t resoGain = (int32_t) ((((int64_t) shl (mulhi (coefB, shl (r255, 22)), 2)) * RESO_NUM) / RESO_DEN);
+        const int32_t resoGain = shl (mulhi (coefB, shl (r255, 22)), 2);           // faithful — NO ÷2
 
         const int32_t inp = (int32_t) std::lround (std::clamp (in, -2.0, 2.0) * SCALE);
-        int32_t tap = 0, fin = 0;
-        for (int p = 0; p < 2; ++p)                                  // 2x oversampled
+        int32_t tap2 = 0, p1_4 = 0, iv9 = 0;
+        for (int p = 0; p < 2; ++p)                                                 // 2x oversampled
         {
-            const int32_t sa = s188, sb = s18c;                     // resonance feedback section
-            const int32_t t1 = mulhi (sa, KC), dd = sub32 (sb, t1), t2 = mulhi (dd, KC);
-            s18c = add32 (sa, t2);
-            const int32_t rfb = mulhi (shl (dd, 5), resoGain);
-            int32_t v = std::clamp (sub32 (inp, rfb), CLO, CHI);    // input - resonance, saturation clamp
-            const int32_t vc = shl (v, 5);                          // cubic soft-clip
-            v = sub32 (v, mulhi (mulhi (vc, vc), vc));
-            int32_t x = v, a;                                       // 4 cascaded one-pole LPs (coefA)
+            const int32_t dd = sub32 (s18c, mulhi (s188, KC));                      // resonance feedback section
+            s18c = add32 (s188, mulhi (dd, KC));
+            int32_t v = std::clamp (sub32 (inp, mulhi (shl (dd, 5), resoGain)), CLO, CHI);   // input − reso, sat-clamp
+            const int32_t vc = shl (v, 5); v = sub32 (v, mulhi (mulhi (vc, vc), vc));        // cubic soft-clip
+            int32_t x = v, a;                                                       // 4 cascaded one-pole LPs
             a = shl (sub32 (s17c, x), 2); x = add32 (x, mulhi (a, coefA)); s17c = x;
             a = shl (sub32 (s180, x), 2); x = add32 (x, mulhi (a, coefA)); s180 = x;
-            tap = (p == 0) ? x : add32 (tap, x);                    // 2-pole centre tap (summed over the 2 passes)
+            if (p == 0) tap2 = x; else tap2 = add32 (tap2, x);                      // 2-pole tap (+0x174, accumulate)
             a = shl (sub32 (s184, x), 2); x = add32 (x, mulhi (a, coefA)); s184 = x;
             a = shl (sub32 (s188, x), 2); x = add32 (x, mulhi (a, coefA)); s188 = x;
-            fin = x;
+            if (p == 0) p1_4 = x; else iv9 = x;                                     // pass-1 4-pole (+0x170) / pass-2 4-pole
         }
-        int32_t edi = (int32_t) (((int64_t) tap + fin) >> 1);       // (2-pole tap + 4-pole out)/2
+        const int32_t tap = fourPole ? add32 (p1_4, iv9) : tap2;                    // mode-SELECT (line 1574), no averaging
 
-        const int hi = std::clamp ((int) std::lround (1024.0 * std::log (std::clamp (hpFc, 1.0, sr * 0.49)) / 10.24), 0, 1023);
-        const int32_t hpCoef = VAZAType::kRC[hi];                   // one-pole post-HP
-        const int32_t m = mulhi (shl (add32 (hpS, edi), 2), hpCoef);
-        hpS = sub32 (m, edi);
+        const int hpIdx = std::clamp (((int) std::lround (std::clamp (hpNorm, 0.0, 1.0) * 255.0)) << 2, 0, 1023);   // LINEAR
+        const int32_t hpCoef = VAZAType::kRC[hpIdx];
+        const int32_t half = tap >> 1;                                             // post-HP runs on tap>>1 (line 1592)
+        const int32_t m = mulhi (shl (add32 (s400, half), 2), hpCoef);
+        s400 = sub32 (m, half);
         return (double) m / SCALE;
     }
 };

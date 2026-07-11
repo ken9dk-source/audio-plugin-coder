@@ -538,8 +538,10 @@ struct VAZMultiFilter
                     } else out=(tap==2?d_bp:d_lp);
                 }
             } break;
-            case 4:                                                      // K = BIT-EXACT Sallen-Key (+ own post-HP)
-                out=typeK.process (x, fc, reso, hpHz); break;
+            case 4: {                                                    // R (VAZ's real R) = BIT-EXACT Sallen-Key, mode-select 2P|4P + linear post-HP
+                const double hpNorm = std::log (juce::jlimit (20.0, sr*0.45, hpHz) / 20.0) / std::log (100.0);
+                out = typeK.process (poles == 4, x, fc, reso, hpNorm);   // poles 2/4 = .v2p 17-18 / 19-20
+            } break;
             case 7:                                                      // D (real) = 2-stage cubic SVF (LP/BP/HP taps)
                 out=typeDreal.process (tap, x, fc, reso); break;
             case 6: {                                                    // Comb delay-feedback
@@ -553,7 +555,8 @@ struct VAZMultiFilter
             // ⚠ DEPRECATED: VAZTypeR (0x69 cubic) was proven to be a DUPLICATE of the C engine (0x4dd82b), NOT VAZ's R
             // (which is the Sallen-Key 0x6d87 @0x4ddf44 = VAZTypeK). No mode routes here anymore (engine 5 is never set);
             // kept only as a defensive fallback. VAZ's real R now runs through case 4 (VAZTypeK).
-            default: out=typeK.process (x, fc, reso, hpHz); break;
+            default: { const double hpNorm = std::log (juce::jlimit (20.0, sr*0.45, hpHz) / 20.0) / std::log (100.0);
+                       out = typeK.process (poles == 4, x, fc, reso, hpNorm); } break;
         }
         // engines K and C do their own exact integer closing stage; others use the float post-HP
         if (usesHP && engine!=5 && engine!=4 && engine!=2) { const double rc=1.0/(2.0*M_PI*juce::jlimit (20.0,sr*0.45,hpHz)), dt=1.0/sr, a=rc/(rc+dt);

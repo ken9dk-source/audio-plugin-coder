@@ -369,6 +369,62 @@ int main()
              "VAZ real D 0x4ddaa8 (2-stage cubic SVF, 0x6d45/55/65/66) — VAZTypeDreal vs independent transcription, taps LP/BP/HP");
     }
 
+    // ── FILTER R — independent transcription of VAZ's R handler 0x4ddf44 (vaz_big.c:1499-1594, Sallen-Key 0x6d87)
+    //    vs VAZTypeK. Faithful = no reso-trim, mode-select 2P|4P output, LINEAR post-HP index. ─────────────────────────
+    {
+        struct RefR {
+            double sr = 44100.0; int32_t s17c = 0, s180 = 0, s184 = 0, s188 = 0, s18c = 0, s170 = 0, s174 = 0, s400 = 0;
+            enum : int32_t { KC = 0x418937, CHI = 0xd105e8 };
+            static int32_t mh (int32_t a, int32_t b) { return (int32_t) (((int64_t) a * b) >> 32); }
+            static int32_t sl (int32_t v, int n) { return (int32_t) ((uint32_t) v << n); }
+            static int32_t ad (int32_t a, int32_t b) { return (int32_t) ((uint32_t) a + (uint32_t) b); }
+            static int32_t sb (int32_t a, int32_t b) { return (int32_t) ((uint32_t) a - (uint32_t) b); }
+            static int32_t cub (int32_t x) { const int32_t v = sl (x, 5); return sb (x, mh (v, mh (v, v))); }
+            double process (bool fourPole, double in, double fc, double reso, double hpNorm) {
+                const int c = std::clamp ((int) std::lround (1024.0 * std::log (std::clamp (fc, 1.0, sr * 0.49)) / 10.24), 0, 1023);
+                const int32_t coefA = VAZTypeKT::kCoefA[c];
+                const int r255 = (int) std::lround (std::clamp (reso, 0.0, 1.0) * 255.0);
+                const int32_t resoGain = sl (mh (VAZTypeKT::kCoefB[c], sl (r255, 22)), 2);   // NO ÷2 (line 1501)
+                const int32_t in1 = (int32_t) std::lround (std::clamp (in, -2.0, 2.0) * 65536.0);
+                int32_t iv9 = 0;
+                for (int p = 0; p < 2; ++p) {
+                    int32_t t = sb (s18c, mh (s188, KC)); s18c = ad (s188, mh (t, KC));      // reso section
+                    int32_t x = sb (in1, mh (sl (t, 5), resoGain));
+                    if (x > CHI) x = CHI; if (x < -CHI) x = -CHI; x = cub (x);              // clamp + cubic
+                    x = ad (x, mh (sl (sb (s17c, x), 2), coefA)); s17c = x;                 // one-pole 1
+                    x = ad (x, mh (sl (sb (s180, x), 2), coefA)); s180 = x;                 // one-pole 2
+                    if (p == 0) s174 = x; else s174 = ad (s174, x);                         // 2-pole tap (accumulate)
+                    x = ad (x, mh (sl (sb (s184, x), 2), coefA)); s184 = x;                 // one-pole 3
+                    x = ad (x, mh (sl (sb (s188, x), 2), coefA)); s188 = x;                 // one-pole 4
+                    if (p == 0) s170 = x; else iv9 = x;                                     // pass1→s170, pass2→iv9
+                }
+                int32_t tap = fourPole ? ad (s170, iv9) : s174;                            // 4P = s170+iv9 ; 2P = s174 (line 1574)
+                const int hpIdx = std::clamp (((int) std::lround (std::clamp (hpNorm, 0.0, 1.0) * 255.0)) << 2, 0, 1023); // LINEAR
+                const int32_t hpCoef = VAZAType::kRC[hpIdx];
+                const int32_t half = tap >> 1;
+                const int32_t m = mh (sl (ad (s400, half), 2), hpCoef);                     // post-HP one-pole
+                s400 = sb (m, half);
+                return (double) m / 65536.0;
+            }
+        };
+        // POST-FIX: RefR (faithful 0x4ddf44) vs the rewritten VAZTypeK, both taps (2-pole / 4-pole) + reso/hp sweep.
+        // (Pre-fix this read RMS(diff)/RMS = 1.36, max int diff 221226 — the 3 fudges: reso ÷2, avg output, log HP.)
+        long maxd = 0;
+        for (int fp = 0; fp < 2; ++fp) {
+            RefR ref; VAZTypeK k; k.prepare (44100.0);
+            uint32_t rng = 0x99u + (uint32_t) fp;
+            for (int i = 0; i < 40000; ++i) {
+                const double fc = 300.0 + (double) (i % 300) * 25.0, rs = 0.2 + (double) (i % 5) * 0.19, hn = (double) (i % 7) / 6.0;
+                const double s = (i == 0) ? 0.5 : ((double) (int32_t) ((rng = rng * 1664525u + 1013904223u) >> 9) / 4194304.0 - 0.5);
+                const int32_t a = (int32_t) std::llround (ref.process (fp != 0, s, fc, rs, hn) * 65536.0);
+                const int32_t b = (int32_t) std::llround (k.process (fp != 0, s, fc, rs, hn) * 65536.0);
+                const long d = std::llabs ((long) a - (long) b); if (d > maxd) maxd = d;
+            }
+        }
+        row ("filter_r", maxd == 0 ? "BIT-EXACT (fudges removed)" : "DEVIATION (max=" + std::to_string (maxd) + ")",
+             "VAZ R 0x4ddf44 (Sallen-Key 0x6d87) — VAZTypeK vs faithful transcription, 2-pole & 4-pole (pre-fix RMS was 1.36 = reso÷2 + avg-output + log-HP)");
+    }
+
     // ── 2. Envelope per-sample step (attack→decay→release) ──────────────────────────────────────────
     {
         // Same coefs for both, taken from the clone's setADSR so we isolate the RECURRENCE, not the map.
