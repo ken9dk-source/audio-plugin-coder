@@ -478,17 +478,25 @@ int main()
     //    ·0x200 = b<<24 vs a 32-bit phase → duty = b/256) vs the clone's OscBlock::pulseWidth. Proves the duty MAP,
     //    not the band-limiting (VAZ = BLEP 006dd2c0/006de2c0; the clone's difference-of-saws matches this map only). ──
     {
-        double maxd = 0.0;
+        double maxNew = 0.0, maxOld = 0.0, centerNew = 0.0;
         for (int b = 0; b <= 255; ++b) {
             const int32_t  pa4  = (int32_t) ((uint32_t) b << 16);       // FUN_004de930: param[0xa4] = b<<16
             const uint32_t edge = (uint32_t) (pa4 >> 1) << 9;           // (param[0xa4]>>1)·0x200 = b<<24
-            const double vazDuty   = (double) edge / 4294967296.0;      // /2^32 = b/256
-            const double cloneDuty = OscBlock::pulseWidth ((double) b / 255.0);
-            maxd = std::max (maxd, std::abs (vazDuty - cloneDuty));
+            const double vazDuty  = (double) edge / 4294967296.0;       // /2^32 = b/256
+            const double shape    = (double) b / 255.0;
+            const double newDuty  = OscBlock::pulseWidth (shape);       // the FIXED clone map = round(shape·255)/256
+            const double oldDuty  = 0.05 + 0.9 * shape;                 // the OLD asserted compression (pre-2b65208)
+            maxNew = std::max (maxNew, std::abs (vazDuty - newDuty));
+            maxOld = std::max (maxOld, std::abs (vazDuty - oldDuty));
+            if (b == 128) centerNew = std::abs (vazDuty - newDuty);     // center must be exactly 0
         }
-        char buf[48]; std::snprintf (buf, sizeof buf, "%.5f", maxd);
-        row ("osc_pulse_pwmap", maxd < 1e-9 ? "BIT-EXACT (duty = WaveShape/256)" : std::string ("DEVIATION (max=") + buf + ")",
-             "VAZ pulse duty (FUN_004de930 param[0xa4]=b<<16 → b/256 LINEAR, square@128) vs OscBlock::pulseWidth — the WaveShape→pulsewidth map");
+        char buf[112]; std::snprintf (buf, sizeof buf,
+            "fixed map vs VAZ b/256: max=%.5f, center(b=128)=%.5f; OLD 0.05+0.9x deviated max=%.5f (at extremes)",
+            maxNew, centerNew, maxOld);
+        const bool ok = (maxNew < 1e-9) && (centerNew < 1e-12) && (maxOld > 0.04);   // fix nulls; old was ~0.05
+        row ("osc_pulse_pwmap", ok ? "BIT-EXACT (duty = WaveShape/256; center=0; old ~5-pt extreme gone)"
+                                   : std::string ("DEVIATION (") + buf + ")",
+             std::string ("VAZ pulse duty (FUN_004de930 param[0xa4]=b<<16 → b/256 LINEAR) vs OscBlock::pulseWidth — ") + buf);
     }
 
     // ── FILTER R — independent transcription of VAZ's R handler 0x4ddf44 (vaz_big.c:1499-1594, Sallen-Key 0x6d87)
