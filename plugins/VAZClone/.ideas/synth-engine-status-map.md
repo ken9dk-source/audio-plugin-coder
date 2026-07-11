@@ -164,6 +164,18 @@ A/B caveat). Good for table dumps and coarse spectral A/B, **not** for a bit-nul
 
 ## 3. Prioritised gap list (what needs disassembly to close, hardest-value first)
 
+0. **✅ KEYSTONE FOUND (2026-07-11) — the DSP-engine VMT is pinned; the runtime dump is now unblocked.** The 3 prior
+   attempts failed because the DLL's RTTI only surfaced GUI classes — because the engine is `new`'d in the **host/EXE**,
+   not `Vaz2010Core.dll`. Static PE scan (not a live process) found it directly: the `.rdata` VMT method-table at
+   **VA `0x4d4614`** is a clean run of engine methods (osc-loader `0x4d6c3c` … **render `FUN_004dbddc` at VMT+0x28**),
+   and its `vmtClassName` slot (VA `0x4d45dc` = VMT−0x38) points to the length-prefixed name **`TBaseMidSynth`** (the
+   DSP-engine class). So **`[engine+0] == 0x4d4614`** (rebased: `moduleBase(Vaz2010Core.dll) + 0xd4614`). **Runtime-dump
+   recipe for a future session:** attach to the running VAZ, get the loaded base of `Vaz2010Core.dll`, scan the heap for
+   pointers whose value == that rebased VMT VA **and** whose `[obj+0x2534]` looks like a 32-entry voice-pointer array →
+   that object is the live engine → walk `+0x2534` to a voice → `voice+0x28` = the LFO object → read its phase/waveshape/
+   mode/output while holding a note. This validates the mod-LFO shapes **and** Osc3 in one pass (shared blocker, now gone).
+   No guessing needed — it's a bounded scan against a known signature.
+
 1. **Mod-LFO RATE — ✅ CLOSED (2026-07-10).** Traced past the mis-cited `FUN_004a073c` (which is the *tempo/sequencer
    clock*, not the LFO) to the real rate setter `FUN_004dead8` → `+0xe8 = DAT_006dc4c0[sel]`. That table is **byte-identical
    to the autopan rate LUT** (`0.02·e^(0.036·sel)`, 256/256) — same VAZ curve. Clone LFO1/2/3 now index it (`kAutopanRateLUT`);
