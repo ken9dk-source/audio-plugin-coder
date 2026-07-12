@@ -263,6 +263,12 @@ public:
             if (fm2b) f2 *= std::pow (2.0, (double) mv (p.o2Fm2Src, idx) * (double) p.o2Fm2Amt);  // Osc2 FM input 2
             if (p.link && fm1) f2 *= std::pow (2.0, (double) mv (p.o1FmSrc, idx) * (double) p.o1FmAmt);  // Link: Osc1 FM → Osc2
             double sh1 = p.o1Shape, sh2 = p.o2Shape;
+            // Pulse width: VAZ forces the base duty to 0x7f (127/256 ≈ 50% square) and does PWM only via the
+            // Waveshape MODULATION (setter FUN_004de930 @0x4de930 ignores the slider for odd waveforms). We keep
+            // that 50% square at the fader's DEFAULT (Shape=0 → matches VAZ) but let the fader sweep the duty
+            // toward a thin pulse, so the Pulse-Width fader is live. Fader=0 → 50% square; fader=1 → thin.
+            if (w1 == 1) sh1 = (127.0 / 255.0) * (1.0 - p.o1Shape);
+            if (w2 == 1) sh2 = (127.0 / 255.0) * (1.0 - p.o2Shape);
             if (ws1) sh1 = juce::jlimit (0.0, 1.0, sh1 + (double) mv (p.o1WsSrc, idx) * (double) p.o1WsAmt);
             if (ws2) sh2 = juce::jlimit (0.0, 1.0, sh2 + (double) mv (p.o2WsSrc, idx) * (double) p.o2WsAmt);
 

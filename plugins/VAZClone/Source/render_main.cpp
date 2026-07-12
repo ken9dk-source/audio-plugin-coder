@@ -4,6 +4,7 @@
 //
 //   VazRender <preset.v2p|-> <midi.mid> <out.wav> [seconds=6] [sampleRate=48000]
 #include "PluginProcessor.h"
+#include "ParameterIDs.hpp"
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <iostream>
 
@@ -36,6 +37,13 @@ int main (int argc, char* argv[])
 
     proc.setPlayConfigDetails (0, 2, sr, block);
     proc.prepareToPlay (sr, block);
+
+    // A/B hook: override oscillator waveform / shape from env (for init-patch waveform tests).
+    auto setP = [&](const char* id, float v){ if (auto* q = proc.apvts.getParameter (id)) q->setValueNotifyingHost (v); };
+    if (const char* w = std::getenv ("VAZCLONE_O1WAVE"))  setP (ParameterIDs::o1_wave,  juce::String (w).getIntValue() / 4.0f);
+    if (const char* s = std::getenv ("VAZCLONE_O1SHAPE")) setP (ParameterIDs::o1_shape, juce::String (s).getFloatValue());
+    if (const char* w = std::getenv ("VAZCLONE_O2WAVE"))  setP (ParameterIDs::o2_wave,  juce::String (w).getIntValue() / 4.0f);
+    if (const char* l = std::getenv ("VAZCLONE_O2LEVEL")) setP (ParameterIDs::o2_level, juce::String (l).getFloatValue());
 
     // ---- parse MIDI into a seconds-timed sequence ----
     juce::MidiFile mf;
