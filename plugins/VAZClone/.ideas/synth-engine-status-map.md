@@ -33,7 +33,7 @@ Systematic-audit inventory. "Route-B-verified" = per-sample oracle bit-null **or
 | 3 | **velocity** mod polarity | 1.5 | ✅ **FIXED 2026-07-13 — was unipolar, now BIPOLAR** | very common | confirmed vs VAZ: mod-source values live at `voice+selector·4`; velocity=sel 17→`voice[0x44]=vel<<17−0x800000` (note-on `FUN_004db288 @0x4DB327`) = bipolar `vel/64−1`. Fixed both `mv()` sites (`voiceVel·2−1`). **keytrack** (case 10 = "Osc1 Pitch") still a TILNÆRMET approximation — separate |
 | 4 | ~~env1-as-mod-source bipolarity~~ | 1.3 | ✅ **ALREADY DONE (map was stale)** | common | clone `mv()` cases 4/5 already `env·2−1` (bipolar, `SynthVoice.h`:248-249) matching VAZ `(L>>6)−0x800000`; VCA still uses unipolar env. No action. |
 | 5 | **Mod-bus depth scaling** | 1.5 | ⚠ **STRUCTURE verified, exact depth-factor OPEN** | all modulated patches | domain ✓ (`coNorm += cutAmtₙ·mv` == VAZ index `idx += voice[src]·depth>>8`), bipolar sources ✓, 3 slots ✓. Exact fixed-point depth factor (clone `\|v\|/255` vs VAZ `param[0x294]>>8` × ±2²³ source) UNRESOLVED — needs a careful bit-width trace + oracle. **Do not guess.** Next-session target. |
-| 6 | **Multi-saw detune → cents** | 1.1 | **TILNÆRMET** (FFT-fit, not binary) | common osc | decode `FUN_004dbddc`:386-432 to real cents |
+| 6 | **Multi-saw detune → cents** | 1.1 | ⚠ **TILNÆRMET, FFT-validated** | common osc | 0/+24/+48/+72.5c from VAZ's FFT-at-Max; exact detune is ENTANGLED in the render monolith (`FUN_004dbddc`, no isolable sub-osc loop) = same depth as #8. Deferred to the render-RE / VMT-dump track. **Don't guess.** |
 | 7 | **Sample-osc 4-pt cubic interp** | 1.1 | VERIFICERET (line-by-line, no oracle) | Sample osc | oracle `osc_sample` |
 | 8 | **Mod-LFO waveform shapes** (8 hand-coded) | 1.6 | **PÅSTÅET** (shapes) | common (LFO) | HARD — entangled w/ Osc3 audio-rate LFO obj; needs the `TBaseMidSynth` VMT runtime-dump (keystone §3.0) |
 | 9 | **Osc3 audio-rate footage pitch** | 1.1 | ⏸ PARKED (VMT) | uncommon | same VMT dump as #8 (one pass) |
@@ -41,6 +41,8 @@ Systematic-audit inventory. "Route-B-verified" = per-sample oracle bit-null **or
 | 11 | D-LP/BP, D-HP+LP, Comb (float fallback) | 1.2 | TILNÆRMET | **0 factory patches** | lowest priority |
 
 **Already Route-B-verified (no Phase-2 action):** filters A/B/C/D/K/R (all BIT-EXACT), cutoff-smoother, ADSR envelope, detune poly/unison (oracle bit-null); mod-LFO **rate** (dumped `DAT_006dc4c0`); **Pulse** (FIXED 2026-07-12, matches real VAZ render); note→pitch A440 (RPM-dumped `DAT_006dd0c0`). Structural VERIFICERET (phase acc, wavetable interp, voices/steal/priority, pitch-bend/sustain, env rate tables) = low-risk, address-cited, deferred.
+
+**PHASE-3 GUI control-binding audit (2026-07-13):** ✅ `control_binding_audit.test.js` — all 125 bindings cross-checked vs `ParameterIDs.hpp`: **no cross-wiring, no dead/unknown bindings** (the "Rate-fader" bug class is provably absent; that report was a stale plugin cache, [[feedback_vazclone_stale_plugin_cache]]). **Coverage gaps — 12 preset-only params with NO GUI control** (follow-up, not bugs): `cut_mod3_src/amt` (3rd cutoff-mod, DSP uses it), `amp_mod2_src/amt`, `note_priority` (Hi/Lo/Last), `lfo2_shape`, `lfo2_delay`, `lfo3_wave`, `osc2_sync`, `o2_detune`.
 
 ## 1. Precision matrix
 
