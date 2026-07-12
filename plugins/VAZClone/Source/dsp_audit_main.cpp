@@ -149,6 +149,49 @@ int main()
               "worst=" + std::to_string(worst) + " @ note " + std::to_string(worstNote) + " shape " + std::to_string(worstSh));
     }
 
+    // ---- 3d. PULSE harmonic ROLLOFF vs an ideal square (the real-VAZ render was FLAT = harsh "C64"; VAZ rolls off ~1/k) ----
+    {
+        std::cout << "--- PULSE harmonic rolloff (o1_wave=Pulse shape 0.5 square, note 48 ~130Hz, filter OPEN, 1 voice) ---\n";
+        VAZCloneAudioProcessor p;
+        setP(p, "o1_wave", 1.0f / 4.0f); setP(p, "o1_shape", 0.5f);
+        setP(p, "cutoff", 1.0f); setP(p, "resonance", 0.0f);            // filter wide open — measure the bare osc
+        setP(p, "e1_attack", 0.02f); setP(p, "e1_sustain", 1.0f);
+        const int on = (int)(0.05 * sr);
+        auto b = render(p, sr, {{on, MidiMessage::noteOn(1, 48, 1.0f)}}, 0.5);
+        const double f0 = 440.0 * std::pow(2.0, (48 - 69) / 12.0);      // ~130.8 Hz
+        const float* x = b.getReadPointer(0); const int a0 = on + (int)(0.12 * sr), a1 = b.getNumSamples();
+        auto mag = [&](double f) { double re = 0, im = 0; for (int n = a0; n < a1; ++n) { double a = 2*M_PI*f*(n-a0)/sr; re += x[n]*std::cos(a); im -= x[n]*std::sin(a); } return std::hypot(re, im); };
+        const double h1 = mag(f0);
+        std::string row2;
+        for (int k = 1; k <= 16; ++k) { char c[16]; std::snprintf(c, sizeof c, "%.3f ", mag(k*f0)/std::max(1e-9,h1)); row2 += c; }
+        std::printf("  clone h1..h16 (norm): %s\n", row2.c_str());
+        std::printf("  ideal square h1..h16: 1.000 0.000 0.333 0.000 0.200 0.000 0.143 0.000 0.111 0.000 0.091 0.000 0.077 0.000 0.067 0.000\n");
+        // flatness metric: mean of h9..h15 (odd) relative to h1 — a proper square is ~1/k (small); flat/harsh is large
+        const double hi = (mag(9*f0)+mag(11*f0)+mag(13*f0)+mag(15*f0))/4.0/std::max(1e-9,h1);
+        check("pulse_rolls_off_like_square", hi < 0.20, "mean(h9,11,13,15)/h1=" + std::to_string(hi) + " (ideal ~0.09; flat/harsh >> that)");
+    }
+
+    // ---- 3e. reproduce the described FL patch (pulse + unison4 + R 4P LP Res Mod) — is IT flat/harsh + quiet? ----
+    {
+        std::cout << "--- FULL PATCH: pulse + unison4 + R 4P LP Res Mod, note 48, sweep reso ---\n";
+        const double f0 = 440.0 * std::pow(2.0, (48 - 69) / 12.0);
+        for (double reso : { 0.0, 0.5, 0.9 }) {
+            VAZCloneAudioProcessor p;
+            setP(p, "o1_wave", 1.0f / 4.0f); setP(p, "o1_shape", 0.5f);
+            setP(p, "voice_mode", 1.0f); setP(p, "uni_voices", 3.0f / 31.0f); setP(p, "uni_detune", 0.3f);
+            setP(p, "filter_mode", 19.0f / 21.0f);                  // R 4P LP Res Mod
+            setP(p, "cutoff", 0.6f); setP(p, "resonance", (float) reso);
+            setP(p, "e1_attack", 0.02f); setP(p, "e1_sustain", 1.0f);
+            const int on = (int)(0.05 * sr);
+            auto b = render(p, sr, {{on, MidiMessage::noteOn(1, 48, 1.0f)}}, 0.5);
+            const float* x = b.getReadPointer(0); const int a0 = on + (int)(0.12 * sr), a1 = b.getNumSamples();
+            const double r = rms(x, a0, a1), pk = peak(x, a0, a1);
+            const double al = aliasingRatio(x, a0, sr, f0);
+            std::printf("  reso=%.1f  RMS=%.4f peak=%.4f aliasing=%.4f\n", reso, r, pk, al);
+        }
+        std::puts("  (real-VAZ render was RMS 0.142; clone render RMS 0.0099 = ~14x quieter)");
+    }
+
     // ---- 3c. reproduce the FL patch (unison + pulse) and test 44.1 kHz (FL default) ----
     {
         std::cout << "--- PULSE unison + sample-rate repro ---\n";
