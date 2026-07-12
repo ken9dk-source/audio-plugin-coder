@@ -30,7 +30,7 @@ struct ModBus
             case 8:  return lag  ? lag[i]  : 0.0f;     // Lag Processor
             case 10: return keyTrack;
             case 12: return noise ? noise[i] : 0.0f;   // Noise
-            case 17: return velocity;
+            case 17: return velocity * 2.0f - 1.0f;   // MIDI Velocity = BIPOLAR (VAZ voice[0x44]=vel<<17−0x800000; was unipolar — Phase-2 #3 fix 2026-07-13)
             // VAZ stores these bipolar: pressure·0x20000-0x800000 (rest -1), CC·0x20000-0x7fffff (centred 64). (P1/M13-1.)
             case 18: return aftertouch * 2.0f - 1.0f;  // MIDI Pressure (channel aftertouch)
             case 19: return modWheel * 2.0f - 1.0f;
@@ -250,7 +250,7 @@ public:
                     case 10: return (float) voiceKeyTrack;
                     case 9:  return lastO1;          // Oscillator 1 (audio-rate, previous sample)
                     case 11: return lastO2;          // Oscillator 2
-                    case 17: return voiceVel;
+                    case 17: return voiceVel * 2.0f - 1.0f;   // MIDI Velocity = BIPOLAR mod source (VAZ note-on FUN_004db288 @0x4DB327: voice[0x44]=vel<<17−0x800000 = vel/64−1 centered at 64; clone uses the same x·2−1 convention as env/AT/CC). Amp level (startNote) still uses unipolar velocity.
                     case 21: return (float) voiceDetune;   // Voice Number ≈ this voice's spread position
                     default: return p.modBus ? p.modBus->value (src, i) : 0.0f;
                 }
