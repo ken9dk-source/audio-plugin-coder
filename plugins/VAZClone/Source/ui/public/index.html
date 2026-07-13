@@ -453,6 +453,8 @@ body {
     </div>
     <div class="lbl" id="o2xlbl">Waveshape</div>
     <div class="slider" data-param="o2_shape"><div class="thumb" style="left:0;"></div></div>
+    <div class="lbl">Detune</div>
+    <div class="slider" data-param="o2_detune"><div class="thumb" style="left:0;"></div></div>
   </div>
 
   <div class="sb">
@@ -575,6 +577,8 @@ body {
     <div class="slider" data-param="filt_env_amt"><div class="thumb" style="left:0;"></div></div>
     <div class="mod-row"><div class="pm-btn on">+</div><div class="pm-btn minus">−</div><select class="dd-field" data-combo="cut_mod2_src" data-modsrc></select></div>
     <div class="slider" data-param="lfo_amt"><div class="thumb" style="left:0;"></div></div>
+    <div class="mod-row"><div class="pm-btn on">+</div><div class="pm-btn minus">−</div><select class="dd-field" data-combo="cut_mod3_src" data-modsrc></select></div>
+    <div class="slider" data-param="cut_mod3_amt"><div class="thumb" style="left:0;"></div></div>
   </div>
   <div class="sb">
     <div class="lbl" id="resModLbl">Resonance Modulation</div>
@@ -611,6 +615,8 @@ body {
     <div class="slider" data-param="amp_level"><div class="thumb" style="left:80%;"></div></div>
     <div class="mod-row"><div class="pm-btn on">+</div><div class="pm-btn minus">−</div><select class="dd-field" data-combo="amp_mod_src" data-modsrc></select></div>
     <div class="slider" data-param="amp_mod_amt"><div class="thumb" style="left:0;"></div></div>
+    <div class="mod-row"><div class="pm-btn on">+</div><div class="pm-btn minus">−</div><select class="dd-field" data-combo="amp_mod2_src" data-modsrc></select></div>
+    <div class="slider" data-param="amp_mod2_amt"><div class="thumb" style="left:0;"></div></div>
   </div>
   <div class="sb">
     <div class="lbl">Pan Modulation</div>
@@ -1726,8 +1732,8 @@ const SIGN_MAP = {
   o1_fm_src: "o1_fm_amt_inv", o1_ws_src: "o1_ws_amt_inv",
   o2_fm_src: "o2_fm_amt_inv", o2_ws_src: "o2_ws_amt_inv",
   e2_mod_src: "e2_mod_amt_inv",
-  cut_mod1_src: "filt_env_amt_inv", cut_mod2_src: "lfo_amt_inv",
-  res_mod_src: "res_mod_amt_inv", amp_mod_src: "amp_mod_amt_inv",
+  cut_mod1_src: "filt_env_amt_inv", cut_mod2_src: "lfo_amt_inv", cut_mod3_src: "cut_mod3_amt_inv",
+  res_mod_src: "res_mod_amt_inv", amp_mod_src: "amp_mod_amt_inv", amp_mod2_src: "amp_mod2_amt_inv",
   pan_mod_src: "pan_mod_amt_inv", ma1_am_src: "ma1_am_amt_inv", ma2_am_src: "ma2_am_amt_inv",
   o1_fm2_src: "o1_fm2_amt_inv", o2_fm2_src: "o2_fm2_amt_inv",
 };
