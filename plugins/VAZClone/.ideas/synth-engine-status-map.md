@@ -44,6 +44,8 @@ Systematic-audit inventory. "Route-B-verified" = per-sample oracle bit-null **or
 
 **PHASE-3 GUI control-binding audit (2026-07-13):** ✅ `control_binding_audit.test.js` — all 125 bindings cross-checked vs `ParameterIDs.hpp`: **no cross-wiring, no dead/unknown bindings** (the "Rate-fader" bug class is provably absent; that report was a stale plugin cache, [[feedback_vazclone_stale_plugin_cache]]). **Coverage gaps — 12 preset-only params with NO GUI control** (follow-up, not bugs): `cut_mod3_src/amt` (3rd cutoff-mod, DSP uses it), `amp_mod2_src/amt`, `note_priority` (Hi/Lo/Last), `lfo2_shape`, `lfo2_delay`, `lfo3_wave`, `osc2_sync`, `o2_detune`.
 
+**PHASE-5 audibility matrix (2026-07-13):** ✅ extended `dsp_audit` to sweep filter mode × cutoff × **resonance**; added guard `all_filters_reso_bounded` (22 modes at reso 0.9 keep peak≤2.0 — cubic-clip-bounded self-osc). **12/12 guards pass.** Remaining open (deep RE, next sessions): **Phase-2 #5** mod-bus depth fixed-point trace, **#6/#8** render-monolith detune/LFO-shapes + `TBaseMidSynth` VMT runtime-dump, **#7** sample-interp oracle; **Phase-4** v2p-loader field-by-field (needs a ground-truth engine-struct dump).
+
 ## 1. Precision matrix
 
 ### 1.1 Oscillators

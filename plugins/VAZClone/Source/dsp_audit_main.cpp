@@ -287,12 +287,12 @@ int main()
         auto [r, pk] = measure(p, 60);
         std::printf("  %-9s shape=%.1f   RMS=%.5f  peak=%.4f%s\n", wn[w], sh, r, pk, flag(r, pk)); } }
 
-    std::cout << "--- FILTER audibility (Saw source, note 60, sustain; reso 0, cutoff mid & high) ---\n";
-    for (int m = 0; m <= 21; ++m) for (double cf : {0.5, 0.9}) {
+    std::cout << "--- FILTER audibility (Saw source, note 60, sustain; cutoff × resonance sweep) ---\n";
+    for (int m = 0; m <= 21; ++m) for (double cf : {0.5, 0.9}) for (double rs : {0.0, 0.9}) {
         VAZCloneAudioProcessor p; setP(p, "o1_wave", 0.0f); setP(p, "filter_mode", m / 21.0f);
-        setP(p, "resonance", 0.0f); setP(p, "cutoff", (float) cf);
+        setP(p, "resonance", (float) rs); setP(p, "cutoff", (float) cf);
         auto [r, pk] = measure(p, 60);
-        std::printf("  mode %2d cutoff=%.1f   RMS=%.5f  peak=%.4f%s\n", m, cf, r, pk, flag(r, pk)); }
+        std::printf("  mode %2d cutoff=%.1f reso=%.1f   RMS=%.5f  peak=%.4f%s\n", m, cf, rs, r, pk, flag(r, pk)); }
 
     // Regression guards: every waveform (default shape) and every filter mode (default open cutoff, reso 0) must be
     // audible at default settings — this is the class of bug the Pulse min-edge clamp fell into.
@@ -307,6 +307,14 @@ int main()
         for (double cf : {0.3, 0.5, 0.7}) { VAZCloneAudioProcessor p; setP(p, "o1_wave", 0.0f); setP(p, "filter_mode", m / 21.0f); setP(p, "cutoff", (float) cf); auto [r, pk] = measure(p, 60); best = juce::jmax(best, r); }
         if (best <= 1e-3) bad += " m" + std::to_string(m) + "(maxRMS=" + std::to_string(best) + ")"; }
       check("all_filters_pass_note_somewhere", bad.empty(), bad.empty() ? "22 modes audible at cutoff 0.3/0.5/0.7" : "SILENT AT ALL CUTOFFS:" + bad); }
+    // Phase-5: resonance must not RUN AWAY — every filter mode at max reso (0.9), cutoff 0.5, must stay bounded
+    // (VAZ's distorted self-oscillation is cubic-clip-bounded; a runaway/non-finite peak = a missing output clamp,
+    //  the same bug class as the Pulse min-edge). Musically-valid setting, so a blowup here is a real defect.
+    { std::string bad;
+      for (int m = 0; m <= 21; ++m) { VAZCloneAudioProcessor p; setP(p, "o1_wave", 0.0f); setP(p, "filter_mode", m / 21.0f);
+        setP(p, "resonance", 0.9f); setP(p, "cutoff", 0.5f); auto [r, pk] = measure(p, 60);
+        if (!std::isfinite(pk) || pk > 2.0) bad += " m" + std::to_string(m) + "(peak=" + std::to_string(pk) + ")"; }
+      check("all_filters_reso_bounded", bad.empty(), bad.empty() ? "22 modes at reso 0.9 stay peak<=2.0" : "BLOWUP:" + bad); }
 
     std::cout << "\n=== " << (g_total - g_fail) << "/" << g_total << " passed, " << g_fail
               << " failed (failures pin audited bugs) ===\n";
