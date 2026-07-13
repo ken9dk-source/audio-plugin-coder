@@ -252,6 +252,14 @@ A/B caveat). Good for table dumps and coarse spectral A/B, **not** for a bit-nul
    > note → scan for a derived-VMT object with a (null-tolerant) 32-voice array whose voices share one class vtable →
    > confirm the `voice+0x28` LFO offset against the decompile (may differ in the standalone). Harness has the RPM +
    > VirtualQueryEx + numpy machinery ready.
+   > **Run 2 (change-detection added):** hold a MIDI note → two heap snapshots 60 ms apart → keep only objects whose
+   > voices have MOVING phase fields (`+0x7c/0x80/0xbc`). This narrowed 149 regions → **1 candidate** (vs 83/223) — the
+   > *method* works. BUT only **~100 words moved in 60 ms**; a truly sounding voice moves its phase accumulator every
+   > sample (~2600 words/60 ms), so **100 = GUI/meter noise → the held note is NOT reaching VAZ's audio engine**
+   > (loopMIDI port almost certainly not wired to the standalone's MIDI-in — `VazAuto(midi_hint='loop')` sets a hint,
+   > not a guaranteed route). **Next-session step 1 = make the note audibly sound** (capture audio to confirm, or drive
+   > VAZ's on-screen keyboard via computer-use) BEFORE trusting change-detection; then the single moving-voice object is
+   > the engine and its true `+0x28`/phase offsets can be read off the live struct. Method proven; input path is the gap.
 
 1. **Mod-LFO RATE — ✅ CLOSED (2026-07-10).** Traced past the mis-cited `FUN_004a073c` (which is the *tempo/sequencer
    clock*, not the LFO) to the real rate setter `FUN_004dead8` → `+0xe8 = DAT_006dc4c0[sel]`. That table is **byte-identical
