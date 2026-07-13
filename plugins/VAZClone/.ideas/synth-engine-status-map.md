@@ -242,6 +242,16 @@ A/B caveat). Good for table dumps and coarse spectral A/B, **not** for a bit-nul
    that object is the live engine → walk `+0x2534` to a voice → `voice+0x28` = the LFO object → read its phase/waveshape/
    mode/output while holding a note. This validates the mod-LFO shapes **and** Osc3 in one pass (shared blocker, now gone).
    No guessing needed — it's a bounded scan against a known signature.
+   > **Harness built + first run (2026-07-13, `tools/dump_engine_vmt.py`):** VMT @ `coreBase+0xd4614` **VERIFIED live**
+   > (12/12 slots are Core.dll `.text` pointers). BUT the recipe as written did NOT locate the engine — two refinements
+   > learned: **(a)** no heap object has `[0]==base VMT` → the live engine is a **DERIVED** class (its `[0]` = a derived
+   > VMT; scan for vtables whose `vmtClassName` chains to `TBaseMidSynth`, not the base value). **(b)** at REST (no note
+   > held) the voice pointers at `+0x2534` are **null/unallocated**, so a "consecutive non-null pointers" pattern misses
+   > the real engine — **send + hold a MIDI note first** so voices allocate. The voice-array-pattern scan found 83
+   > look-alikes (clustered, `voice+0x28`→Core.dll not a heap LFO) = NOT the engine. **Next-session refinement:** hold a
+   > note → scan for a derived-VMT object with a (null-tolerant) 32-voice array whose voices share one class vtable →
+   > confirm the `voice+0x28` LFO offset against the decompile (may differ in the standalone). Harness has the RPM +
+   > VirtualQueryEx + numpy machinery ready.
 
 1. **Mod-LFO RATE — ✅ CLOSED (2026-07-10).** Traced past the mis-cited `FUN_004a073c` (which is the *tempo/sequencer
    clock*, not the LFO) to the real rate setter `FUN_004dead8` → `+0xe8 = DAT_006dc4c0[sel]`. That table is **byte-identical
