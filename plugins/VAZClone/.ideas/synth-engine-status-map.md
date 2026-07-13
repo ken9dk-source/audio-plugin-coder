@@ -270,6 +270,14 @@ A/B caveat). Good for table dumps and coarse spectral A/B, **not** for a bit-nul
    > points at moving voices is the engine. (5) Read the live voice struct to VERIFY `+0x28`(LFO)/`+0x7c`(phase) offsets
    > against the decompile before trusting them. Everything above the audio-confirm is built + committed in
    > `dump_engine_vmt.py`; only the confirmed-audio route + offset verification remain.
+   > **Run 3 — AUDIO ROUTE SOLVED ✅ (2026-07-13):** the fix was using `vaz_auto`'s **shared** MidiOut (`shared_midiout('loop')`)
+   > instead of a fresh `rtmidi.MidiOut()` handle — the note now reaches VAZ and a voice sounds: **~14 500 heap words move**
+   > per 60 ms snapshot pair (was ~100 = silence). The harness now clusters the moving words: the densest cluster
+   > (0x…, ~4400 CONTIGUOUS words, smooth waveform ramp) is the **audio output buffer**; per-voice DSP state is in the
+   > smaller, repeated-span (0xEFC) clusters. **Remaining = pure offset RE (no longer blocked):** discriminate the sparse
+   > voice-struct fields (phase acc = single word w/ big constant delta; LFO phase = single word w/ SMALL constant delta;
+   > filter state) from the bulk audio/oscillator buffers, then read the LFO waveshape/mode. The hard part (getting live
+   > sounding DSP state out of VAZ) is done and reproducible; unblocks mod-LFO #8 / Osc3 #9 / multi-saw #6 / v2p Phase-4.
 
 1. **Mod-LFO RATE — ✅ CLOSED (2026-07-10).** Traced past the mis-cited `FUN_004a073c` (which is the *tempo/sequencer
    clock*, not the LFO) to the real rate setter `FUN_004dead8` → `+0xe8 = DAT_006dc4c0[sel]`. That table is **byte-identical

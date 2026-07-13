@@ -41,17 +41,31 @@ def main():
     mo=None
     try:
         pid=vaz.app.process; base=core_base(pid); vmt=base+VMT_RVA
+        imgsz=pefile.PE(CORE).OPTIONAL_HEADER.SizeOfImage; vt_lo,vt_hi=base,base+imgsz
         h=k32.OpenProcess(0x410,False,pid)
         print(f'Core.dll @0x{base:X}   TBaseMidSynth VMT=0x{vmt:X}')
         slots=struct.unpack('<12I', rd(h,vmt,48)); incode=sum(1 for s in slots if base<=s<base+0x200000)
         print(f'  VMT verify: {incode}/12 slots into .text')
-        # hold a note so voices allocate + move
+        # start a loopback audio capture to CONFIRM the voice actually sounds (clone_diag.py pattern)
+        cap={}
         try:
-            import rtmidi
-            mo=rtmidi.MidiOut(); pi=next(i for i,p in enumerate(mo.get_ports()) if 'loop' in p.lower()); mo.open_port(pi)
-            mo.send_message([0x90,60,110]); time.sleep(0.4); print('  holding note 60...')
+            import soundcard as sc, threading
+            loops=[m for m in sc.all_microphones(include_loopback=True) if m.isloopback]
+            def _rec(m):
+                try:
+                    with m.recorder(samplerate=48000,channels=2) as r: cap[m.name]=r.record(int(1.2*48000))
+                except Exception as ex: cap[m.name]=('ERR',str(ex))
+            th=[threading.Thread(target=_rec,args=(m,)) for m in loops[:2]]
+            for t in th: t.start()
         except Exception as e:
-            print('  no MIDI hold (',e,') — voices may be null'); mo=None
+            print('  (no loopback capture:',e,')'); th=[]
+        # hold a note via vaz_auto's SHARED MidiOut (the exact route the working render harnesses use)
+        try:
+            from vaz_auto import shared_midiout
+            mo=shared_midiout('loop'); mo.send_message([0x90,48+vaz.note_transpose,110]); time.sleep(0.4)
+            print(f'  holding note {48+vaz.note_transpose} via shared MidiOut...')
+        except Exception as e:
+            print('  no MIDI hold (',e,')'); mo=None
         # committed private RW regions
         regions=[]; a=0x10000
         while a<0xFFFF0000:
@@ -67,33 +81,40 @@ def main():
                 a1=np.frombuffer(d1[:n],dtype='<u4'); a2=np.frombuffer(d2[:n],dtype='<u4')
                 for w in np.nonzero(a1!=a2)[0]: changed.add(b+int(w)*4)
         print(f'  {len(regions)} heap regions, {len(changed)} words moving while the note sounds')
-        # voice-array candidates whose voices have MOVING phase fields
-        eng=[]
-        for b,s in regions:
-            data=snapB[b]
-            if len(data)<200: continue
-            arr=np.frombuffer(data[:len(data)//4*4],dtype='<u4')
-            plaus=(arr>0x100000)&(arr<0xFFFF0000)&((arr&3)==0)
-            cs=np.concatenate(([0],np.cumsum(plaus.astype(np.int32))))
-            for j in range(0,len(arr)-6):
-                if cs[j+6]-cs[j]==6:
-                    objva=b+j*4-VOFF
-                    if objva<0: continue
-                    vs=[int(x) for x in arr[j:j+32]]
-                    act=sum(1 for p in vs for off in (0x7c,0x80,0xbc) if (p+off) in changed)
-                    if act>=3: eng.append((objva,act,vs))
-        seen=set(); eng=[e for e in eng if not (e[0] in seen or seen.add(e[0]))]; eng.sort(key=lambda e:-e[1])
-        print(f'  {len(eng)} engine candidate(s) with MOVING voice phase fields:')
-        for objva,act,vs in eng[:4]:
-            vtp=struct.unpack('<I',rd(h,objva,4))[0]
-            lfop=struct.unpack('<I',rd(h,vs[0]+0x28,4))[0]
-            print(f'   engine @0x{objva:X}  vtRVA 0x{vtp-base:X}{" ==TBaseMidSynth" if vtp==vmt else ""}  {act} moving fields  voice[0]=0x{vs[0]:X}  v0+0x28=0x{lfop:X}')
-            if 0x100000<lfop<0xFFFF0000:
-                lf=rd(h,lfop,0x40)
-                if len(lf)>=0x40:
-                    print('      LFO obj [0..0x40): '+' '.join(f'{struct.unpack("<i",lf[k:k+4])[0]}' for k in range(0,0x40,4)))
-        if not eng: print('   none — note may not be reaching VAZ (check loopMIDI + VAZ MIDI-in), or voice offsets differ.')
-        if mo: mo.send_message([0x80,60,0]); mo.close_port()
+        # release note + CONFIRM the voice actually sounded (loopback peak)
+        if mo: mo.send_message([0x80,48+vaz.note_transpose,0])
+        for t in th: t.join()
+        for nm,bfr in cap.items():
+            if isinstance(bfr,tuple): print(f'  audio {nm[:30]}: {bfr[1]}')
+            else:
+                pk=20*np.log10(max(float(np.max(np.abs(bfr))),1e-9))
+                print(f'  audio {nm[:30]}: peak {pk:.1f} dB  {"<-- SOUNDING" if pk>-40 else "(SILENT -> note not reaching VAZ audio engine)"}')
+        # cluster the MOVING words into contiguous objects -> the active-voice DSP state is the densest cluster
+        def region_of(a):
+            for b,s in regions:
+                if b<=a<b+s: return b
+            return None
+        ch=sorted(changed); clusters=[]
+        if ch:
+            st=pv=ch[0]; cnt=1
+            for a in ch[1:]:
+                if a-pv>0x100: clusters.append((st,pv,cnt)); st=a; cnt=0
+                pv=a; cnt+=1
+            clusters.append((st,pv,cnt))
+        clusters.sort(key=lambda c:-c[2])
+        print(f'  {len(clusters)} moving-memory clusters; densest (= active voice/engine DSP state):')
+        for st,en,cnt in clusters[:8]:
+            print(f'   0x{st:X}..0x{en:X}  span 0x{en-st:X}  {cnt} words')
+        if clusters:
+            st,en,_=clusters[0]; ob=st&~0xF
+            print(f'  densest @0x{ob:X}: changing words (offset: A->B, delta) — phase acc = big const delta, LFO = small:')
+            shown=0
+            for a in ch:
+                if st<=a<=en and shown<16:
+                    reg=region_of(a)
+                    if reg is None: continue
+                    va=struct.unpack('<i',snapA[reg][a-reg:a-reg+4])[0]; vb=struct.unpack('<i',snapB[reg][a-reg:a-reg+4])[0]
+                    print(f'     +0x{a-ob:X}: {va} -> {vb}  d={vb-va}'); shown+=1
         k32.CloseHandle(h)
     finally:
         vaz.close()
