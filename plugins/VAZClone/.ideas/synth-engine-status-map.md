@@ -260,6 +260,15 @@ A/B caveat). Good for table dumps and coarse spectral A/B, **not** for a bit-nul
    > not a guaranteed route). **Next-session step 1 = make the note audibly sound** (capture audio to confirm, or drive
    > VAZ's on-screen keyboard via computer-use) BEFORE trusting change-detection; then the single moving-voice object is
    > the engine and its true `+0x28`/phase offsets can be read off the live struct. Method proven; input path is the gap.
+   > **Turnkey next-session recipe (route now known):** (1) PRECONDITION — VAZ Options→Preferences must have **MIDI In =
+   > loopMIDI** + Audio Out = speaker (a one-time manual config the render harnesses already rely on; verify it's saved).
+   > (2) Reuse `tools/vaz_auto`'s **shared** MidiOut (not a fresh handle) and its `note_transpose=12`; hold note `48+12`.
+   > (3) Add a soundcard **loopback capture** (the `clone_diag.py` pattern: `sc.all_microphones(include_loopback=True)`)
+   > and assert peak > −40 dB — this CONFIRMS the voice is sounding before the heap diff. (4) With audio confirmed, the
+   > change-detection will show ~5000+ moving words (output ring + voice phase); the one object whose 32-ptr array
+   > points at moving voices is the engine. (5) Read the live voice struct to VERIFY `+0x28`(LFO)/`+0x7c`(phase) offsets
+   > against the decompile before trusting them. Everything above the audio-confirm is built + committed in
+   > `dump_engine_vmt.py`; only the confirmed-audio route + offset verification remain.
 
 1. **Mod-LFO RATE — ✅ CLOSED (2026-07-10).** Traced past the mis-cited `FUN_004a073c` (which is the *tempo/sequencer
    clock*, not the LFO) to the real rate setter `FUN_004dead8` → `+0xe8 = DAT_006dc4c0[sel]`. That table is **byte-identical
