@@ -286,15 +286,42 @@ DC-blocker). Render + mask + bias + rate remain bit-exact.
 ### FX still pending (out of the 7 for this request)
 | Effect | Core.dll | Clone | Status |
 |---|---|---|---|
-| Equalizer | `TFXEqualizer@0x51E0C0` (4 RBJ biquads) | VAZEqualizer | not audited (separate from the 7; TFXComp @0x519E9C also un-audited) |
+| Equalizer | `TFXEqualizer@0x51E0C0` (4 RBJ biquads) | VAZEqualizer | **VERIFICERET topology+defaults** (2026-07-13, see §12); coefs generic RBJ, 0x51E0C0 transcription scoped |
 
 ---
 
 ## 11. PRIORITISED FX DEVIATIONS (all 7 audited — audibility × frequency)
 
 **Every VAZ FX core is INTEGER fixed-point (Q-format); every clone is float.** Where topology+constants are
-verified and float is a deliberate choice → *TILNÆRMET-BEVIDST* (Autopan pan-law, Flanger/Phaser topology); a
-later fixed-point port to bit-exactness is a separate prioritisation decision, not done here.
+verified and float is a deliberate choice → *TILNÆRMET-BEVIDST* (Flanger topology; Phaser/Reverb/Chorus/
+Decimator/Delay are now bit-exact fixed-point ports); a later fixed-point port to bit-exactness is a separate
+prioritisation decision, not done here. **NB (2026-07-13):** "Autopan pan-law" was previously listed here as a
+deliberate-float choice — that was WRONG (the oracle mis-read it as *linear*). It is EQUAL-POWER **sqrt** and is
+now fixed + bit-exact (§12). See the full re-audit in §12.
+
+---
+
+## 12. SYSTEMATIC 8-EFFECT RE-AUDIT (2026-07-13) — Track A (DSP) + Track B (GUI binding)
+
+Two tracks per effect. Track A re-ran the oracle for the 5 tagged bit-exact, gave Flanger/EQ their first proper
+transcription pass, and disassembled Autopan from Core.dll. Track B ran `fx_gui_binding_audit.test.js` over all 8.
+
+| Effect | Track A — DSP | Track B — GUI |
+|---|---|---|
+| Phaser | ✅ **BIT-EXACT** re-confirmed (`fx_phaser_render` + `param_sweep` maxd=0) | ✅ PASS |
+| Delay | ✅ **BIT-EXACT** re-confirmed (`fx_delay_render`) | ✅ PASS |
+| Reverb | ✅ **BIT-EXACT** re-confirmed (`fx_reverb_render` + `coef_exact`) | ✅ PASS |
+| Decimator | ✅ **BIT-EXACT** re-confirmed (`fx_decimator_render`) | ✅ PASS |
+| Chorus | ✅ **BIT-EXACT** re-confirmed (`fx_chorus_render` + `basedelay`) | ✅ PASS |
+| **Autopan** | 🔴→✅ **FIXED**: pan-law was wrongly LINEAR. Disassembled ctor @0x517AE4 (`disasm_autopan.py`) → **EQUAL-POWER sqrt**: `table[i]=sqrt(i/255)·sqrt(0.5)·(2^31-1)` (two `fsqrt` @0x517B28/34). Clone → `gL=sqrt(.5(1-pan)) gR=sqrt(.5 pan)`; oracle rewritten, now **BIT-EXACT**. Commit `ff676b5`. | ✅ PASS |
+| Flanger | ⚠ mappings **BIT-EXACT** (`fx_flanger_delaytime/feedback/sync`); render is a structurally-correct **FLOAT reimpl** of fixed-point `FUN_004c3ad0`, which is virtually-dispatched (`call [vtable+0x40]`) and outside the FX dump → bit-exact port scoped (vtable-chase). Commit `d040766`. | ✅ PASS |
+| EQ | ⚠ **VERIFICERET** topology+defaults vs VAZ manual/GUI (`TFXEqualizer@0x51E0C0`, 4 bands, High/Low morph shelf↔filter, mids peaking, 125/1k/3.97k/10.2k ±18dB); coefs are generic JUCE RBJ (not transcribed from 0x51E0C0), morph threshold qN=0.8 unverified → bit-exact port scoped. | ✅ PASS |
+
+**Track B result (all 8):** `fx_gui_binding_audit.test.js` — bindings==params, 0 uncovered, 0 dead bindings,
+0 cross-wiring, 0 duplicate control elements, no conditional-visibility logic. The Rate-fader / Osc2-detune GUI
+bug class is structurally **absent** from the (simpler) effect panels. Commit `ed905f6`.
+**Tools added:** `tools/disasm_autopan.py`, `tools/disasm_fn.py` (capstone Core.dll disassembly).
+**Scoped follow-ups (fixed-point ports, not bugs):** Flanger render `[vtable+0x40]`; EQ coef-builder `0x51E0C0`.
 
 **HØJESTE (wrong engine / audible on ~every preset):**
 1. ✅ **FIXED — Reverb** — `VazReverbEngine`: exact 9-comb + weighted-sum pseudo-stereo + global-damping Schroeder
