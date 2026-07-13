@@ -96,9 +96,12 @@ void VAZAutopanAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         const double lfo01 = sine ? (0.5 - 0.5 * std::cos (twoPi * lfoPhase))
                                   : (1.0 - std::abs (2.0 * lfoPhase - 1.0));
         const double pan01 = juce::jlimit (0.0, 1.0, leftP + lfo01 * (rightP - leftP));
-        // VAZ pan-law is LINEAR, not equal-power: pan-table[i]=(i/255)·2^30 (autopan ctor FUN_00517ae4 @0x517b1c,
-        // t·0.5·(2^31-1), NO cos/sin), render gainR=table[idx], gainL=table[255−idx] → gainR=pan, gainL=1−pan.
-        const double gL = 1.0 - pan01, gR = pan01;
+        // VAZ pan-law is EQUAL-POWER (sqrt), NOT linear. Pan-table ctor @0x517AE4 builds
+        // table[i]=sqrt(i/255)·sqrt(K1)·K2 with K1=0.5, K2=2^31-1 (TWO fsqrt @0x517B28/0x517B34, disassembled
+        // from Core.dll — tools/disasm_autopan.py). Normalized gain = table[i]/(2^31-1) = sqrt(0.5·(i/255)).
+        // Render mirrors it: gR=table[idx], gL=table[255-idx] (standard equal-power pan). center=0.5/0.5 (power .5),
+        // full=0.707/0 (power .5) — constant power. (Was wrongly "corrected" to linear on a mis-read oracle claim.)
+        const double gL = std::sqrt (0.5 * (1.0 - pan01)), gR = std::sqrt (0.5 * pan01);
 
         const double inL = (double) L[i];
         const double inR = R != nullptr ? (double) R[i] : inL;
