@@ -268,14 +268,29 @@ All placeholder timing is isolated in `SeqTimingPLACEHOLDER` (3 functions: `step
 `swingDelaySeconds`, free-rate) — **only those change when the dump lands; the engine interface + the
 oracles are final.** Phase C = accurate engine + voice-integration + the GUI tab (§5).
 
-## ⏳ DEFERRED RUNTIME DUMPS — batch these THREE as ONE MIDI-route effort (NOT three separate attempts)
-All three need the identical setup: the running standalone **sounding** + `tools/dump_engine_vmt.py`
-reading live engine state (the confirmed-audio MIDI route from §3.0 "Run 3"). Do them in one session:
-1. **Sequencer step-tick timing** — `msTimebase` division table · `sbSwing` curve · `btFreeRunning`
-   free-rate law · Perf2 · exact step/pattern counts · Seq A/B value range. → fills the
-   ` AWAITING RUNTIME DUMP ` tags in `SequencerEngine.h` + `VazSeqTest` without touching their structure.
-2. **Mod-LFO waveform shapes** (§3.0 mod-LFO #8) — the LFO waveform tables / mode.
-3. **Osc3 footage → pitch** (#9) — the audio-rate LFO1 footage mapping.
-Get the MIDI route sounding **once**, then read all three off the live engine in the same pass —
-avoids three separate route-setup attempts. (This is the single remaining blocker across the synth
-core + the sequencer; everything statically recoverable is now mapped.)
+## ✅ RUNTIME-DUMP SESSION ATTEMPTED (2026-07-14) — outcome: route WORKS, but targets are STATIC → use disasm
+Time-boxed per request. **The live MIDI route is RELIABLE + reproducible** — `tools/dump_engine_vmt.py`
+(shared MidiOut, note 60) makes the note SOUND: **~14,086 heap words move**, per-voice DSP-state clusters
+(repeated 0xEFC spans) visible. The §3.0 Run-3 route blocker is genuinely solved.
+
+**BUT the live keystone is the WRONG TOOL for these three — this reframes the deferred work:**
+- They are **static tables/formulas, not runtime-varying state.** The timebase = musical divisions
+  (strings in Core.dll: **1/1, 1/2, 1/4, 1/4D(dotted), 2/3, 3/4, 5/6, triplets**); the swing curve,
+  free-run law, Seq A/B range, LFO waveform tables, and Osc3 footage are constants — not moving words.
+- The **sequencer isn't running under a note-on** (note-on → a synth VOICE, not the sequencer
+  transport), so its timing never appears in the live moving-state at all.
+➡ **Correct path = STATIC disassembly** (the technique that nailed the autopan sqrt-law, the LFO rate
+curve `0.02·e^0.036·sel`, the coef LUTs); the sequencer is partly in the decompiled subset
+(`vaz_big.c`:3600-3960). This is **incremental per-target RE, NOT a single blocked live-route session** —
+the plan's "one MIDI-route effort" is superseded.
+
+**Status of the three (reclassified: live-blocked → static-RE):**
+1. **Sequencer step-tick timing** — PARTIAL: division SET known (above); exact `msTimebase` index→value
+   ordering + swing curve + free-run law + Seq A/B range need a focused disasm of the sequencer clock
+   (partly `vaz_big.c`). `SeqTimingPLACEHOLDER` LEFT AS-IS — won't guess the ordering.
+2. **Mod-LFO waveform shapes** (§3.0 #8) — static tables; disasm the mod-LFO gen in the voice render.
+3. **Osc3 footage → pitch** (#9) — static formula; disasm the osc3 increment calc.
+
+**Do NOT retry the live route for these** (it works but yields nothing for static tables). Each is a
+bounded static-disasm task on its own; the live keystone stays available (documented, reproducible) for
+any genuinely-runtime state need later.
