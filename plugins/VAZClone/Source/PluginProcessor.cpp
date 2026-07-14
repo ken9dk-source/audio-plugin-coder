@@ -470,6 +470,99 @@ static V2PPatch parseV2P (const juce::uint8* d, int n, int prst)
     p.consumedEnd = c.pos;
     return p;
 }
+
+// Write-only MIRROR of parseV2P: emits p's fields back into the (template) bytes at the exact same
+// version-gated positions; discarded/skip fields advance and LEAVE the template bytes. buildV2P first
+// parseV2P()s the template (so any field without a param — e2moddest, sample refs, lin flags — keeps
+// its original bytes), overrides the params it can reverse, then calls this. Guarded by VazV2PRoundtrip.
+struct V2PWriter
+{
+    juce::uint8* d; int n; int pos;
+    int  pk32 (int off = 0) const { const int q = pos+off; return (q>=0 && q+4<=n) ? (d[q]|(d[q+1]<<8)|(d[q+2]<<16)|(d[q+3]<<24)) : 0; }
+    int  pk8  (int off = 0) const { const int q = pos+off; return (q>=0 && q<n) ? (int) d[q] : 0; }
+    void u32  (int x) { if (pos+4<=n) { d[pos]=(juce::uint8)x; d[pos+1]=(juce::uint8)(x>>8); d[pos+2]=(juce::uint8)(x>>16); d[pos+3]=(juce::uint8)(x>>24); } pos+=4; }
+    void byte (int x) { if (pos>=0 && pos<n) d[pos]=(juce::uint8)x; pos+=1; }
+    void s32  () { pos+=4; }                                    // discarded u32: leave template
+    void s8   () { pos+=1; }                                    // discarded byte: leave template
+    void modsrc (int ver, int x) { const int s = (ver<200 && x>7) ? x-1 : x; u32 (s); }   // reverse of parse's +1 remap
+    void mskip () { pos+=4; }                                   // discarded mod-source
+    void strsample() { pos+=2; pos += 4 + pk32(); }            // 2 bytes + u32 len + len (leave template)
+    void skipMsmp()  { if (pk8(0)=='M'&&pk8(1)=='S'&&pk8(2)=='m'&&pk8(3)=='p') pos += 8 + pk32(4); }
+};
+
+static void serializeV2P (const V2PPatch& p, juce::uint8* d, int n, int prst)
+{
+    const int v = p.ver;
+    V2PWriter c { d, n, prst + 12 };
+    if (v >= 0x67) c.byte (p.mono);
+    if (v >= 0x6d) c.s32();
+    if (v >= 0xc9) c.s8();
+    if (v >= 0xc9) c.s32();
+    c.u32 (p.lfo1rate);
+    if (v < 200) c.u32 ((p.lfo1wave == 4) ? 1 : 0); else c.u32 (p.lfo1wave);   // v<200: 2-value Saw/Pulse
+    c.u32 (p.lfo1shape); c.byte (p.lfo1trig);
+    if (v >= 0xc9) c.s8();
+    if (v >= 0xc9) c.s32();
+    c.u32 (p.lfo2rate);
+    if (v >= 200) { c.mskip(); c.s32(); }
+    c.byte (p.lfo2trig);
+    if (v >= 200) c.u32 (p.lfo2mode); else c.byte ((p.lfo2mode == 6) ? 1 : 0);  // v<200: S&H bool
+    c.u32 (p.lfo2delay); c.u32 (p.lfo3sel); c.byte (p.lfo3wav);
+    if (v < 0x6b) { const int lin=c.pk8(17); int a=p.e1a,dd=p.e1d,r=p.e1r;
+                    if (lin==0){a-=0x3f;dd-=0x94;r-=0x94;} else {dd-=0x55;r-=0x55;}
+                    c.u32(a); c.u32(dd); c.u32(p.e1s); c.u32(r); c.s8(); c.s8(); }
+    else          { c.u32(p.e1a); c.u32(p.e1d); c.u32(p.e1s); c.u32(p.e1r); c.s8(); }
+    c.byte (p.e1mode);
+    if (v >= 0x6b) c.s8();
+    if (v >= 0xca) c.s8();
+    if (v < 0x6c) { const int lin=c.pk8(17); int a=p.e2a,dd=p.e2d,r=p.e2r;
+                    if (lin==0){a-=0x3f;dd-=0x94;r-=0x94;} else {dd-=0x55;r-=0x55;}
+                    c.u32(a); c.u32(dd); c.u32(p.e2s); c.u32(r); c.s8(); c.s8(); }
+    else          { c.u32(p.e2a); c.u32(p.e2d); c.u32(p.e2s); c.u32(p.e2r); c.s8(); }
+    c.s8();
+    if (v >= 0x6c) c.byte (p.e2mode);
+    if (v >= 0xca) c.s8();
+    if (v >= 200) { c.modsrc(v, p.e2modsrc); c.u32(p.e2modamt); c.u32(p.e2moddest); }
+    c.modsrc(v, p.ma1in);
+    if (v >= 200) c.byte (p.ma1sq);
+    c.modsrc(v, p.ma1amsrc); c.u32(p.ma1amamt);
+    if (v >= 200) c.modsrc(v, p.ma2in);
+    if (v >= 200) c.modsrc(v, p.ma2amsrc);
+    c.u32(p.o1tune); c.u32(p.o1wave); c.u32(p.o1shape);
+    if (v >= 200) c.s8();
+    c.modsrc(v, p.o1fm1s); c.u32(p.o1fm1d);
+    c.modsrc(v, p.o1fm2s); c.u32(p.o1fm2d);
+    c.modsrc(v, p.o1pwms); c.u32(p.o1pwmd);
+    if (v < 0x69) c.strsample(); else { c.skipMsmp(); c.s8(); }
+    c.u32(p.o2tune); c.u32(p.o2wave); c.byte(p.o1sync); c.u32(p.o2shape);
+    c.modsrc(v, p.o2fm1s); c.u32(p.o2fm1d);
+    c.modsrc(v, p.o2fm2s); c.u32(p.o2fm2d);
+    c.modsrc(v, p.o2pwms); c.u32(p.o2pwmd);
+    if (v < 0x6a) c.strsample(); else { c.skipMsmp(); c.s8(); }
+    if (v >= 200) c.u32(p.mix1src);
+    c.u32(p.o1level); c.byte(p.mix1post);
+    if (v >= 200) c.u32(p.mix2src);
+    c.u32(p.o2level); c.byte(p.mix2post);
+    c.u32(p.mix3src); c.u32(p.noise); c.byte(p.mix3post);
+    c.u32(p.filterMode); c.s8(); c.u32(p.cutoff); c.u32(p.reso); c.u32(p.bandwidth);
+    if (v >= 200) c.u32(p.hpCut);
+    c.modsrc(v, p.fcut1s); c.u32(p.fcut1d);
+    c.modsrc(v, p.fcut2s); c.u32(p.fcut2d);
+    c.modsrc(v, p.fcut3s); c.u32(p.fcut3d);
+    c.modsrc(v, p.fresS);  c.u32(p.fresD);
+    c.modsrc(v, p.am1s);   c.u32(p.am1d);
+    c.modsrc(v, p.am2s);   c.u32(p.am2d);
+    if (v >= 200) { c.modsrc(v, p.am3s); c.u32(p.am3d); }
+    c.u32(p.overdrive);
+    if (v >= 0x65) c.mskip();
+    if (v >= 0x65) c.s32();
+    c.u32(p.voiceMode); c.s32(); c.s8();
+    c.u32(p.bendRange);
+    if (v >= 200) c.u32(p.uniVoices);
+    c.u32(p.uniDetune);
+    if (v >= 200) c.u32(p.polyDetune);
+    c.u32(p.portamento);
+}
 } // namespace
 
 #ifdef VAZ_HEADLESS
@@ -602,37 +695,70 @@ juce::MemoryBlock VAZCloneAudioProcessor::buildV2P()
     auto* d = (juce::uint8*) mb.getData();
     const int n = (int) mb.getSize();
     const int prst = findTag (d, n, "PRST", 0);
-    const int ms1  = findTag (d, n, "MSmp", 0);
-    const int ms2  = ms1 >= 0 ? findTag (d, n, "MSmp", ms1 + 4) : -1;
-    if (prst < 0 || ms2 < 0) return mb;
-    // These fixed write offsets are only correct for the v2.0 stream layout (ver 201/202). For the
-    // older version-gated layouts the offsets shift, so writing them would corrupt the patch — return
-    // the original bytes unchanged instead. (A full version-aware writer mirroring loadV2P is TODO.)
-    const int ver = d[prst+8] | (d[prst+9] << 8) | (d[prst+10] << 16) | (d[prst+11] << 24);
-    if (ver < 200) return mb;
-    const int PS = prst + 12, sec3 = ms2 + 8 + 548;
-    auto G   = [&](const char* id){ auto* p = apvts.getParameter (id); return p ? p->getValue() : 0.0f; };
-    auto W   = [&](int o, int v){ if (o >= 0 && o < n) d[o] = (juce::uint8) juce::jlimit (0, 255, v); };
-    auto W8  = [&](int o, float norm){ W (o, (int) std::lround (norm * 255.0f)); };
-    auto W16 = [&](int o, float norm){ const int v = (int) std::lround (norm * 425.0f); W (o, v & 0xff); W (o + 1, (v >> 8) & 0xff); };
-    auto GI  = [&](const char* id, int nch){ return (int) std::lround (G (id) * (nch - 1)); };
+    if (prst < 0 || prst + 12 > n) return mb;
 
-    W  (sec3+28, GI(ParameterIDs::filter_mode, 22));
-    W8 (sec3+33, G(ParameterIDs::cutoff));
-    W8 (sec3+37, G(ParameterIDs::resonance));
-    W8 (sec3+105, G(ParameterIDs::overdrive));
-    W8 (sec3+23, G(ParameterIDs::noise_level));
-    W8 (sec3+14, G(ParameterIDs::o2_level));
-    W  (sec3+117, GI(ParameterIDs::voice_mode, 3));
-    W8 (sec3+142, G(ParameterIDs::portamento));
-    W8 (sec3+134, G(ParameterIDs::uni_detune));
-    W16(PS+54, G(ParameterIDs::e1_attack));  W16(PS+58, G(ParameterIDs::e1_decay));
-    W8 (PS+62, G(ParameterIDs::e1_sustain)); W16(PS+66, G(ParameterIDs::e1_release));
-    W16(PS+74, G(ParameterIDs::e2_attack));  W16(PS+78, G(ParameterIDs::e2_decay));
-    W8 (PS+82, G(ParameterIDs::e2_sustain)); W16(PS+86, G(ParameterIDs::e2_release));
-    W8 (PS+10, G(ParameterIDs::lfo_rate));
-    W  (PS+131, GI(ParameterIDs::o1_wave, 5));
-    W8 (PS+135, G(ParameterIDs::o1_shape));
+    // Full version-aware writer: parse the template into a patch (so any field WITHOUT a matching
+    // param — e2moddest, sample refs, env lin flags — keeps its original bytes), override every param
+    // we can reverse, then serialise back with the exact same version-gated walk as the reader.
+    V2PPatch p = parseV2P (d, n, prst);
+    const int v = p.ver;
+    auto G    = [&](const char* id){ auto* q = apvts.getParameter (id); return q ? q->getValue() : 0.0f; };
+    auto R255 = [&](const char* id){ return (int) std::lround (G(id) * 255.0f); };
+    auto R425 = [&](const char* id){ return (int) std::lround (G(id) * 425.0f); };
+    auto RN   = [&](const char* id, int nch){ return (int) std::lround (G(id) * (nch - 1)); };
+    auto RC   = [&](const char* id){ return (int) std::lround (G(id) * 21.0f); };          // choice → mod-source index
+    auto RB   = [&](const char* id){ return G(id) > 0.5f ? 1 : 0; };
+    auto RD   = [&](const char* amtId, const char* invId){ const int m = (int) std::lround (G(amtId) * 255.0f); return G(invId) > 0.5f ? -m : m; };
+    auto RT   = [&](const char* oct, const char* coarse, const char* fine){
+        const int octSteps = (int) std::lround (G(oct) * 4.0f) - 2;
+        const int semis     = (int) std::lround ((G(coarse) - 0.5f) * 24.0f);
+        const int cents     = (int) std::lround ((G(fine)   - 0.5f) * 200.0f);
+        return octSteps * 1200 + semis * 100 + cents - 2400; };
+
+    p.filterMode = RN(ParameterIDs::filter_mode, 22);
+    p.cutoff = R255(ParameterIDs::cutoff);   p.reso = R255(ParameterIDs::resonance);   p.bandwidth = R255(ParameterIDs::flt_aux);
+    p.hpCut = R255(ParameterIDs::hp_cutoff); p.overdrive = R255(ParameterIDs::overdrive);
+    p.noise = R255(ParameterIDs::noise_level); p.o1level = R255(ParameterIDs::o1_level); p.o2level = R255(ParameterIDs::o2_level);
+    p.mix1post = RB(ParameterIDs::mix1_post); p.mix2post = RB(ParameterIDs::mix2_post); p.mix3post = RB(ParameterIDs::mix3_post);
+    p.mix1src = RN(ParameterIDs::mix1_src, 6); p.mix2src = RN(ParameterIDs::mix2_src, 6); p.mix3src = RN(ParameterIDs::mix3_src, 6);
+    p.voiceMode = RN(ParameterIDs::voice_mode, 3); p.portamento = R255(ParameterIDs::portamento);
+    p.uniDetune = R255(ParameterIDs::uni_detune); p.polyDetune = R255(ParameterIDs::poly_detune);
+    p.bendRange = RN(ParameterIDs::bend_range, 24) + 1;
+    if (v >= 200) p.uniVoices = RN(ParameterIDs::uni_voices, 32) + 1;
+    p.e1a = R425(ParameterIDs::e1_attack); p.e1d = R425(ParameterIDs::e1_decay); p.e1s = R255(ParameterIDs::e1_sustain); p.e1r = R425(ParameterIDs::e1_release);
+    p.e2a = R425(ParameterIDs::e2_attack); p.e2d = R425(ParameterIDs::e2_decay); p.e2s = R255(ParameterIDs::e2_sustain); p.e2r = R425(ParameterIDs::e2_release);
+    p.lfo1rate = R255(ParameterIDs::lfo_rate); p.lfo2rate = R255(ParameterIDs::lfo2_rate);
+    p.lfo1wave = RN(ParameterIDs::lfo_wave, 8); p.lfo1shape = R255(ParameterIDs::lfo_shape); p.lfo1trig = RB(ParameterIDs::lfo_trig);
+    p.lfo2mode = RN(ParameterIDs::lfo2_wave, 8); p.lfo2trig = RB(ParameterIDs::lfo2_trig); p.lfo2delay = R255(ParameterIDs::lfo2_delay);
+    p.lfo3sel = R255(ParameterIDs::lfo3_rate); p.lfo3wav = RB(ParameterIDs::lfo3_wave);
+    p.o1wave = RN(ParameterIDs::o1_wave, 5); p.o1shape = R255(ParameterIDs::o1_shape);
+    p.o2wave = RN(ParameterIDs::o2_wave, 5); p.o2shape = R255(ParameterIDs::o2_shape); p.o1sync = RB(ParameterIDs::osc2_sync);
+    p.o1tune = RT(ParameterIDs::o1_octave, ParameterIDs::o1_coarse, ParameterIDs::o1_fine);
+    p.o2tune = RT(ParameterIDs::o2_octave, ParameterIDs::o2_coarse, ParameterIDs::o2_fine);
+    p.fcut1s = RC(ParameterIDs::cut_mod1_src); p.fcut1d = RD(ParameterIDs::filt_env_amt, ParameterIDs::filt_env_amt_inv);
+    p.fcut2s = RC(ParameterIDs::cut_mod2_src); p.fcut2d = RD(ParameterIDs::lfo_amt,      ParameterIDs::lfo_amt_inv);
+    p.fcut3s = RC(ParameterIDs::cut_mod3_src); p.fcut3d = RD(ParameterIDs::cut_mod3_amt, ParameterIDs::cut_mod3_amt_inv);
+    p.fresS  = RC(ParameterIDs::res_mod_src);  p.fresD  = RD(ParameterIDs::res_mod_amt,  ParameterIDs::res_mod_amt_inv);
+    p.am1s = RC(ParameterIDs::amp_mod_src);  p.am1d = RD(ParameterIDs::amp_mod_amt,  ParameterIDs::amp_mod_amt_inv);
+    p.am2s = RC(ParameterIDs::amp_mod2_src); p.am2d = RD(ParameterIDs::amp_mod2_amt, ParameterIDs::amp_mod2_amt_inv);
+    p.am3s = RC(ParameterIDs::pan_mod_src);  p.am3d = RD(ParameterIDs::pan_mod_amt,  ParameterIDs::pan_mod_amt_inv);
+    p.o1fm1s = RC(ParameterIDs::o1_fm_src);  p.o1fm1d = RD(ParameterIDs::o1_fm_amt,  ParameterIDs::o1_fm_amt_inv);
+    p.o1fm2s = RC(ParameterIDs::o1_fm2_src); p.o1fm2d = RD(ParameterIDs::o1_fm2_amt, ParameterIDs::o1_fm2_amt_inv);
+    p.o1pwms = RC(ParameterIDs::o1_ws_src);  p.o1pwmd = RD(ParameterIDs::o1_ws_amt,  ParameterIDs::o1_ws_amt_inv);
+    p.o2fm1s = RC(ParameterIDs::o2_fm_src);  p.o2fm1d = RD(ParameterIDs::o2_fm_amt,  ParameterIDs::o2_fm_amt_inv);
+    p.o2fm2s = RC(ParameterIDs::o2_fm2_src); p.o2fm2d = RD(ParameterIDs::o2_fm2_amt, ParameterIDs::o2_fm2_amt_inv);
+    p.o2pwms = RC(ParameterIDs::o2_ws_src);  p.o2pwmd = RD(ParameterIDs::o2_ws_amt,  ParameterIDs::o2_ws_amt_inv);
+    p.ma1in = RC(ParameterIDs::ma1_in_src); p.ma1amsrc = RC(ParameterIDs::ma1_am_src); p.ma1amamt = RD(ParameterIDs::ma1_am_amt, ParameterIDs::ma1_am_amt_inv); p.ma1sq = RB(ParameterIDs::ma1_sq);
+    p.ma2in = RC(ParameterIDs::ma2_in_src); p.ma2amsrc = RC(ParameterIDs::ma2_am_src);
+    p.e2modsrc = RC(ParameterIDs::e2_mod_src); p.e2modamt = RD(ParameterIDs::e2_mod_amt, ParameterIDs::e2_mod_amt_inv);
+    // Env mode bitfields (Multi=bit0 Reset=bit1 Cycle=bit2 Curve=bit3); preserve any high bits from the template.
+    p.e1mode = (p.e1mode & ~0xf) | RB(ParameterIDs::e1_multi) | (RB(ParameterIDs::e1_reset) << 1) | (RB(ParameterIDs::e1_cycle) << 2) | (RB(ParameterIDs::e1_curve) << 3);
+    p.e2mode = (p.e2mode & ~0xf) | RB(ParameterIDs::e2_multi) | (RB(ParameterIDs::e2_reset) << 1) | (RB(ParameterIDs::e2_cycle) << 2) | (RB(ParameterIDs::e2_curve) << 3);
+    p.mono   = RB(ParameterIDs::lfo_sync);   // the preset_enable byte is reused as LFO key-sync (loadV2P line ~592)
+    // NOT reversed (kept from template): p.e2moddest (lossy Env2-dest bitfield → single e2_dest, 8→4 values),
+    // sample references, env lin flags.
+
+    serializeV2P (p, d, n, prst);
     return mb;
 }
 
