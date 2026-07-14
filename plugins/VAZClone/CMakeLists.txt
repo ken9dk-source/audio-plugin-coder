@@ -205,6 +205,21 @@ target_link_libraries(VazV2PRoundtrip PRIVATE
     juce::juce_recommended_config_flags)
 
 # ============================================
+# SEQUENCER Phase-B ORACLES — VazSeqTest
+# 3 headless oracles (note-stream, state round-trip, ModBus) against SequencerEngine.h. Timing/range
+# assertions tagged AWAITING RUNTIME DUMP are placeholders to fill after the TSequencer clock dump.
+# ============================================
+juce_add_console_app(VazSeqTest PRODUCT_NAME "VazSeqTest")
+target_sources(VazSeqTest PRIVATE Source/seq_test_main.cpp)
+target_include_directories(VazSeqTest PRIVATE Source)
+target_compile_definitions(VazSeqTest PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 _USE_MATH_DEFINES=1)
+target_link_libraries(VazSeqTest PRIVATE
+    juce::juce_core
+    juce::juce_data_structures
+    juce::juce_events
+    juce::juce_recommended_config_flags)
+
+# ============================================
 # DECOMPILED REFERENCE-ORACLE — VazOracle  (DEL 2)
 # Diffs the clone's DSP primitives (VAZEnv, cutoff smoother, detune) against reference impls
 # transcribed from the Ghidra decomp + raw constants (reference/vaz_constants.h). Prints a status

@@ -251,3 +251,31 @@ patterns, a 34-slot song chain, + global timing — fits the §5.4 ValueTree pla
 per-step **Seq A/B are exactly the two ModBus lanes** (§3B). The only additions vs the §5 sketch:
 a per-step **Transpose** and a **Double** flag + a global **Accent Level**; fold these into the
 step-cell UI and the ModBus (Accent Level scales the Accent bit). Nothing changes the §5 architecture.
+
+---
+
+# 7. PHASE-B — TEST STRUCTURE BUILT (2026-07-14, no engine DSP yet)
+
+`Source/SequencerEngine.h` (data model + interface + **PLACEHOLDER** timing) + `VazSeqTest`
+(`Source/seq_test_main.cpp`, CMake target) — **3 oracles, all green:**
+- **note-stream** — asserts note ORDER / Rest-skips / Accent-velocity now; Slide-legato + exact
+  sample-positions tagged ` AWAITING RUNTIME DUMP `.
+- **state round-trip** — `SeqState → ValueTree → SeqState` identity over patterns/steps/song/timing;
+  fully functional (feeds the §5.4 ValueTree persistence).
+- **ModBus** — Seq A/B → 0..1 normalise, Accent → level; value RANGE tagged ` AWAITING RUNTIME DUMP `.
+
+All placeholder timing is isolated in `SeqTimingPLACEHOLDER` (3 functions: `stepSeconds`,
+`swingDelaySeconds`, free-rate) — **only those change when the dump lands; the engine interface + the
+oracles are final.** Phase C = accurate engine + voice-integration + the GUI tab (§5).
+
+## ⏳ DEFERRED RUNTIME DUMPS — batch these THREE as ONE MIDI-route effort (NOT three separate attempts)
+All three need the identical setup: the running standalone **sounding** + `tools/dump_engine_vmt.py`
+reading live engine state (the confirmed-audio MIDI route from §3.0 "Run 3"). Do them in one session:
+1. **Sequencer step-tick timing** — `msTimebase` division table · `sbSwing` curve · `btFreeRunning`
+   free-rate law · Perf2 · exact step/pattern counts · Seq A/B value range. → fills the
+   ` AWAITING RUNTIME DUMP ` tags in `SequencerEngine.h` + `VazSeqTest` without touching their structure.
+2. **Mod-LFO waveform shapes** (§3.0 mod-LFO #8) — the LFO waveform tables / mode.
+3. **Osc3 footage → pitch** (#9) — the audio-rate LFO1 footage mapping.
+Get the MIDI route sounding **once**, then read all three off the live engine in the same pass —
+avoids three separate route-setup attempts. (This is the single remaining blocker across the synth
+core + the sequencer; everything statically recoverable is now mapped.)
