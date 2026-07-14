@@ -179,6 +179,32 @@ target_link_libraries(VazV2PAudit PRIVATE
     juce::juce_recommended_config_flags)
 
 # ============================================
+# .v2p ROUND-TRIP ORACLE — VazV2PRoundtrip
+# load -> EDIT every param -> buildV2P (save) -> reload -> assert every param survived. Exposes
+# writer gaps (buildV2P currently serialises ~26 of ~63 loaded fields).
+# ============================================
+juce_add_console_app(VazV2PRoundtrip PRODUCT_NAME "VazV2PRoundtrip")
+target_sources(VazV2PRoundtrip PRIVATE Source/v2p_roundtrip_main.cpp Source/PluginProcessor.cpp)
+target_include_directories(VazV2PRoundtrip PRIVATE Source)
+target_compile_definitions(VazV2PRoundtrip PRIVATE
+    VAZ_HEADLESS=1
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_MODAL_LOOPS_PERMITTED=0
+    _USE_MATH_DEFINES=1)
+target_link_libraries(VazV2PRoundtrip PRIVATE
+    juce::juce_audio_basics
+    juce::juce_audio_formats
+    juce::juce_audio_processors
+    juce::juce_core
+    juce::juce_data_structures
+    juce::juce_dsp
+    juce::juce_events
+    juce::juce_graphics
+    juce::juce_gui_basics
+    juce::juce_recommended_config_flags)
+
+# ============================================
 # DECOMPILED REFERENCE-ORACLE — VazOracle  (DEL 2)
 # Diffs the clone's DSP primitives (VAZEnv, cutoff smoother, detune) against reference impls
 # transcribed from the Ghidra decomp + raw constants (reference/vaz_constants.h). Prints a status
