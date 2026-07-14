@@ -293,10 +293,20 @@ the plan's "one MIDI-route effort" is superseded.
    To Tempo"), **Seq B→Gate** ("Control 2 To Gate"), both mod-matrix sources. `SequencerEngine.h` modSeqA/B
    + `VazSeqTest` updated to CONFIRMED.
    **❌ STILL open — timebase index→value, swing curve, free-run law:** there is **NO `Timebase`/`Swing`/
-   `FreeRun` key anywhere in the serializer** → their timing math is in the sequencer **real-time CLOCK**, a
-   SEPARATE function (app-shell or un-decompiled Core.dll), NOT `vaz_big.c`:3600-4060. `SeqTimingPLACEHOLDER`
-   LEFT AS-IS (not guessed). **Next disasm target: locate the sequencer clock** (candidate near the settings
-   code; the `msTimebase`/`sbSwing` handlers write a field the clock reads).
+   `FreeRun` key anywhere in the serializer** → their timing math is in the sequencer **real-time CLOCK**.
+   **CLOCK FOUND + interval math decoded (2026-07-14, `tools/find_seq_clock.py`):** `msTimebaseChange`
+   @0x4e86b4 → `FUN_004d391c` writes the timebase to **`seq+0x23f0`**; the step-advance is at **0x4CFC10+**
+   (0x4CE-0x4D0 cluster). Decoded:
+   - **`interval_samples = timebase[+0x23f0] × (512 + [+0x23f4]) / 512`** — integer fixed-point, 9-bit
+     fraction (`[+0x26ac]` int + `[+0x26bc]` frac); gate duration = `interval × gate / 512`.
+   - **`Double` flag → `timebase×2`** (step lasts 2×). **Gate = Gate Time(+0x259) OR Seq B(+0x55)** if
+     "Control 2 To Gate" → confirms **Seq B→Gate**; **Seq A→Tempo** (Control 1, via `FUN_004a073c`).
+   **STILL one layer deeper (NOT guessed — `SeqTimingPLACEHOLDER` LEFT AS-IS):** `[+0x23f0]` is a
+   *precomputed* samples-per-step — the `BPM×division→samples` (the timebase index→value) is INSIDE the
+   custom `msTimebase` control (`[control+0x1c0]`), not a static table; `[+0x23f4]` (swing) extends EVERY
+   step (may be a tempo fine-tune, not alternating swing) and its `sbSwing` source isn't traced; the
+   free-run branch isn't reached. **Next: trace the msTimebase control's samples-per-step compute + the
+   sbSwing/btFreeRunning field writes** (the exact division/swing/free-run constants live there).
 2. **Mod-LFO waveform shapes** (§3.0 #8) — static tables; disasm the mod-LFO gen in the voice render.
 3. **Osc3 footage → pitch** (#9) — static formula; disasm the osc3 increment calc.
 
