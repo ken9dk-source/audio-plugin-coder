@@ -305,8 +305,22 @@ the plan's "one MIDI-route effort" is superseded.
    *precomputed* samples-per-step — the `BPM×division→samples` (the timebase index→value) is INSIDE the
    custom `msTimebase` control (`[control+0x1c0]`), not a static table; `[+0x23f4]` (swing) extends EVERY
    step (may be a tempo fine-tune, not alternating swing) and its `sbSwing` source isn't traced; the
-   free-run branch isn't reached. **Next: trace the msTimebase control's samples-per-step compute + the
-   sbSwing/btFreeRunning field writes** (the exact division/swing/free-run constants live there).
+   free-run branch isn't reached.
+   **Deeper trace (2026-07-14, round 2):** swing field = `seq+0x23f4` (getter 0x4D3924, setter 0x4D392C);
+   the swing gate `[+0x2674]` is a STATIC mode flag (`mov [eax+0x2674],cl` @0x4CFB74 — not per-step). **KEY:
+   the clock precomputes TWO interval slots — SWUNG `[+0x26ac]` and STRAIGHT `[+0x26a8]` — the signature of
+   CLASSIC ALTERNATING swing** (swung/straight applied to odd/even steps), so the earlier "global tempo
+   fine-tune" suspicion is likely WRONG → it's classic swing. Free-run: the `[+0x23e4]` flag → `[+0x2660] =
+   0x40000000` (2^30).
+   **⛔ BOUNDARY — STOP (two more layers, can't reach cleanly without a runtime dump):** (1) the division
+   index→samples is computed INSIDE the custom `msTimebase` control (`[control+0x1c0]`) — needs the control's
+   class internals + runtime tempo; (2) the odd/even APPLICATION of the swung/straight slots (confirming
+   alternation + the exact `sbSwing→[+0x23f4]` amount) is in the AUDIO CALLBACK, a further function; (3) the
+   free-run rate from `[+0x2660]=2^30` needs the free-run consumer. **The interval FORMULA + swing TYPE are
+   decoded; the 3 exact constant sets are one layer past static reach.** `SeqTimingPLACEHOLDER` LEFT AS-IS —
+   filling would guess values behind the custom control / audio callback. To finish: a runtime dump reading
+   `[+0x23f0]`/`[+0x23f4]`/`[+0x26ac]`/`[+0x26a8]` live at known tempo+division+swing settings (needs the
+   sequencer RUNNING, not just a note-on — batch with the LFO #8 / Osc3 #9 dumps).
 2. **Mod-LFO waveform shapes** (§3.0 #8) — static tables; disasm the mod-LFO gen in the voice render.
 3. **Osc3 footage → pitch** (#9) — static formula; disasm the osc3 increment calc.
 

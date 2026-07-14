@@ -49,7 +49,7 @@ sec_text = next(s for s in pe.sections if s.Characteristics & 0x20000000)   # ME
 print(f'  (code section {sec_text.Name.rstrip(chr(0).encode()).decode(errors="replace")} @VA 0x{base+sec_text.VirtualAddress:X})')
 tbase = base + sec_text.VirtualAddress; tdata = sec_text.get_data()
 hits = {}
-for disp in range(0x23e0, 0x2414, 4):
+for disp in list(range(0x23e0, 0x2414, 4)) + [0x2668, 0x2674, 0x2660, 0x2658]:
     pat = struct.pack('<I', disp)
     for m in re.finditer(re.escape(pat), tdata):
         va = tbase + m.start()
@@ -62,7 +62,7 @@ import re as _re
 def rd_f32 (va):
     try: o = pe.get_offset_from_rva (va - base); return struct.unpack ('<f', data[o:o+4])[0]
     except Exception: return None
-def disasm_from (sva, n, label):
+def disasm_from (sva, n, label, full=False):
     print(f'\n===== {label} @0x{sva:X}..0x{sva+n:X} =====')
     o = pe.get_offset_from_rva (sva - base)
     for ins in md.disasm (data[o:o+n], sva):
@@ -74,8 +74,10 @@ def disasm_from (sva, n, label):
         if m[0] == 'f' and mm:
             cv = rd_f32 (int (mm.group(1), 16))
             if cv is not None and abs (cv) < 1e12: tag += f'  (const={cv:g})'
-        for d in ('0x23f0','0x23f4','0x23f8','0x23fc','0x2400'):
+        for d in ('0x23f0','0x23f4','0x23f8','0x23fc','0x2400','0x2668','0x2674','0x1c0'):
             if d in op: tag += f' <<{d}'
-        if tag: print(f'  0x{ins.address:X}: {m} {op}{tag}')
+        if full or tag: print(f'  0x{ins.address:X}: {m} {op}{tag}')
 
-disasm_from (0x4CFC10, 0x400, 'seq clock region (timebase reads 0x4CFDE4/0x4CFE72)')
+disasm_from (0x4CFD60, 0x24, '+0x2674 site A (0x4CFD6E)', full=True)
+disasm_from (0x4D0088, 0x2C, '+0x2674 site B (0x4D0096)', full=True)
+disasm_from (0x4CFB70, 0x18, '+0x2674 site C (0x4CFB78)', full=True)
