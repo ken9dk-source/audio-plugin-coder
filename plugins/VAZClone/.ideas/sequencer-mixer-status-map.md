@@ -44,42 +44,80 @@ biggest single missing subsystem, and it unlocks the **Seq A / Seq B** mod sourc
 
 ---
 
-## 2. MIXER — 3-channel oscillator mixer → filter
+## 2. OUTER MIXER LAYER — the standalone rack that HOSTS the synth  (CORRECTED SCOPE)
 
-### 2A. DSP / logic (Core.dll)
-| Item | Status | Evidence / next |
-|---|---|---|
-| Signal position | ✅ | Oscillators → **Mixer (3 ch)** → Filter → Amplifier (`VAZ_Synth_Gap_Analysis.md:9`) |
-| Per-channel structure | ✅ (spec) | each of 3 channels = 1-of-**6 sources** {Osc1, Osc2, Osc3, Ring Mod, Noise, Ext, ModAmp1/2} + a **Level** + a **Post** flag |
-| **Post** semantics | ✅ | Post = route that channel AFTER the filter (bypass) rather than into it |
-| Drive-into-filter | ✅ | summed level into the filter sets Type **K + R** drive character (Mixer.htm; clone already drives K+R — `VAZ_Clone_Audit.md:38`) |
-| **Ring Modulator** (Osc1×Osc2) | 🔶 | a mixer source; spec known, exact DSP location ❓ |
-| **Osc3** | 🔶 | = LFO1 at **audio rate** tracking the keyboard, footage 32'…2'; exact pitch/footage mapping ❓ |
+> **Scope correction (2026-07-14):** this is NOT the oscillator-mixer inside the synth voice
+> (Osc1/Osc2/Noise → filter). **That internal mixer is already covered** — `SynthVoice.h:54-56`
+> (`mix1/2/3Src`, `mix1/2/3Post`, `osc3*`), loaded from `.v2p`, Track-B GUI audit passed → treat it
+> as done, see §3A. THIS section is VAZ's **outer Mixer**: the titlebar 'Mixer' with 'Synth 1' /
+> 'Synth 2' … nested inside (a rack), possibly multi-timbral.
 
-### 2B. GUI / DFM
-- `lbMix` (panel label) · `sbMixDepth1..3` (the three channel Level sliders, from the
-  `dump-dfm.ps1` anchor set) · per-channel source dropdowns + Post buttons (RE the exact
-  `ms*/cb*` names next).
-- ⚠ NB: `msChannel1..16` strings are **MIDI-channel** selectors, **not** the audio mixer.
+### 2A. What it is (Core.dll strings)
+A full standalone **host/rack subsystem**, not part of the DSP core:
+- `MixerCore` · `MixerForm` · `MixerUnit` · `MixerStr` · `MixerMidiControlUnit` · `MixerMidiDlg`
+  · `MixerSourcePopup` / `MixerSourceItemClick` — a mixer of **MixerUnit** slots with MIDI-mapped
+  sources + per-source popups.
+- Per-synth-instance controls: `cbConfirmSynthClose` (a slot is closable), `gbSynthOptions`,
+  `gbSynthTuning`, `lbSynthClick` → **multiple, independently-closable synth instances**.
+- `PluginChainer` / `FXPluginChainer` / `FXPluginChainerForm` + `CoCreateInstance(Ex)` — it can
+  also **host external VST/COM plugins** in the chain.
+- `Send to Gate` / `Send to Tempo` — send-style routing between units.
 
-### 2C. Clone status: 🔶 **PARTIAL — scaffold already present**
-`SynthVoice.h:54-56` already declares `mix1Src/mix2Src/mix3Src`, `mix1Post/mix2Post/mix3Post`,
-and `osc3FootMul/osc3Wave/osc3Shape`; ParameterIDs + GUI dropdowns exist (`mix1_src` … , the
-`mix2_src`/`mix3_src` Track-B audit passed). **Remaining gaps:** verify the 6-source routing is
-fully wired, the Post (post-filter) path, Ring Mod, Osc3 audio-rate, and ModAmp-as-source.
-Much smaller than the sequencer — mostly finishing + verifying existing scaffolding.
+### 2B. Multi-instance vs one multi-timbral engine ❓ (needs RE)
+The `MixerUnit` + closable `Synth N` slots strongly imply **N parallel engines** (each a MixerUnit
+wrapping a `TBaseMidSynth`, keystone VMT @`coreBase+0xd4614`) — a rack, NOT one multi-timbral
+engine. **Not yet in code:** the `MixerCore` instantiation loop / per-unit engine array live in the
+app-shell, which is OUTSIDE the decompiled DSP subset (`tools/vaz_*.c` cover the engine, not the
+host). Confirming = RPM/VMT walk of the running standalone (count live `TBaseMidSynth` instances) —
+same harness as `dump_engine_vmt.py`.
+
+### 2C. VST vs standalone — the decisive integration fact ✅
+`CreateVAZ2010Standalone` + `TStandaloneTransport` are STANDALONE-only. The Mixer / PluginChainer /
+multi-synth rack is a **standalone HOST feature**. A VST instrument is single-timbral by contract,
+so VAZ's VST exposes **ONE** engine — the DAW's mixer replaces VAZ's outer Mixer. **Implication:**
+VAZClone is a VST → the outer Mixer is **out of scope / handled by the host DAW**; do NOT rebuild it
+inside the plugin. (A standalone multi-timbral rack, if ever wanted, is a host wrapper around N
+VAZClone instances — not an engine change.)
 
 ---
 
-## 3. WHEN IMPLEMENTATION STARTS (not now — mapping only)
-1. **Sequencer (large, from scratch):** RPM/VMT-dump `TSequencer` off the running synth (reuse
-   `tools/dump_engine_vmt.py` machinery) → transcribe the step-tick + Timebase/Swing/Free/Perf2
-   timing, per-step Accent/Slide/Rest, the 34-slot song chain, and the Seq A/B mod outputs. Then
-   design the GUI panel from the DFM control list above.
-2. **Mixer (finish scaffold):** confirm/complete the 6-source routing + Post + Ring Mod + Osc3
-   against the decompile; the clone's `SynthVoice.h` fields are already the skeleton.
-3. **DFM ranges:** run `tools/dump-dfm.ps1` anchored on the control names in §1B / §2B to pull
-   exact Min/Max/Position/Increment for both panels.
+## 3. INTEGRATION — how the three systems share data with the bit-exact engine
+
+### 3A. (internal) Mixer ↔ Synth — ALREADY bit-exact, for reference
+Per-voice render `FUN_004dbddc`: each osc/noise/ring/ext feeds its selected mixer channel; the
+summed channels drive the filter (level sets Type K/R drive), Post channels bypass to the amp. This
+is **pure routing + gain-staging**, already reproduced in `SynthVoice.h` (mix src/level/post,
+drive-into-K/R). No modulation lives in the mixer stage that isn't already modelled → building the
+outer rack would not touch this.
+
+### 3B. Sequencer ↔ Synth — slots into EXISTING paths, no restructure ✅
+Two clean hooks the engine ALREADY exposes — the sequencer needs no new engine path:
+- **Notes:** the sequencer drives the SAME note-on path as the keyboard/MIDI — `FUN_004db3a8`
+  (voice note-on) → `FUN_004db288` (voice setup), with `FUN_004a073c` the event dispatcher from the
+  LFO/tempo-clock work. A clone sequencer just emits note-on/off into `juce::Synthesiser` (same
+  voice trigger) on the tempo grid — no engine change.
+- **Seq A / Seq B / Accent as mod sources:** these are ordinary **mod-matrix source indices** (same
+  `ModBus` table as LFOs/envs), currently STUBS returning 0 (`VAZ_Clone_Audit.md:23`). The
+  sequencer emits an **Accent Level** + the two Seq lanes (`vaz_big.c:3940/3975` — "Sequencer" /
+  "Accent Level") the mod matrix already indexes → wiring them = fill 3 existing `ModBus::value`
+  cases with per-step outputs, NOT a new modulation path.
+
+**Net:** the Sequencer integrates through the two hooks the engine already has (voice note-on +
+mod-matrix source slots); the outer Mixer is a host concern the DAW covers. **Neither forces a
+restructure of the bit-exact core** — the point of mapping this before building.
+
+---
+
+## 4. WHEN IMPLEMENTATION STARTS (not now — mapping only)
+1. **Sequencer (large, from scratch):** RPM/VMT-dump `TSequencer` (reuse `dump_engine_vmt.py`) →
+   transcribe the step-tick + Timebase/Swing/Free/Perf2 timing, per-step Accent/Slide/Rest, the
+   34-slot song chain; emit notes via the voice note-on path (§3B) + fill the Seq A/B/Accent
+   `ModBus` cases. GUI from the §1B control list.
+2. **Outer Mixer:** SKIP inside the VST (host DAW covers it — §2C). Only for a future standalone
+   multi-instance rack, and then it's a host wrapper around N engines (confirm the instance model
+   by an RPM walk, §2B), not an engine change.
+3. **DFM ranges:** `tools/dump-dfm.ps1` anchored on the §1B control names (sequencer panel).
 
 **Sources:** `tools/VAZ_Clone_Audit.md`, `tools/VAZ_Synth_Gap_Analysis.md`, `tools/vaz_big.c`
-(§3762-3917), Core.dll DFM strings, `tools/dump-dfm.ps1`.
+(§3762-3917, §3940-3975), `tools/vaz_voice.c` / `vaz_decomp.c` (note-on + `FUN_004a073c`), Core.dll
+strings (`MixerCore`/`MixerUnit`/`CreateVAZ2010Standalone`), `tools/dump-dfm.ps1`.
