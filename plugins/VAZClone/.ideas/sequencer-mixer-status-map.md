@@ -121,3 +121,84 @@ restructure of the bit-exact core** — the point of mapping this before buildin
 **Sources:** `tools/VAZ_Clone_Audit.md`, `tools/VAZ_Synth_Gap_Analysis.md`, `tools/vaz_big.c`
 (§3762-3917, §3940-3975), `tools/vaz_voice.c` / `vaz_decomp.c` (note-on + `FUN_004a073c`), Core.dll
 strings (`MixerCore`/`MixerUnit`/`CreateVAZ2010Standalone`), `tools/dump-dfm.ps1`.
+
+---
+
+# 5. DESIGN + SCOPING (2026-07-14) — bottom tabs + Sequencer; Mixer tab assessed
+
+## 5.0 ⛔ MIXER TAB — VERDICT: DROP IT (redundant, no new value)
+Honest conclusion up front (the deliverable asked for this): **a "Mixer" tab adds ZERO parameters
+the Synth panel doesn't already show.**
+- The **osc-mixer IS already the Synth panel's "Mixer" column** (`index.html`:501): `mix1/2/3_src`
+  (Osc1/Osc2/Osc3/RingMod/Noise/Ext/ModAmp sources), `mix1/2/3_post` (Post = post-filter),
+  `o1_level`/`o2_level`/`noise_level` (channel levels).
+- Per-instance **master volume = `amp_level`** (Amplifier col); **pan = `pan_mod`** (Amplifier).
+- Grep of `ParameterIDs.hpp` + the whole `.v2p` field list: **no separate output / pan / dry-wet /
+  send / sub-out param exists** at the instance level. VAZ's only extra "mixer" is the OUTER
+  standalone rack (sends, multi-instance) — out of scope for a single-instance VST (§2C).
+
+➡ **Recommendation: build TWO tabs — `Synth | Sequencer` — not three.** A Mixer tab would be a
+duplicate re-presentation of existing controls. (If a "zoomed mixer" view is ever wanted for UX, it
+re-skins existing params — cosmetic, low value, defer.) **The Sequencer is the only real new panel.**
+
+## 5.1 TAB SHELL — fits the WebView GUI without disturbing the just-cleaned-up JS
+Why it's low-risk: **all controls bind to the APVTS via relays** (`SliderState`/`ComboBoxState`
+keyed by param name, `__juce__.initialisationData`), so the **state lives in the C++ backend, not
+the DOM**. Therefore:
+- **Tab switch = pure CSS show/hide of sibling panes.** Nothing unbinds; no synth state is lost when
+  you leave/return to the Synth tab. The relabel/label JS (`o1labels`, the mix3→Osc3 relabel, the
+  filter-label maps) operate on element IDs that persist while hidden and only fire on clicks in the
+  *visible* pane → **the tab code never touches that JS.**
+- **Structure:** wrap the current `.synth-body` (5-col grid) in `<div class="tab-pane" id="tab-synth">`;
+  add `<div class="tab-pane" id="tab-seq" hidden>`. Put a `.tabbar` at the BOTTOM (per "faneblade
+  nederst"), just above the existing `.transport`, with `Synth | Sequencer` buttons.
+- **New JS = one isolated `initTabs()`** (~12 lines: toggle `.tab-pane[hidden]` + button `.active`).
+  Additive, no edits to existing binding/relabel functions.
+- **Transport (Menu / Pitch Bend) stays global** below the tabs — visible on both.
+- **Height:** editor is fixed 726×610 (content 604×508). The Sequencer pane must be designed to the
+  SAME footprint; if it genuinely needs more, bump the editor height once (like the menu fix) — both
+  panes share it. Guard with `capture_vazclone.py` (the menu-clip lesson, [[feedback_vazclone_menu_clip]]).
+
+## 5.2 SEQUENCER — UI layout (within the 604×508 footprint)
+- **Pattern grid** (the core): N steps (VAZ pattern length is variable via `cbStartStep`/`cbEndStep`/
+  `edFinalStep`; confirm max = 16 or 32 by RE). Each step column = a **note/pitch cell** + **Accent /
+  Slide / Rest** toggles (`cbAccent`/`cbSlide`/`cbRest`) + optional **Seq A / Seq B** value cells (the
+  two mod lanes). Start/End markers frame the active range.
+- **Song chain:** a strip of the 34 slots (`edSongStep1..34`) selecting which pattern plays per song
+  step (+ loop). Paginate/scroll to fit width.
+- **Transport row:** Run/Stop, Timebase / Swing / Free / Perf2 (rate + swing), `cbLoadSeq`/`cbSaveSeq`,
+  note range (`cbNoteLow`/`cbNoteHigh`), `cbThruChannel`, Arp FreeRun tie-in.
+
+## 5.3 ENGINE HOOKS — no restructure of the bit-exact core (per §3B)
+- **Notes:** a `SequencerEngine` in the processor, clocked by host tempo + the sample counter (the
+  SAME mechanism as the existing LFO tempo-sync). On each step boundary emit `juce::Synthesiser::
+  noteOn/noteOff` (the clone's equivalent of `FUN_004db3a8`): **Accent** → velocity/level scale,
+  **Slide** → legato/portamento (hold, glide, no note-off), **Rest** → skip. Runs in `processBlock`,
+  drives the SAME voices — zero DSP-core change.
+- **Seq A / Seq B / Accent mod sources:** the `SequencerEngine` exposes the current step's Accent
+  Level + Seq A + Seq B; wire them into the **3 currently-stubbed `ModBus::value` cases** (return 0
+  today, `VAZ_Clone_Audit.md:23`). No new modulation path.
+
+## 5.4 PARAM / STATE MODEL — decision
+16 steps × (~5 fields) + 34 song slots + timing ≈ 110+ values — **too many for automatable APVTS
+params**, and VAZ's sequencer steps aren't host-automatable anyway. ➡ Store the sequencer in a
+**separate `ValueTree` branch** (a few automatable *global* params only: run/stop, rate, swing),
+serialised in `getStateInformation` and appended to the `.v2p` save (extend the now-complete writer,
+[[project_vazclone_v2p_loader]]). Keeps the APVTS lean and matches VAZ (steps are patch data, not
+automation lanes).
+
+## 5.5 PHASED PLAN (docs → oracle/tests → implementation — same discipline as the rest of the project)
+- **Phase A — DESIGN / RE:** DFM ranges via `dump-dfm.ps1` (the §1B names); RPM/VMT-dump `TSequencer`
+  off the running synth (reuse `dump_engine_vmt.py`) for the exact step-tick, Timebase/Swing/Free/
+  Perf2 timing, and the Seq A/B value semantics. Finalise the pattern step count + song-chain rules.
+- **Phase B — ORACLE / REGRESSION TESTS (before impl):** (1) headless `SequencerEngine` test — given
+  a pattern + tempo, assert the emitted note/velocity/timing stream matches a transcribed reference
+  (like the FX render oracles); (2) sequencer-state round-trip test (ValueTree save/reload) as a new
+  target alongside `VazV2PRoundtrip`; (3) mod-source test — Seq A/B/Accent feed `ModBus` correctly.
+- **Phase C — IMPLEMENTATION:** `SequencerEngine` (clock → step → note emit → mod outputs) → wire the
+  3 `ModBus` cases → GUI: tab shell (§5.1) + step grid + song chain (§5.2) → bind global params +
+  ValueTree → `.v2p`/state persistence. **Mixer tab: not built (§5.0).**
+
+**Deliverable status:** design/scoping only, no code. Headline: **Mixer tab dropped as redundant;
+scope is the Sequencer + a 2-tab shell**, and both integrate through hooks the bit-exact engine
+already exposes (§3), so no core restructure.
