@@ -202,3 +202,52 @@ automation lanes).
 **Deliverable status:** design/scoping only, no code. Headline: **Mixer tab dropped as redundant;
 scope is the Sequencer + a 2-tab shell**, and both integrate through hooks the bit-exact engine
 already exposes (§3), so no core restructure.
+
+---
+
+# 6. PHASE-A RE RESULTS (2026-07-14) — Sequencer data model + controls (from the decompile)
+
+## 6.1 Step / pattern data model — `vaz_big.c`:3600-3800 (the pattern-load loop)
+- **Pattern = 0x237 (567) B**; nested load loop **patterns (`iVar9`) × steps (`iVar8`)**, step stride
+  **0x22 (34) B**, step data begins at pattern **+0x34**. `(0x237-0x34)/0x22 = 15.1` → **~16 steps/pattern**.
+- **Per step** (offsets = pattern base + field + n·0x22):
+
+  | field | offset | meaning |
+  |---|---|---|
+  | **Pitch** | +0x34 | note (byte) |
+  | **Flags** | +0x35 | bitfield **Double(1) · Rest(2) · Slide(4) · Accent(8)** |
+  | **SeqControl1 = Seq A** | +0x54 | per-step mod-lane A value (byte) |
+  | **SeqControl2 = Seq B** | +0x55 | per-step mod-lane B value (byte) |
+  | **Transpose** | (`edTransStep`) | per-step transpose (from DFM) |
+
+  Settings keys confirm it: `"Pitch N M"`, `"Double/Rest/Slide/Accent N M"`, `"SeqControl1/2"`
+  (v100) or `"Control 1/2 N M"` (older), grouped under section `"Sequencer"` / `"Sequencer Pattern N"`.
+- **Multiple patterns** (`iVar9` outer loop; count TBD) + a **34-slot SONG chain** (`edSongStep1..34`)
+  + **Loop Start/End Step** (`vaz_big.c`:3873 "Loop Start Step").
+
+## 6.2 Controls (DFM — `tools/dump-dfm-seq.ps1`)
+- **Timing:** `msTempo` (BPM), `msTimebase` (note-division/timebase), `sbSwing`(+`sbSwingT`),
+  `sbGateTime` (note-length %), `btFreeRunning` (Free vs host-synced).
+- **Steps:** `udFinalStep` (pattern length), `cbStartStep`/`cbEndStep` (loop range), `sbStepPage`
+  (pages the step view in groups — `lbStep14`/`lbStep58`/`lbStep912` = "1-4"/"5-8"/"9-12"),
+  `sbAccentLevel` (global accent amount applied when a step's Accent bit is set).
+- **Per-step edit:** `edTransStep` (transpose) + the Double/Rest/Slide/Accent toggles + the pitch cell.
+- **Song:** `edSongStep1..34` + `udSongStep1..` + `lbSongStep1..` (per-slot edit/updown/label).
+- **Routing:** `cbNoteLow`/`cbNoteHigh` (note range), `cbThruChannel`, `cbLoadSeq`/`cbSaveSeq`.
+
+## 6.3 STILL OPEN — needs the running-synth RPM/VMT dump (Phase-A tail)
+The pattern LOAD is decompiled (above); the per-sample ADVANCE / clock is not, so still to confirm:
+- **Step-tick timing math:** the `msTimebase` division table, the `sbSwing` curve, the
+  `btFreeRunning` free-rate law, and **Perf2** — all live in TSequencer's clock/advance callback.
+  Dump via `dump_engine_vmt.py` against the running standalone while a pattern plays.
+- Exact **step count** (15 vs 16), **pattern count** (`iVar9` bound), and **Seq A/B range/semantics**
+  (0..255? bipolar? what they map to in the mod matrix).
+- **DFM numeric ranges** (Min/Max/Increment): the byte dump gives control ORDER/layout; exact ranges
+  need a proper Borland-DFM parse or the running form.
+
+## 6.4 Design impact — confirms §5, no surprises
+A pattern = **16 steps × {pitch, flags(Double/Rest/Slide/Accent), transpose, Seq A, Seq B}**, N
+patterns, a 34-slot song chain, + global timing — fits the §5.4 ValueTree plan directly, and the
+per-step **Seq A/B are exactly the two ModBus lanes** (§3B). The only additions vs the §5 sketch:
+a per-step **Transpose** and a **Double** flag + a global **Accent Level**; fold these into the
+step-cell UI and the ModBus (Accent Level scales the Accent bit). Nothing changes the §5 architecture.
