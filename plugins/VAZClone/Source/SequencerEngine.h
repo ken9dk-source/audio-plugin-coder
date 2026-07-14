@@ -57,8 +57,14 @@ struct SeqState
 };
 
 // =============================================================================================
-//  AWAITING RUNTIME DUMP  — PLACEHOLDER timing. Real values live in TSequencer's clock/advance
-//  callback (get them via dump_engine_vmt.py on the running standalone while a pattern plays).
+//  AWAITING RUNTIME DUMP  — PLACEHOLDER timing. Real interval math is DECODED (fixed-point:
+//  interval = timebase[+0x23f0]*(512+swing[+0x23f4])/512; Double=x2; swung/straight slots
+//  [+0x26ac]/[+0x26a8] => classic alternating swing) — see sequencer-mixer-status-map.md §7.
+//  The 3 exact CONSTANT sets (division->samples, swing amount, free-run rate) are NOT yet
+//  confirmed: they sit behind the custom msTimebase control + audio callback. A headless runtime
+//  dump was attempted (tools/dump_seq_runtime.py, MIDI Start/Clock + vtable-filtered heap scan)
+//  and BLOCKED — the standalone does not run the sequencer transport headlessly, so no live
+//  values. Closing needs GUI-driving the running Seq window OR static-RE of the custom control.
 //  ONLY these functions change later; the SequencerEngine interface + the oracles do NOT.
 // =============================================================================================
 namespace SeqTimingPLACEHOLDER

@@ -321,6 +321,19 @@ the plan's "one MIDI-route effort" is superseded.
    filling would guess values behind the custom control / audio callback. To finish: a runtime dump reading
    `[+0x23f0]`/`[+0x23f4]`/`[+0x26ac]`/`[+0x26a8]` live at known tempo+division+swing settings (needs the
    sequencer RUNNING, not just a note-on — batch with the LFO #8 / Osc3 #9 dumps).
+   **⛔ RUNTIME DUMP ATTEMPTED + BLOCKED (2026-07-14, `tools/dump_seq_runtime.py`):** launched the standalone,
+   sent note 60 + **MIDI Start (0xFA) + 96 MIDI Clocks (0xF8)** to try to drive the transport, then scanned
+   the heap for the sequencer object. Value-range scan alone = 11,731 false positives; adding the strong
+   filter **`[obj+0]` = a vtable pointer INTO `Vaz2010Core.dll`** narrowed to **34 candidates — NONE with a
+   coherent `(timebase[+0x23f0], swing[+0x23f4], straight[+0x26a8], swung[+0x26ac])` tuple** (timebase values
+   were all garbage; the zero-timebase ones are decreasing wavetable/decay runs, not sequencer state). So the
+   sequencer object with COMPUTED intervals is **not present** → the headless standalone **does not run the
+   transport** (MIDI Start/Clock is ignored; VAZ's sequencer needs its window opened + Play clicked). The
+   division/swing/free-run constants **cannot be dumped this way**. `SeqTimingPLACEHOLDER` STAYS placeholder.
+   **Two real ways to finish, both heavier:** (a) GUI-drive the standalone — open the Seq window, set a known
+   timebase+swing, click Play, THEN re-scan with the vtable filter (the object should appear once running);
+   or (b) static-RE the custom `msTimebase` control's samples-per-step compute (the layer named above). Both
+   are separate focused tasks; not closeable in a headless dump pass.
 2. **Mod-LFO waveform shapes** (§3.0 #8) — static tables; disasm the mod-LFO gen in the voice render.
 3. **Osc3 footage → pitch** (#9) — static formula; disasm the osc3 increment calc.
 
