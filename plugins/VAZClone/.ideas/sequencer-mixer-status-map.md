@@ -285,9 +285,18 @@ curve `0.02·e^0.036·sel`, the coef LUTs); the sequencer is partly in the decom
 the plan's "one MIDI-route effort" is superseded.
 
 **Status of the three (reclassified: live-blocked → static-RE):**
-1. **Sequencer step-tick timing** — PARTIAL: division SET known (above); exact `msTimebase` index→value
-   ordering + swing curve + free-run law + Seq A/B range need a focused disasm of the sequencer clock
-   (partly `vaz_big.c`). `SeqTimingPLACEHOLDER` LEFT AS-IS — won't guess the ordering.
+1. **Sequencer step-tick timing** — read the FULL serializer `vaz_big.c`:3600-4060 (2026-07-14).
+   **✅ Now CONFIRMED:** 16 patterns (`iVar9 != 0x10`) × 16 steps; per-pattern Gate Time(+0x259) + Accent
+   Level(+0x25a) + Loop Start/Step + Step Mode; global Tempo · Play Mode(→`DAT_00529e54`) · **256 Song
+   Steps** + Song Transpose · Loop Start/At Pattern · Arp Mode/Range · Clock To Trig. **✅ Seq A/B RANGE =
+   0..255 byte** (SeqControl1/2 @ +0x54/+0x55) — one of the four items CLOSED; **Seq A→Tempo** ("Control 1
+   To Tempo"), **Seq B→Gate** ("Control 2 To Gate"), both mod-matrix sources. `SequencerEngine.h` modSeqA/B
+   + `VazSeqTest` updated to CONFIRMED.
+   **❌ STILL open — timebase index→value, swing curve, free-run law:** there is **NO `Timebase`/`Swing`/
+   `FreeRun` key anywhere in the serializer** → their timing math is in the sequencer **real-time CLOCK**, a
+   SEPARATE function (app-shell or un-decompiled Core.dll), NOT `vaz_big.c`:3600-4060. `SeqTimingPLACEHOLDER`
+   LEFT AS-IS (not guessed). **Next disasm target: locate the sequencer clock** (candidate near the settings
+   code; the `msTimebase`/`sbSwing` handlers write a field the clock reads).
 2. **Mod-LFO waveform shapes** (§3.0 #8) — static tables; disasm the mod-LFO gen in the voice render.
 3. **Osc3 footage → pitch** (#9) — static formula; disasm the osc3 increment calc.
 

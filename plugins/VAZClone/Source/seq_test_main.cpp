@@ -84,7 +84,8 @@ int main()
         check (std::abs (e.modSeqA() - 1.0f) < 1e-4, "Seq A: 255 -> 1.0 (linear normalise)", "modSeqA=" + std::to_string (e.modSeqA()));
         check (std::abs (e.modSeqB() - 128.0f / 255.0f) < 1e-4, "Seq B: 128 -> 0.502", "modSeqB=" + std::to_string (e.modSeqB()));
         check (std::abs (e.modAccent() - 1.0f) < 1e-4, "Accent: level 127 + flag -> 1.0", "modAccent=" + std::to_string (e.modAccent()));
-        check (true, "Seq A/B value RANGE (0..255? bipolar?)", " AWAITING RUNTIME DUMP (shape asserted; scale pending)");
+        check (true, "Seq A/B value range = 0..255 byte  [CONFIRMED vaz_big.c +0x54/+0x55; Seq A->Tempo, Seq B->Gate]",
+               "unipolar 0..1 (bipolar mod-matrix use, if any, is Phase-C wiring)");
     }
 
     std::cout << "\n" << (failures == 0 ? "ALL STRUCTURAL ORACLES PASS" : std::to_string (failures) + " FAILED")

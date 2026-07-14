@@ -15,8 +15,9 @@ struct SeqStep
     int pitch     = 60;   // note 0..127     (.v2p "Pitch N M", step +0x34)
     int flags     = 0;    // step +0x35 bitfield (see Flag)
     int transpose = 0;    // per-step transpose (DFM edTransStep)
-    int seqA      = 0;    // SeqControl1 = ModBus lane A (step +0x54)   [ AWAITING DUMP: assume range 0..255 ]
-    int seqB      = 0;    // SeqControl2 = ModBus lane B (step +0x55)
+    int seqA      = 0;    // SeqControl1 = Seq A: byte 0..255 (vaz_big.c step +0x54) — CONFIRMED range; routes to
+                          //   Tempo (per-pattern "Control 1 To Tempo") + is a mod-matrix source
+    int seqB      = 0;    // SeqControl2 = Seq B: byte 0..255 (+0x55) — CONFIRMED; routes to Gate ("Control 2 To Gate")
     enum Flag { Double = 1, Rest = 2, Slide = 4, Accent = 8 };
     bool isRest()   const { return (flags & Rest)   != 0; }
     bool isSlide()  const { return (flags & Slide)  != 0; }
@@ -103,8 +104,8 @@ public:
     }
 
     // ModBus mod-source values for the CURRENT step, normalised 0..1 (Phase C fills the 3 ModBus cases).
-    float modSeqA   () const { return cur().seqA / 255.0f; }   //  AWAITING DUMP: confirm 0..255 range
-    float modSeqB   () const { return cur().seqB / 255.0f; }
+    float modSeqA   () const { return cur().seqA / 255.0f; }   // CONFIRMED 0..255 byte (vaz_big.c step +0x54)
+    float modSeqB   () const { return cur().seqB / 255.0f; }   // CONFIRMED 0..255 byte (+0x55)
     float modAccent () const { return cur().isAccent() ? state.accentLevel / 127.0f : 0.0f; }
     int   currentStep () const { return step; }
 
