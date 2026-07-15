@@ -195,6 +195,34 @@ denominator the earlier maps never had.
 > pass, V2PAudit 260 ok, V2PRoundtrip 89/89, and a clone render (`tools/verify_glide_fix.py`) confirms
 > the porta/glide path is alive (666 voiced frames, not silent).
 
+> ## ✅ P3 RESOLVED (2026-07-15) — **7/7 "known concepts" ALREADY COVERED. Zero gaps.**
+> Decided with the strong standard (property **descriptor table** → param → **DSP branch**), not GUI names.
+>
+> **New artefact: the FULL property descriptor table = VAZ's authoritative per-patch surface.**
+> `tools/dump_prop_table.py` auto-detects the bounds: **0x52A934..0x52B0B4 = 96 entries**, stride 0x14,
+> `[section*][prop*][default][A][B]`, grouped into 13 sections:
+> `Oscillator 1 (12)` · `Oscillator 2 (12)` · `LFO 1 (4: Retrigger, Rate, Mode, Modifier)` ·
+> `LFO 2 (6: …, RM Sign 1, RM Depth 1, Waveform, Modifier)` · `LFO 3 (2)` ·
+> `Mixer (9: Input 1/2/3 Source+Bypass+Depth)` · `Envelope 1 (8)` · `Envelope 2 (11)` ·
+> `Filter (12: …, Modifier 1, Modifier 2, MM Sign/Depth)` · `Lag Processor (1: Time)` ·
+> `Amplifier (7: AM1/2, PM Sign/Depth, Overdrive)` · `Mod Amplifier 1 (3: SQ Mode, AM Sign/Depth)` ·
+> `Performance (9)`. **NB** this is the *new* (Sign) vocabulary — `*Source` properties live in the older
+> cluster @0xd90d8. **There is no `Sample` and no `Arp` section** ⇒ neither is a per-patch property.
+>
+> | concept | VAZ property | clone implementation | verdict |
+> |---|---|---|---|
+> | **Link** | `Oscillator 1: FM Link` | `SynthVoice.h`:274 — Osc1 FM also modulates Osc2 | ✅ **covered** |
+> | **Osc2 Sync** | `Oscillator 2: Sync` | `SynthVoice.h`:286 — `(w2==4 \|\| p.osc2Sync) && osc1.mainWrapped → osc2.hardReset()` | ✅ **covered — the "stub" label in the audit/gap-inventory is STALE** |
+> | **Lag** | `Lag Processor: Time` | `PluginProcessor.cpp`:1149-1154 — `lagState += (modBus.value(lagIn,i) - lagState) * lagCoef` | ✅ **covered** |
+> | **ModAmp SQ** | `Mod Amplifier 1: SQ Mode` | `PluginProcessor.cpp`:1134/1140 — `if (ma1Sq) in1 = (in1+1)*0.5` (single-quadrant) | ✅ **covered** (DSP lives in the processor's mod-bus, **not** SynthVoice — searching only SynthVoice gives a false "stub") |
+> | **env-modes** | `Env 1/2: Multitrigger, Reset, Cycle, Curve` | `SynthVoice.h`:186 (multi re-attack), :366-367 (`setADSR(...,e1Curve)`, `setModes(e1Reset,e1Cycle,e1Curve)`) | ✅ **covered** |
+> | **Sample Loader** | *(no property section)* | MSmp1/MSmp2 payload blocks, whitelisted ("clone loads samples separately") | ✅ **not a per-patch property** |
+> | **Arp** | *(no property section)* | global/local setting (`btMasterArpeggiate`, `LocalArpModeItem`) | ✅ **not a per-patch property** |
+>
+> **Conclusion: the code is ahead of the documentation.** The "gaps" recorded in
+> `vaz-full-gap-inventory.md` / `VAZ_Clone_Audit.md` (osc2_sync stub, Link, Lag, ModAmp SQ missing) are
+> **stale notes**, not real. Those docs should be corrected rather than acted on.
+
 ## Method (reproducible)
 Borland/Delphi publishes RTTI tables we can enumerate exactly:
 - `TMethodEntry = [u16 size][u32 addr][u8 len][chars]`, `size == 7+len` → **name → handler address**

@@ -1,9 +1,12 @@
-"""dump_prop_table.py — decode VAZ's PROPERTY DESCRIPTOR TABLE.
-The "Performance"/"Portamento Auto"/... strings are referenced from a contiguous data table at
-~0x52b000 with a regular 0x14 (20-byte) stride, i.e. entries of the shape
-    [u32 sectionName*][u32 propName*][u32 ?][u32 ?][u32 ?]
-This is the authoritative property map (section, name, type/field/default) — far better evidence than
-GUI control names. Dump it and resolve every pointer that lands on a string.
+"""dump_prop_table.py — decode VAZ's PROPERTY DESCRIPTOR TABLE in full.
+
+Entry layout (20 bytes, confirmed from the raw dump):
+    [u32 sectionName*][u32 propName*][u32 default][u32 A][u32 B]
+This is VAZ's AUTHORITATIVE per-patch property surface — far stronger evidence than GUI control names
+(which produced 3/3 false alarms). Auto-detects the table bounds by walking while both pointers still
+resolve to strings, then groups by section.
+
+    py dump_prop_table.py            # full table, grouped by section
 """
 import struct, sys
 import pefile
@@ -25,22 +28,30 @@ def cstr(va):
     e = d.find(b'\x00', o, o + 64)
     if e < 0: return None
     s = d[o:e].decode('latin-1', 'replace')
-    return s if s and all(32 <= ord(c) < 127 for c in s) and any(c.isalpha() for c in s) else None
+    return s if s and 1 < len(s) < 40 and all(32 <= ord(c) < 127 for c in s) and any(c.isalpha() for c in s) else None
 
-start = int(sys.argv[1], 16) if len(sys.argv) > 1 else 0x52b000
-count = int(sys.argv[2]) if len(sys.argv) > 2 else 40
-stride = 0x14
-print(f'=== property descriptor table @0x{start:X}, stride 0x{stride:x} ===')
-print(f'{"entryVA":>10}  {"section":<16} {"property":<22} {"f2":>10} {"f3":>10} {"f4":>10}')
-for i in range(count):
-    va = start + i * stride
-    w = [u32(va + k * 4) for k in range(5)]
-    if any(x is None for x in w): break
-    sec, prop = cstr(w[0]), cstr(w[1])
-    if sec is None and prop is None: continue
-    f2 = f'0x{w[2]:x}' if w[2] is not None else '?'
-    f3 = f'0x{w[3]:x}' if w[3] is not None else '?'
-    f4 = f'0x{w[4]:x}' if w[4] is not None else '?'
-    # if f3/f4 point at strings, show them
-    s3, s4 = cstr(w[3]), cstr(w[4])
-    print(f'0x{va:08X}  {str(sec):<16} {str(prop):<22} {f2:>10} {f3:>10}{"="+s3 if s3 else "":<12} {f4:>10}{"="+s4 if s4 else ""}')
+STRIDE = 0x14
+def valid(va):
+    return cstr(u32(va)) is not None and cstr(u32(va + 4)) is not None
+
+# find the table bounds by walking out from a known-good anchor
+anchor = 0x52B000                       # [Performance][Play Mode]
+while valid(anchor - STRIDE): anchor -= STRIDE
+lo = anchor
+hi = anchor
+while valid(hi): hi += STRIDE
+print(f'=== property descriptor table: 0x{lo:X} .. 0x{hi:X}  ({(hi-lo)//STRIDE} entries, stride 0x{STRIDE:x}) ===')
+
+from collections import OrderedDict
+sections = OrderedDict()
+for va in range(lo, hi, STRIDE):
+    sec, prop = cstr(u32(va)), cstr(u32(va + 4))
+    dflt, a, b = u32(va + 8), u32(va + 12), u32(va + 16)
+    sections.setdefault(sec, []).append((prop, dflt, a, b, va))
+
+for sec, items in sections.items():
+    print(f'\n--- [{sec}]  ({len(items)} properties) ---')
+    for prop, dflt, a, b, va in items:
+        ds = 'TRUE(-1)' if dflt == 0xffffffff else str(dflt)
+        print(f'   {prop:22s} default={ds:<10} A=0x{a:<6x} B=0x{b:x}')
+print(f'\nTOTAL: {sum(len(v) for v in sections.values())} properties across {len(sections)} sections')
