@@ -250,10 +250,30 @@ denominator the earlier maps never had.
 > is **P1, parked**.
 >
 > **Why this matters:** the two decompiled slots are *load* and *render*. The 7 unvisited ones are the
-> synth's other virtuals (init / note-on / note-off / reset / save / param-set …) — a gap class the
-> published-method sweep **structurally could not see** (they carry no published name). **Not yet
-> identified** — prologues alone don't name them, and speculating is exactly what produced 3/3 false
-> alarms. Identify by call-site/xref before drawing any conclusion.
+> synth's other virtuals — a gap class the published-method sweep **structurally could not see** (they
+> carry no published name).
+>
+> ### 🔎 IDENTIFICATION (2026-07-15, `tools/xref_synth_vmt.py`) — **4 of 7 identified, 3 flagged ambiguous**
+> Method: all 7 have **zero direct call sites** (pure virtual dispatch, as expected), so identity comes
+> from **call-context + which known fields/setters each body touches** — not from prologues.
+> | slot | addr | identity | confidence |
+> |---|---|---|---|
+> | 4 | `0x4d7c6c` | **the `.v2p` WRITER (save)** — loads `eax = 0xcb` (**version 203**, exactly the ver our presets carry) then drives repeated property-write helpers (`0x4d7bf4`, `0x49d5b8/5e0/608`). Slot 3 is the reader → slot 4 is its save counterpart. **This is the real serializer the project reimplemented by hand.** | **high** |
+> | 5 | `0x4d83e0` | **SET-DEFAULTS / init** — sets literal defaults: `or edx,-1` → `0x4de664(obj,-1)`; **`[obj+0x94] = 0x60` (96)**; `0x4de8a0(obj,0)` (LFO waveform); `0x4de930(obj,0x7f)` (**WaveShape = 127**, matching the descriptor table); `0x4de8f8(obj,0)` (Retrigger); `0x4ded84(obj,0)`; **`[obj+0xe0] = 0x60`**. | **confirmed** |
+> | 8 | `0x4de548` | **a reset that DELEGATES to slot 14** — `mov edx,[eax]; call [edx+0x38]` **is** slot 14, then iterates `[obj+0x70]` (the voice count). | medium |
+> | 14 | `0x4db844` | **voice / note-table reset (all-notes-off)** — clears a **16-entry table at `+0x424` to `-1`** (`for ebx in 0..15: [esi+ebx*4+0x424] = 0xffffffff`), then iterates `[obj+0x70]` voices. | **high** |
+> | 6 | `0x4daaf0` | ⚠ **AMBIGUOUS** — only RTL/string helpers (`0x40472c`, `0x49dd44`, `0x49d6dc`…). Call context does not identify it. **Not guessed.** | — |
+> | 7 | `0x4db1b8` | ⚠ **AMBIGUOUS** — RTL + one indirect `call [esi+0x10]`. **Not guessed.** | — |
+> | 9 | `0x4e0f80` | ⚠ **AMBIGUOUS** — only 3 calls (`0x4a4bc0`, `0x47ae48`, `0x4e0a0c`). **Not guessed.** | — |
+>
+> **Bonus — a whitelist orphan partially resolved:** `0x4d83e0` proves **`+0x94`'s default is 96** (and
+> `+0xe0`'s is 96). That is why *every* preset byte-inspected so far carries `+0x94 = 96` — it is simply
+> never changed from the default. It does **not** yet name the field (the `LFO 1: Modifier` property is
+> a candidate), so the whitelist entry stays "purpose unconfirmed" — but its default is now known.
+>
+> **Also learned:** the **named-property loader is `FUN_004d891c`** (`vaz_osc.c`; reads `"Filter"/"Cutoff"`,
+> `"Amplifier"/"AM Source 1"`, `"Oscillator1"/"Portamento"` …) — it is **not** one of the 7, and
+> `FUN_004da270` (`vaz_caller.c`) dispatches slot 5 after a `version == 200` check.
 
 ## Method (reproducible)
 Borland/Delphi publishes RTTI tables we can enumerate exactly:
