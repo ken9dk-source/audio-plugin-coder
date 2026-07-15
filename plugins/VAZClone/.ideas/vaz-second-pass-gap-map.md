@@ -52,7 +52,30 @@ denominator the earlier maps never had.
 > | **`msLFO2RMSource`** (`pmLFO2RMSign@0x7cc`) | == whitelisted **`LFO2 trig-mod src` + `LFO2 trig-mod depth`** (`v>=200`), explicitly *"clone does not model LFO2 trig modulation"* | 🔴 **REAL GAP — confirmed.** The GUI name finally identifies it. |
 > | **`btPortaAuto`@0x734 / `btPortaExp`@0x738** (+`sbPortaTime@0x73c`) | == whitelisted **`e05f0 glide/legato flag`** + **`e0600 flag`**, positioned exactly after `voiceMode` and before `bendRange` | 🔴 **REAL GAP — high confidence.** Clone has porta *time* but neither Auto nor Exponential mode. |
 > | **`msLFOPeriod`@0x788 / `msLFO2Period`@0x78c / `msLFOMode`@0x760 / `msLFO2Mode`@0x794** (+`btLFOSync@0x850`) | the LFO1 block whitelists **three** unmodeled v2.0 fields: `+0x94` *("purpose unconfirmed")*, `+0xded84` flag, `+0xe0`. Handlers exist and are real: `msLFOPeriodChange@0x510e68`, `msLFO2PeriodChange@0x511168`, `btLFOSyncChange@0x511100`, `PeriodPopupItemClick@0x511098` | 🟠 **LIKELY REAL GAP** — the GUI gives the 3 orphan fields an identity (Period / Mode / Sync). **Which-is-which not yet pinned** → do not implement on this alone. NB `+0x94` is the same field the Osc3 measurement proved does **not** drive pitch. |
-> | **`msFilterModModSource`**@0x688 (`pmFilterModModSign@0x684`, `sbFilterModModDepth@0x68c`) | the filter's **4th** slot; `.v2p` has exactly 4 (`fcut1/2/3` + `fresS/fresD`) and **all are mapped** → this is the clone's `res_mod_src`/`res_mod_amt` | 🟡 **ALREADY COVERED — but ⚠ NAMING RISK.** VAZ calls it **"ModMod"** (it follows `lbFilterModulation`, and the filter's own res slider is `sbFilterRes@0x64c`), while the clone calls it *resonance* mod. It may actually modulate the filter **Modifier** (`sbFilterModifier@0x654` = clone `flt_aux`/bandwidth), not resonance. **Same bug class as the mix3 off-by-one — verify before trusting.** |
+> | **`msFilterModModSource`**@0x688 (`pmFilterModModSign@0x684`, `sbFilterModModDepth@0x68c`) | the filter's **4th** slot; `.v2p` has exactly 4 (`fcut1/2/3` + `fresS/fresD`) and **all are mapped** → this is the clone's `res_mod_src`/`res_mod_amt` | ✅ **VERIFIED CORRECT 2026-07-15 — naming risk was a FALSE ALARM (see below).** |
+>
+> ### ✅ Item 1 RESOLVED — `msFilterModModSource`: NO BUG, clone is correct (2026-07-15)
+> The suspicion (that slot-3 modulates the filter *Modifier*, not resonance) was **investigated and
+> refuted**. Chain of evidence:
+> 1. **VAZ property names** (`vaz_osc.c`, the named-property loader): the filter loads `"Cutoff"`,
+>    `"Resonance"`, `"Bandwidth"`, `"Slew Limit"`, `"FM Source/Depth 1..3"` and **`"RM Source"/"RM Depth"`**
+>    — so slot-3's persisted name is "RM".
+> 2. **Setters pin the fields:** `"Cutoff"`→`+0x264`, `"Resonance"`→`+0x26c`, **`"Bandwidth"`→`+0x270`**,
+>    `FM1 src/depth`→`+0x278/+0x27c`, **`RM src/depth`→`+0x290/+0x294`**.
+> 3. **The render has MULTIPLE branches**, all consuming the same RM slot (`+0x290/+0x294`) but adding it
+>    to a **different base per filter mode**: `vaz_big.c`:1183/1290/1397 use `+0x270` (Bandwidth/
+>    Separation) as the base; :1094/1185/1270/1582 add it to other bases. *Generalising from one branch
+>    is what produced the false alarm.*
+> 4. **The decider — VAZ's own mode names** carry the routing as a suffix. Core.dll captions:
+>    `"Type R 2P+HP RM"`, `"Type R 2P+HP HM"`, `"Type R 4P+HP RM"`, `"Type R 4P+HP HM"`, and radio
+>    buttons `rbTypeC2RM/C2HM/C4RM/C4HM/**C4SM**/R2RM/R2HM/R4RM/R4HM`. **RM = Resonance Mod, HM =
+>    Highpass Mod, SM = Separation Mod** — the *filter mode* decides slot-3's target.
+> 5. **The clone already models exactly this** — `Synth.h`:430 `modRoute  // 0=Resonance 1=Highpass
+>    2=Separation`, assigned per mode (`case 2 → 0 "C 2P+HP RM"`, `case 14 → 1 "HM"`, `case 8 → 2 "SM"`),
+>    applied at `SynthVoice.h`:303-307.
+> **Verdict: `msFilterModModSource` = the generic slot-3 mod source = clone `res_mod_src` + `modRoute`.
+> Correct as shipped. NO CODE CHANGE.** (Unlike the mix3 off-by-one, which was real — flagging both and
+> testing each on evidence is the point.)
 > | **`Imp*` family** | on `TBasePreferencesDlg` → Import tab | ✅ **NOT DSP** (see Revision 2). |
 >
 > **Report-before-implement:** nothing above is implemented. Recommended order if we act:
