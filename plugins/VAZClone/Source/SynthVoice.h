@@ -212,7 +212,17 @@ public:
         // Portamento: glide the playing frequency toward the target note (per block).
         const double glideTime = (double) p.portamento * (double) p.portamento * 0.6;   // 0..0.6 s
         if (glideTime < 0.0005) glidedHz = noteHz;
-        else if (p.portaExp) glidedHz += (noteHz - glidedHz) * (1.0 - std::exp (-(double) numSamples / (glideTime * getSampleRate())));  // Exp: RC curve (rate ∝ distance)
+        else if (p.portaExp)
+        {   // Exp: RC curve (step ∝ distance) — run in the PITCH-LINEAR domain, NOT in Hz.
+            // VAZ glides on the note table value (DAT_006dd0c0[note] = note*128, i.e. 128 units/semitone):
+            // vaz_big.c:542-570 does step = ((|tgt16-cur16|>>0x10)*rate)>>9 → dist *= (1-rate/2^25) per
+            // sample = a geometric decay in CENTS. An RC in Hz has the same endpoints but a different
+            // path — VazOracle porta_exp_glide_domain measured it 104c (≈1 semitone) off mid-glide on an
+            // octave glide; this pitch-domain form tracks the fixed-point reference to ~1c.
+            // pow(ratio, 1-a) IS the cents-domain RC: 12·log2(new/target) = (1-a)·12·log2(old/target).
+            const double a = 1.0 - std::exp (-(double) numSamples / (glideTime * getSampleRate()));
+            glidedHz = (glidedHz > 0.0) ? noteHz * std::pow (glidedHz / noteHz, 1.0 - a) : noteHz;
+        }
         else {  // linear constant-rate in cents (VAZ default) → larger intervals take proportionally longer
             const double toTargetCents = 1200.0 * std::log2 (noteHz / glidedHz);
             const double stepCents = (1200.0 / glideTime) * ((double) numSamples / getSampleRate());

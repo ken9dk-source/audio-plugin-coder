@@ -177,10 +177,23 @@ denominator the earlier maps never had.
 > `iVar3+0xb8`. Conflating them yields nonsense; this is the second time object-identity mattered more
 > than offset arithmetic (cf. the class-aware harvest correction).
 >
-> **Proposed fix (NOT applied — report-before-change):** make the clone's exp glide an RC in cents, e.g.
-> track `glidedSemi` and do `glidedSemi += (targetSemi − glidedSemi)*α; glidedHz = 2^(glidedSemi/12)·ref`
-> — mirroring VAZ's `distance *= (1−k)` in the pitch domain. Needs an oracle comparing the glide
-> trajectory (not just endpoints) against the fixed-point recurrence.
+> **✅ FIXED 2026-07-15 (commit below).** `SynthVoice.h` exp branch now runs the RC in the pitch domain:
+> `glidedHz = noteHz * pow(glidedHz / noteHz, 1 - a)` — which **is** the cents-domain RC, since
+> `12·log2(new/target) = (1−a)·12·log2(old/target)`, mirroring VAZ's `distance *= (1−k)`. The **linear
+> branch is untouched** (already correct). Guard kept *inside* the exp branch (a non-positive `glidedHz`
+> snaps to target) — putting it in the condition would have fallen through to the linear branch, which
+> divides by `glidedHz`.
+>
+> **Trajectory oracle (`VazOracle` → `porta_exp_glide_domain`, `oracle_main.cpp`):** transcribes VAZ's
+> fixed-point recurrence and compares the WHOLE path (both candidates get the same per-sample decay `k`,
+> so the only variable is the domain). Measured, C3→C4 over 20000 samples:
+> | candidate | max deviation from VAZ's reference path |
+> |---|---|
+> | Hz-domain RC (**pre-fix**) | **104.2 cents** (≈1 semitone mid-glide) |
+> | cents-domain RC (**the fix**) | **1.1 cents** (residue = the reference's integer step floor) |
+> The predicted ~102c was confirmed **empirically at 104.2c**. Verified: Oracle 0 deviations, SeqTest
+> pass, V2PAudit 260 ok, V2PRoundtrip 89/89, and a clone render (`tools/verify_glide_fix.py`) confirms
+> the porta/glide path is alive (666 voiced frames, not silent).
 
 ## Method (reproducible)
 Borland/Delphi publishes RTTI tables we can enumerate exactly:

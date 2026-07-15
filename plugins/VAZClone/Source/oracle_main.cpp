@@ -747,6 +747,58 @@ int main()
                       : "measured f0 deviates from 2^((b-144)/48) -> clone formula WRONG");
     }
 
+    // ── Portamento EXP-glide DOMAIN — TRAJECTORY oracle (not endpoints) ────────────────────────────
+    // VAZ glides in the note*128 PITCH-LINEAR domain, not in Hz. Reference = the fixed-point recurrence
+    // transcribed from vaz_big.c:542-570 (exp branch, present in all 4 branches :547/:560/:791/:804):
+    //     tgt16 = noteVal << 16 ; cur16 = current (16.16)
+    //     step  = ((|tgt16 - cur16| >> 0x10) * rate) >> 9      ; cur16 +/-= step, clamped to tgt16
+    // Domain proof: :2951 cur16 = tgt<<16 (same quantity, 16.16); :2955 pitch = (cur16>>6) - 0x800000
+    // = value*1024 - 2^23 → centre at value==8192; and the RPM-dumped note table DAT_006dd0c0[note]
+    // = note*128 → note 64 == 8192. Exact ⇒ 128 units per semitone.
+    // step ∝ distance ⇒ dist *= (1 - rate/2^25) per sample = a geometric decay = an RC IN CENTS.
+    // The clone ran the same RC in the Hz domain → identical endpoints, DIFFERENT path.
+    // Both candidates below get the SAME per-sample decay k, so the only variable is the DOMAIN.
+    {
+        const int n0 = 60, n1 = 72;                 // C3 -> C4, one octave
+        const int rate = 4096;                      // [voice+0x1b8]; only the curve SHAPE matters here
+        std::vector<double> ref;                    // VAZ reference trajectory, in semitones
+        {
+            long long tgt = (long long) (n1 * 128) << 16, cur = (long long) (n0 * 128) << 16;
+            for (int i = 0; i < 20000 && cur != tgt; ++i)
+            {
+                const long long d = tgt - cur;
+                long long step = ((std::llabs (d) >> 16) * (long long) rate) >> 9;
+                if (step < 1) step = 1;             // fixed-point floor: never stall
+                cur += (d > 0 ? step : -step);
+                if ((d > 0 && cur > tgt) || (d < 0 && cur < tgt)) cur = tgt;
+                ref.push_back ((double) (cur >> 16) / 128.0);
+            }
+        }
+        const double k = (double) rate / 33554432.0;    // dist *= (1-k); 2^25 = (>>16 then *rate >>9)
+        auto hzOf = [] (double semi) { return 440.0 * std::pow (2.0, (semi - 69.0) / 12.0); };
+        double worstHz = 0.0, worstCents = 0.0;
+        double hz = hzOf (n0); const double hzT = hzOf (n1);   // clone PRE-FIX: RC in the Hz domain
+        double semi = n0;                                       // the FIX: RC in the cents domain
+        for (size_t i = 0; i < ref.size(); ++i)
+        {
+            hz   += (hzT - hz) * k;
+            semi += ((double) n1 - semi) * k;
+            worstHz    = std::max (worstHz,    std::abs ((69.0 + 12.0 * std::log2 (hz / 440.0)) - ref[i]) * 100.0);
+            worstCents = std::max (worstCents, std::abs (semi - ref[i]) * 100.0);
+        }
+        std::printf ("\n  -- porta EXP-glide TRAJECTORY vs VAZ fixed-point recurrence (C3->C4, %d samples) --\n", (int) ref.size());
+        std::printf ("     Hz-domain RC    (clone PRE-fix): max %6.1f cents off the reference path\n", worstHz);
+        std::printf ("     cents-domain RC (the FIX)      : max %6.1f cents off the reference path\n", worstCents);
+        row ("porta_exp_glide_domain",
+             worstCents < 5.0 ? "VERIFIED (trajectory)" : "DEVIATION (max=" + std::to_string ((int) worstCents) + "c)",
+             worstCents < 5.0
+                 ? ("VAZ glides in note*128 (pitch-linear) — an RC in CENTS. A cents-domain RC tracks the "
+                    "fixed-point reference to " + std::to_string ((int) worstCents) + "c; the old Hz-domain RC was "
+                    + std::to_string ((int) worstHz) + "c off mid-glide (endpoints agreed, the PATH did not). "
+                    "Linear branch untouched (constant step in a pitch-linear domain was already correct).")
+                 : "cents-domain RC still deviates from VAZ's recurrence");
+    }
+
     // ── FX 1. Flanger delay-time mapping (value 0..255 → delay samples) ─────────────────────────────
     {
         const double sr = 44100.0; double maxd = 0.0;
