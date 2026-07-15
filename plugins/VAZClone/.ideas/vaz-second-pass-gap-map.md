@@ -223,6 +223,38 @@ denominator the earlier maps never had.
 > `vaz-full-gap-inventory.md` / `VAZ_Clone_Audit.md` (osc2_sync stub, Link, Lag, ModAmp SQ missing) are
 > **stale notes**, not real. Those docs should be corrected rather than acted on.
 
+> ## ✅ VMT-SLOT SWEEP (2026-07-15) — a DIFFERENT gap class: DSP **virtuals**, not GUI handlers
+> `tools/vmt_slot_sweep.py` (uses `vaz_classes.json`) classifies all 566 classes GUI-vs-DSP by parent
+> chain, then marks which VMT slots were ever decompiled.
+> **566 classes → 286 GUI/VCL, 280 non-GUI, 136 with VMT slots. 1748 DSP-class slots, 1639 never
+> decompiled** — but most of that bulk is **SDK plumbing, not VAZ DSP**: `AudioEffectX` (135),
+> `TVazMidEffect` (135), `TVazMidDX` (49), `AudioEffect` (38), DirectShow pins/filters
+> (`TBasePin`/`TBaseFilter`/`TSourcePin`/…), `T*ActionLink`, `TIniFile`. **Ignore those.**
+>
+> **The VAZ DSP class tree (the real find):**
+> `TVazObject` → `TSynth` (15 slots) → **`TBaseMidSynth`** (16) → `TMidSynth` (16);
+> `TVazObject` → `TBaseSequencer` (10) · `TBaseMixer`→`TMixer` (10) · `TEffect`→`TFXBase`→`TFX*` (17 ea).
+>
+> ### 🎯 Actionable: `TBaseMidSynth` — **vmt `0x4d4608`, instSize `0x25bc`, parent `TSynth`**
+> Only **3 of 16 slots are visited**, and they are exactly the two already known:
+> | slot | addr | status |
+> |---|---|---|
+> | 3 | `0x4d6c3c` | ✅ visited — **the `.v2p` reader** |
+> | 12 | `0x4d5a64` | ✅ visited |
+> | 13 | `0x4dbddc` | ✅ visited — **the big voice render** |
+> **7 VAZ synth virtuals NEVER decompiled:** `0x4d7c6c` (slot 4) · `0x4d83e0` (5) · `0x4daaf0` (6) ·
+> `0x4db1b8` (7) · `0x4de548` (8) · `0x4e0f80` (9) · `0x4db844` (14).
+> (Slots 0/1/2/10/11/15 = `0x402c24`/`0x4be80c`/`0x4a4c90`/`0x4be7c4`/`0x4be808` are RTL/base stubs.)
+> `TMidSynth` (vmt `0x50a498`) inherits the same set and overrides only slots 0/15
+> (`0x50d0c8`/`0x50d090`). `TSynth`: 14/15 unvisited. **`TBaseSequencer`: 10/10 unvisited** — but that
+> is **P1, parked**.
+>
+> **Why this matters:** the two decompiled slots are *load* and *render*. The 7 unvisited ones are the
+> synth's other virtuals (init / note-on / note-off / reset / save / param-set …) — a gap class the
+> published-method sweep **structurally could not see** (they carry no published name). **Not yet
+> identified** — prologues alone don't name them, and speculating is exactly what produced 3/3 false
+> alarms. Identify by call-site/xref before drawing any conclusion.
+
 ## Method (reproducible)
 Borland/Delphi publishes RTTI tables we can enumerate exactly:
 - `TMethodEntry = [u16 size][u32 addr][u8 len][chars]`, `size == 7+len` → **name → handler address**
