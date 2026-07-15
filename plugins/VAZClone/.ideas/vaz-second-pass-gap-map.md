@@ -50,7 +50,7 @@ denominator the earlier maps never had.
 > |---|---|---|
 > | **`msAmpPMSource`** (`pmAmpPMSign@0x8d0` / `msAmpPMSource@0x8d4` / `sbAmpPMDepth@0x8d8`) | ~~a complete extra mod triplet beyond AM1/AM2; matched to whitelisted `e04f4`+`e0504`~~ | ✅ **RETRACTED 2026-07-15 — ALREADY COVERED. My "REAL GAP" call was WRONG (see Item 2 below).** |
 > | **`msLFO2RMSource`** (`pmLFO2RMSign@0x7cc`) | == whitelisted **`LFO2 trig-mod src` + `LFO2 trig-mod depth`** (`v>=200`), explicitly *"clone does not model LFO2 trig modulation"* | 🔴 **REAL GAP — confirmed.** The GUI name finally identifies it. |
-> | **`btPortaAuto`@0x734 / `btPortaExp`@0x738** (+`sbPortaTime@0x73c`) | == whitelisted **`e05f0 glide/legato flag`** + **`e0600 flag`**, positioned exactly after `voiceMode` and before `bendRange` | 🔴 **REAL GAP — high confidence.** Clone has porta *time* but neither Auto nor Exponential mode. |
+> | **`btPortaAuto`@0x734 / `btPortaExp`@0x738** (+`sbPortaTime@0x73c`) | ~~whitelisted `e05f0`+`e0600`; clone has porta time only~~ | ✅ **RETRACTED 2026-07-15 — FULLY IMPLEMENTED (param+GUI+DSP). My "REAL GAP" call was WRONG (see Item 3).** |
 > | **`msLFOPeriod`@0x788 / `msLFO2Period`@0x78c / `msLFOMode`@0x760 / `msLFO2Mode`@0x794** (+`btLFOSync@0x850`) | the LFO1 block whitelists **three** unmodeled v2.0 fields: `+0x94` *("purpose unconfirmed")*, `+0xded84` flag, `+0xe0`. Handlers exist and are real: `msLFOPeriodChange@0x510e68`, `msLFO2PeriodChange@0x511168`, `btLFOSyncChange@0x511100`, `PeriodPopupItemClick@0x511098` | 🟠 **LIKELY REAL GAP** — the GUI gives the 3 orphan fields an identity (Period / Mode / Sync). **Which-is-which not yet pinned** → do not implement on this alone. NB `+0x94` is the same field the Osc3 measurement proved does **not** drive pitch. |
 > | **`msFilterModModSource`**@0x688 (`pmFilterModModSign@0x684`, `sbFilterModModDepth@0x68c`) | the filter's **4th** slot; `.v2p` has exactly 4 (`fcut1/2/3` + `fresS/fresD`) and **all are mapped** → this is the clone's `res_mod_src`/`res_mod_amt` | ✅ **VERIFIED CORRECT 2026-07-15 — naming risk was a FALSE ALARM (see below).** |
 >
@@ -115,6 +115,49 @@ denominator the earlier maps never had.
 > (`msAmpPM`) were both already correctly modelled. The clone's earlier RE is better than the name-level
 > sweep implied; **GUI control names are unreliable evidence** (`ModMod`≠resonance-vs-modifier question,
 > `PM`≠phase-mod). Only the **named-property vocabulary + stream position + DSP branches** decide.
+
+> ### ✅ Item 3 RESOLVED — `btPortaAuto`/`btPortaExp`: **already fully implemented.** Claim RETRACTED.
+> **VAZ side (DSP confirmed from FOUR render branches, per the item-1 lesson):** `vaz_big.c`
+> :547/:560/:791/:804 = 2 pitch directions × 2 oscillators. The glide step is
+> `if (*(param_1+0x304)==0) step = [voice+0x1b8];  else step = (distance>>0x10) * [voice+0x1b8] >> 9;`
+> → **`+0x304` = Portamento Exp**: `0` = constant step (**linear**), non-zero = step ∝ remaining distance
+> (**exponential**). Setters: `FUN_004e09d8→+0x30c` = Portamento **Time** (from `"Oscillator1"/"Portamento"`),
+> `FUN_004e09b8→+0x308` = Porta **Auto** (fed from global `DAT_00543dc9` = the **Import default**, which
+> independently corroborates Finding 1's Imp*=Import story), `FUN_004e09c8→+0x304` = Porta **Exp** (default 0).
+> Authoritative names come from the **property descriptor table** decoded at `0x52AF9C+`
+> (`[section*][prop*][default][A][B]`, 20-byte stride) — `Performance: Play Mode, Note Priority,
+> Last Note Priority, Voice Detune, Portamento Auto, Portamento Exp, Portamento Time, Unison Voices,
+> Pitchbend Range`. Tool: `tools/dump_prop_table.py`.
+>
+> **Clone side — it's all there:** `porta_exp` + `porta_auto` params (`PluginProcessor.cpp`:190-191,
+> auto default **true**), wired at :274-275, GUI buttons (`index.html`:641 `Auto`/`Exp`), relays
+> (`PluginEditor.h`:94-95), and DSP (`SynthVoice.h`:64-65 + :155 legato gate + :215-221 glide math).
+> The clone's own comment — *"exponential glide (off = linear constant-rate)"* — matches VAZ exactly.
+> **Verdict: NOT a gap. NO CODE CHANGE.**
+>
+> **Two OPEN questions this raised (flagged, NOT claimed as bugs):**
+> 1. 🟠 **Exp-glide domain.** VAZ's exp step is ∝ distance in the domain of `+0xb8/+0xbc`. VAZ's note
+>    table is `DAT_006dd0c0[note] = note*128` (**pitch-linear**), so *if* `+0xb8` is that pitch value,
+>    VAZ's exp glide is an RC in the **cents** domain — whereas the clone (`SynthVoice.h`:215) does
+>    `glidedHz += (noteHz-glidedHz)*(1-exp(...))` = an RC in the **Hz** domain. Those are different
+>    curves. **Unconfirmed:** `+0xb8` is written in the note-on path (`vaz_big.c`:258/345/2949), not the
+>    render — pinning its domain is a separate trace. The clone's **linear** case already matches
+>    (constant cents/s). *Do not act on this without pinning `+0xb8`.*
+> 2. 🟡 **Preset wiring.** `e05f0`/`e0600` stay whitelisted, so **real VAZ patches do not carry Porta
+>    Auto/Exp into the clone** (they fall back to defaults). But their identity is **unconfirmed**: the
+>    Performance section leaves **four** unmapped properties (Note Priority, Last Note Priority, Porta
+>    Auto, Porta Exp) for **two** slots, and the stream order does *not* follow the vocabulary order.
+>    **Cheapest decisive test:** a VAZ-saved preset pair (Porta Exp on/off) byte-diffed — exactly the
+>    method that decoded `mix3src` from the user's Osc3/RingMod pair.
+>
+> ### 📊 SCOREBOARD: **3 of 3 flagged "gaps" were FALSE ALARMS** — the GUI-name sweep found **zero** real DSP gaps
+> Items 1 (`msFilterModMod`), 2 (`msAmpPM`), 3 (`btPortaAuto/Exp`) were **all already correctly
+> modelled**. The clone was built from the **`.v2p` param stream + the DSP**, so a **GUI-name** diff
+> systematically over-reports: the same feature simply carries a different label (`ModMod`≠modifier-vs-
+> resonance, `PM`=**Pan** Mod, Porta flags already shipped). **Only the named-property vocabulary +
+> descriptor table + stream position + *all* DSP branches decide.** The sweep's real value turned out to
+> be **identification** (naming the `.v2p` audit's orphan fields), not gap-discovery — plus one genuine
+> bug found by a different route entirely (the mix3 off-by-one, caught from user-made presets).
 
 ## Method (reproducible)
 Borland/Delphi publishes RTTI tables we can enumerate exactly:
