@@ -714,10 +714,37 @@ int main()
             std::printf ("     [%s] %-24s 32'/8'=%.4f  2'/8'=%.4f\n", pass ? "PASS" : "fail", h.name, (double) r32, (double) r2);
             if (pass) { ++survivors; surv += std::string (h.name) + "; "; }
         }
+        // ── MEASURED GROUND TRUTH (2026-07-15) — AUDIO-RENDER extraction resolves the 2-survivor tie.
+        // tools/osc3_footage_probe.py + osc3_intermediate_check.py render the REAL VAZ via File->Capture
+        // with Osc3 as the SOLE audible source (base = a VAZ-made "Osc 3.v2p"; real mix3src 0 = Oscillator 3
+        // — decoded from a user Osc3-vs-RingMod preset pair), sweeping lfo1rate; f0 read from the spectrum.
+        // The 2 survivors above are IDENTICAL as pitch functions (both == footMul), so measurement confirms
+        // or refutes that law outright rather than choosing between them.
+        // Also measured: sweeping the +0x94 footage field 48..240 does NOT move the pitch -> Osc3 pitch is
+        // driven by lfo1rate (what the clone uses), NOT by +0x94. Rate-curve law e^(0.036*(b-144)) REFUTED.
+        const double C3 = 130.81;                          // 01_sustain_C3.mid
+        struct M { int b; double f0; };
+        const M meas[] = { { 48, 32.0 }, { 96, 66.0 }, { 120, 90.8 }, { 144, 129.2 },
+                           { 168, 183.2 }, { 192, 261.0 }, { 216, 368.0 }, { 240, 522.0 } };
+        const int nmeas = (int) (sizeof (meas) / sizeof (*meas));
+        int bad = 0; double worst = 0.0;
+        for (auto& m : meas)
+        {
+            const double pred = C3 * (double) footMul (m.b);
+            const double err  = std::abs (pred - m.f0) / pred;
+            if (err > worst) worst = err;
+            if (err > 0.03) ++bad;                         // 3%: FFT bin resolution + capture tolerance
+        }
+        std::printf ("  -- Osc3 footage MEASURED (real VAZ audio) vs 2^((b-144)/48): %d/%d within 3%% (worst %.1f%%) --\n",
+                     nmeas - bad, nmeas, worst * 100.0);
         row ("osc3_footage_pitch",
-             survivors == 1 ? "VERIFIED (anchors)" : survivors == 0 ? "NOT TESTED (0 survive)" : ("NOT TESTED (" + std::to_string (survivors) + " survive)"),
-             survivors == 1 ? ("unique survivor -> that is VAZ's footage role: " + surv)
-                            : ("ambiguous; rateVal=FUN_004a0a68(LFO1)->obj+4/FUN_004a073c whose callers set FIXED/field rates (0x78, obj-fields) not footage-exp -> chain entangled, step-5 report-only. survivors: " + (surv.empty() ? std::string("none") : surv)));
+             bad == 0 ? "VERIFIED (measured audio-render)" : "DEVIATION",
+             bad == 0 ? ("clone 2^((b-144)/48) CONFIRMED vs REAL VAZ audio over 4 octaves incl. NON-octave points "
+                         "(worst " + std::to_string ((int) (worst * 100.0 + 0.5)) + "%) -> rules out an octave-stepped law; "
+                         "rate-curve e^(0.036(b-144)) refuted; +0x94 does NOT drive pitch (swept 48..240, unchanged) -> "
+                         "clone's lfo1rate source is correct. Static tie (" + std::to_string (survivors)
+                         + " survivors, identical as pitch fns) resolved by measurement.")
+                      : "measured f0 deviates from 2^((b-144)/48) -> clone formula WRONG");
     }
 
     // ── FX 1. Flanger delay-time mapping (value 0..255 → delay samples) ─────────────────────────────
