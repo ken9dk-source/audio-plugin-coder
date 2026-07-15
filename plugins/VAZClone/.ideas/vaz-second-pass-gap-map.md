@@ -1,5 +1,36 @@
 # VAZ 2010 — SECOND-PASS GAP MAP (2026-07-15)
 
+> ## ⚠️ REVISION 2 (2026-07-15) — CLASS-AWARE HARVEST supersedes the name-only pass
+> The first sweep (`harvest_vaz_names.py`) collected names **globally with no owning class**. Different
+> forms have their own field tables with **overlapping offsets**, so cross-class offset comparison was
+> unsafe. `tools/harvest_vaz_classes.py` fixes this by walking Delphi VMTs (self-identifying:
+> `u32[V-76]==V`; `-56` FieldTable, `-52` MethodTable, `-44` ClassName, `-40` InstanceSize, `-36`
+> Parent; virtual slots at `V+0,4,…`) → **`tools/vaz_classes.json`, 566 classes** with per-class
+> fields/methods/VMT-slots.
+>
+> **Outcome of the re-check:**
+> - ✅ **Q3 clustering holds where it matters:** *every* P2 synth control is on ONE class,
+>   **`TMidSynthForm`** (instSize `0xa04`, 400 fields, 92 methods, 75 vmt slots) — so those offsets ARE
+>   comparable. The concern was real in principle but does not invalidate the synth findings.
+> - ❌ **But two P2/P3 items were misfiled:** `cbOversample` **and the whole `Imp*` family** are on
+>   **`TBasePreferencesDlg`** (instSize `0x428`) — *not* the synth form.
+> - **Class map for orientation:** `TMidSynthForm` (synth, 400 fields) · `TMixerForm` (213 — the OUTER
+>   rack mixer, out of scope) · `TSeqForm` (209, P1/parked) · `TSeqSongForm`/`TSeqRandomForm` ·
+>   `TFXDelayForm`/`TFXPhaserForm`/`TFXFlangerForm` · `TBaseMainForm`/`TInplaceMainForm`/`TVSTBaseForm`.
+>
+> ### ✅ `Imp*` FAMILY — SOLVED (was "unexplained"): it is the **Preferences → Import tab**
+> `TBasePreferencesDlg` is a tabbed prefs dialog (`tsMidi`/`tsSynth`/`tsImport`/`tsPlugins`). The whole
+> family sits on **`tsImport`** = the defaults VAZ applies when **importing** a patch that predates a
+> param: `sbImpUnisonDetune@0x384`, `sbImpPolyDetune@0x414`, `cbImpAutoGlide@0x388`,
+> `cbImpMultiTrigger@0x37c`, `edImpBendRange@0x390`, `rbImpPriorityHigh/Low/**Duo**/Last@0x370-0x380`.
+> **"Imp" = Import. NOT per-patch DSP → not a DSP gap.** Two spin-offs worth keeping:
+> - **`rbImpPriorityDuo`** — VAZ has **4** note-priority modes (High/Low/**Duo**/Last); the clone's
+>   `note_priority` stub lists 3 (Hi/Lo/Last). **"Duo" is not previously known.**
+> - **Reframe:** `cbOversample@0x408`, `cbMicroTuning@0x34c` + `edTuningFile/btTuningFile/odTuningFile`,
+>   and `sbImpPolyDetune` are **global preferences**, not patch params. `vaz-full-gap-inventory.md`
+>   lists Oversample / microtuning / Poly Detune as missing **DSP** — they are DSP-*affecting* but are
+>   set app-globally, which a VST plugin has no equivalent of. Scope decision needed, not DSP RE.
+
 **Find-gaps exercise. No code changes.** A mechanical, name-complete sweep of `Vaz2010Core.dll`,
 diffed against everything the project has written down. Supersedes nothing — it *adds* the coverage
 denominator the earlier maps never had.
