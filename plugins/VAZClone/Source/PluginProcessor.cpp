@@ -64,7 +64,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout VAZCloneAudioProcessor::crea
     layout.add (pct (ParameterIDs::noise_level, "Noise Level", 0.0f));
     layout.add (std::make_unique<AudioParameterChoice>(ParameterID { ParameterIDs::mix1_src, 1 }, "Mix1 Source", StringArray { "Oscillator 1","Ring Modulator","Noise","External Input","Mod Amplifier 1","Mod Amplifier 2" }, 0));
     layout.add (std::make_unique<AudioParameterChoice>(ParameterID { ParameterIDs::mix2_src, 1 }, "Mix2 Source", StringArray { "Oscillator 2","Ring Modulator","Noise","External Input","Mod Amplifier 1","Mod Amplifier 2" }, 0));
-    layout.add (std::make_unique<AudioParameterChoice>(ParameterID { ParameterIDs::mix3_src, 1 }, "Mix3 Source", StringArray { "Noise","Oscillator 3","Ring Modulator","External Input","Mod Amplifier 1","Mod Amplifier 2" }, 0));
+    // VAZ uses ONE mixer-source popup whose item 0 is relabelled per channel (Osc1/Osc2/Osc3), so all three
+    // channels share the encoding 0=own osc, 1=RingMod, 2=Noise, 3=External, 4/5=ModAmp. Confirmed by the
+    // Core.dll popup captions @0x183812 + a real VAZ Osc3-vs-RingMod preset byte-diff (mix3src 0 vs 1).
+    // ch3 previously listed Noise first (0=Noise, 1=Osc3) — an off-by-one that made real Osc3 patches silent.
+    // Default index 2 = Noise (unchanged default behaviour for new patches).
+    layout.add (std::make_unique<AudioParameterChoice>(ParameterID { ParameterIDs::mix3_src, 1 }, "Mix3 Source", StringArray { "Oscillator 3","Ring Modulator","Noise","External Input","Mod Amplifier 1","Mod Amplifier 2" }, 2));
     layout.add (std::make_unique<AudioParameterBool>(ParameterID { ParameterIDs::mix1_post, 1 }, "Mix1 Post", false));
     layout.add (std::make_unique<AudioParameterBool>(ParameterID { ParameterIDs::mix2_post, 1 }, "Mix2 Post", false));
     layout.add (std::make_unique<AudioParameterBool>(ParameterID { ParameterIDs::mix3_post, 1 }, "Mix3 Post", false));
@@ -610,7 +615,7 @@ bool VAZCloneAudioProcessor::loadV2P (const juce::MemoryBlock& mb)
     S (ParameterIDs::mix3_post, p.mix3post != 0 ? 1.0f : 0.0f);
     S (ParameterIDs::mix1_src,  juce::jlimit (0, 5, p.mix1src) / 5.0f);   // mixer source select (Osc/RingMod/Noise/…)
     S (ParameterIDs::mix2_src,  juce::jlimit (0, 5, p.mix2src) / 5.0f);
-    S (ParameterIDs::mix3_src,  juce::jlimit (0, 5, p.mix3src) / 5.0f);   // 0=Noise 1=Osc3 2=RingMod (verified vs factory bank)
+    S (ParameterIDs::mix3_src,  juce::jlimit (0, 5, p.mix3src) / 5.0f);   // 0=Osc3 1=RingMod 2=Noise — raw .v2p value maps 1:1 to the choice index (see layout)
     S (ParameterIDs::voice_mode,  juce::jlimit (0, 2, p.voiceMode) / 2.0f);
     S (ParameterIDs::portamento,  p.portamento / 255.0f);
     S (ParameterIDs::uni_detune,  p.uniDetune / 255.0f);

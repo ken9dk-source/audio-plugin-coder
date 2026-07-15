@@ -10,6 +10,7 @@
 // (kind,label) argument, so a discard cannot be written without a whitelist reason.
 //   usage:  VazV2PAudit [vaz-2010-folder]   (default = the standard Steinberg install path)
 #include "PluginProcessor.h"
+#include "ParameterIDs.hpp"     // mixer-source encoding lock (mix1/2/3_src)
 #include <iostream>
 #include <vector>
 #include <string>
@@ -184,6 +185,59 @@ int main (int argc, char** argv)
     std::cout << "--- WHITELIST (bytes deliberately consumed but NOT mapped to a clone param) ---\n";
     for (auto& w : whitelist) std::cout << "  * " << w << "\n";
     std::cout << "  (" << whitelist.size() << " distinct reasons; entries tagged [FLAGGED] are candidates for the parity matrix)\n\n";
+
+    // ── MIXER-SOURCE ENCODING LOCK ───────────────────────────────────────────────────────────────
+    // VAZ uses ONE mixer-source popup whose item 0 is relabelled per channel (Osc1/Osc2/Osc3), so all
+    // three channels share the SAME encoding:
+    //     0 = own oscillator, 1 = Ring Modulator, 2 = Noise, 3 = External Input, 4/5 = Mod Amplifier 1/2
+    // Ground truth: Core.dll popup captions @0x183812 (Oscillator 3 / Ring Modulator / Noise / External
+    // Input / Mod Amplifier 1 / Mod Amplifier 2), corroborated by two REAL VAZ-saved presets whose byte
+    // diff is exactly mix3src 0 (Osc3) vs 1 (RingMod) — checked in as fixtures below.
+    // ch3 previously listed Noise first (0=Noise, 1=Osc3): a real-VAZ Osc3 patch then loaded as "Noise"
+    // and Osc3 never sounded. This lock exists so that off-by-one cannot silently return.
+    std::cout << "--- MIXER-SOURCE ENCODING LOCK (VAZ: 0=own osc, 1=RingMod, 2=Noise, 3=Ext, 4/5=ModAmp) ---\n";
+    {
+        struct Expect { const char* id; const char* first; };
+        const Expect exp[] = { { ParameterIDs::mix1_src, "Oscillator 1" },
+                               { ParameterIDs::mix2_src, "Oscillator 2" },
+                               { ParameterIDs::mix3_src, "Oscillator 3" } };
+        const char* tail[] = { "Ring Modulator", "Noise", "External Input", "Mod Amplifier 1", "Mod Amplifier 2" };
+        for (auto& e : exp)
+        {
+            auto* pc = dynamic_cast<juce::AudioParameterChoice*> (proc.apvts.getParameter (e.id));
+            if (pc == nullptr) { failures.push_back (std::string (e.id) + ": not an AudioParameterChoice"); ++nFail; continue; }
+            const auto& ch = pc->choices;
+            bool ok = ch.size() == 6 && ch[0] == juce::String (e.first);
+            for (int i = 0; ok && i < 5; ++i) ok = ch[i + 1] == juce::String (tail[i]);
+            std::cout << (ok ? "  [PASS] " : "  [FAIL] ") << e.id << " = " << ch.joinIntoString ("/") << "\n";
+            if (! ok) { failures.push_back (std::string (e.id) + ": choice order != VAZ popup order"); ++nFail; }
+        }
+    }
+    // End-to-end: the two REAL VAZ presets must land on the right source (not silence/Noise).
+    {
+        struct Fx { const char* file; int wantIdx; const char* wantName; };
+        const Fx fx[] = { { "vaz_mix3_osc3.v2p",    0, "Oscillator 3"   },
+                          { "vaz_mix3_ringmod.v2p", 1, "Ring Modulator" } };
+        auto fixDir = juce::File::getCurrentWorkingDirectory().getChildFile ("plugins/VAZClone/tests/fixtures");
+        if (! fixDir.isDirectory()) fixDir = juce::File (__FILE__).getParentDirectory().getSiblingFile ("tests").getChildFile ("fixtures");
+        for (auto& f : fx)
+        {
+            auto file = fixDir.getChildFile (f.file);
+            juce::MemoryBlock mb;
+            if (! file.existsAsFile() || ! file.loadFileAsData (mb))
+            { std::cout << "  [FAIL] fixture missing: " << file.getFullPathName() << "\n";
+              failures.push_back (std::string (f.file) + ": fixture missing"); ++nFail; continue; }
+            if (! proc.loadV2P (mb))
+            { std::cout << "  [FAIL] loadV2P failed: " << f.file << "\n"; failures.push_back (std::string (f.file) + ": loadV2P failed"); ++nFail; continue; }
+            auto* pc = dynamic_cast<juce::AudioParameterChoice*> (proc.apvts.getParameter (ParameterIDs::mix3_src));
+            const int got = pc != nullptr ? pc->getIndex() : -1;
+            const bool ok = got == f.wantIdx;
+            std::cout << (ok ? "  [PASS] " : "  [FAIL] ") << f.file << " -> mix3_src=" << got
+                      << " (" << (pc && got >= 0 ? pc->choices[got] : juce::String ("?")) << "), want " << f.wantIdx << " (" << f.wantName << ")\n";
+            if (! ok) { failures.push_back (std::string (f.file) + ": real VAZ preset maps to the wrong mixer source"); ++nFail; }
+        }
+    }
+    std::cout << "\n";
 
     if (! failures.empty())
     {

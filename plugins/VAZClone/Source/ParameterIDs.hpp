@@ -32,7 +32,7 @@ namespace ParameterIDs
     // Mixer (per-channel source select)
     constexpr auto mix1_src = "mix1_src";  // ch1: Osc1/RingMod/Noise/Ext/MA1/MA2
     constexpr auto mix2_src = "mix2_src";  // ch2: Osc2/RingMod/Noise/Ext/MA1/MA2
-    constexpr auto mix3_src = "mix3_src";  // ch3: Noise/Osc3/RingMod/Ext/MA1/MA2
+    constexpr auto mix3_src = "mix3_src";  // ch3: Osc3/RingMod/Noise/Ext/MA1/MA2 (VAZ order — item0 = own osc)
     constexpr auto mix1_post = "mix1_post"; constexpr auto mix2_post = "mix2_post"; constexpr auto mix3_post = "mix3_post"; // bool: post-filter
     // Filter
     constexpr auto filter_mode = "filter_mode"; // choice 0..21

@@ -51,7 +51,7 @@ struct VoiceParams
     double duoHighHz = 0.0;                        // Duo mode: Osc2 plays this (highest held) note
     float o1Level = 1.0f, o2Detune = 0.0f, o2Level = 0.0f, noise = 0.0f;
     float atk = 0.0f, dec = 0.3f, sus = 1.0f, rel = 0.2f;
-    int   mix1Src = 0, mix2Src = 0, mix3Src = 0;   // Mixer channel sources (default Osc1/Osc2/Noise)
+    int   mix1Src = 0, mix2Src = 0, mix3Src = 2;   // Mixer sources, VAZ encoding 0=own osc,1=RingMod,2=Noise → defaults Osc1/Osc2/Noise
     double osc3FootMul = 1.0;   int osc3Wave = 0;   float osc3Shape = 0.5f;   // Osc3 = LFO1 audio-rate: footage pitch × wave
     bool  mix1Post = false, mix2Post = false, mix3Post = false;   // Post = bypass the filter
     bool  link = false;                            // Osc1 FM input 1 → also modulate Osc2
@@ -280,11 +280,16 @@ public:
             const double nz = rng.nextDouble() * 2.0 - 1.0;           // white noise
             // 3 mixer channels: source × level. Post channels bypass the filter (mixed in after).
             double o3 = 0.0;                                         // Osc3 = LFO1 at audio rate: footage pitch (32'=48..2'=240) × LFO1 waveform
-            if (p.mix3Src == 1) { osc3lfo.setRate (glidedHz * vd * p.osc3FootMul, getSampleRate());
+            if (p.mix3Src == 0) { osc3lfo.setRate (glidedHz * vd * p.osc3FootMul, getSampleRate());
                                   o3 = osc3lfo.next (p.osc3Wave, (double) p.osc3Shape); }
+            // VAZ encoding (ONE shared popup, item 0 relabelled per channel): 0=own osc, 1=RingMod, 2=Noise,
+            // 3=External, 4/5=ModAmp. Confirmed: Core.dll popup captions @0x183812 (Oscillator 3, Ring
+            // Modulator, Noise, External Input, Mod Amplifier 1, Mod Amplifier 2) + a real VAZ Osc3-vs-RingMod
+            // preset pair byte-diff (mix3src 0 vs 1). ch3 was previously 0=Noise/1=Osc3 — an off-by-one that
+            // made real-VAZ Osc3 patches load as Noise and never sound.
             const double c1 = (p.mix1Src==0 ? o1 : p.mix1Src==1 ? rm : p.mix1Src==2 ? nz : 0.0) * o1g;
             const double c2 = (p.mix2Src==0 ? o2 : p.mix2Src==1 ? rm : p.mix2Src==2 ? nz : 0.0) * o2g;
-            const double c3 = (p.mix3Src==0 ? nz : p.mix3Src==1 ? o3 : p.mix3Src==2 ? rm : 0.0) * ng;
+            const double c3 = (p.mix3Src==0 ? o3 : p.mix3Src==1 ? rm : p.mix3Src==2 ? nz : 0.0) * ng;
             double s             = (p.mix1Post?0.0:c1) + (p.mix2Post?0.0:c2) + (p.mix3Post?0.0:c3);  // → filter
             const double postSum = (p.mix1Post?c1:0.0) + (p.mix2Post?c2:0.0) + (p.mix3Post?c3:0.0);  // → bypass filter
 
