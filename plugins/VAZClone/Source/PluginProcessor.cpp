@@ -374,6 +374,7 @@ struct V2PPatch
     // Env2 segment modulation (the +0x174 block, v2.0): source × amount → which env2 segments (dest bitfield)
     int e2modsrc = 0, e2modamt = 0, e2moddest = 0;
     int noise = 0, o1level = 255, o2level = 0, voiceMode = 0, portamento = 0, uniDetune = 0, polyDetune = 0;
+    int portaAuto = 0, portaExp = 0;   // Performance "Portamento Auto"/"Portamento Exp": the 2 bytes right after portamento
     int mix1src = 0, mix1post = 0, mix2src = 0, mix2post = 0, mix3src = 0, mix3post = 0;
     int bendRange = 2, uniVoices = 0;   // e0610 (1..24 st), e095c (2..16, v2.0 only; 0 = not present)
     int consumedEnd = 0;                 // cursor pos after parse (test hook: no-discard audit drift check)
@@ -472,6 +473,13 @@ static V2PPatch parseV2P (const juce::uint8* d, int n, int prst)
     p.uniDetune = c.u32();                             // p2f4 (+0x2f4 = Unison detune)
     if (v >= 200) p.polyDetune = c.u32();              // p2f0 (+0x2f0 = Poly detune, v2.0)
     p.portamento = c.u32();
+    // Performance "Portamento Auto" / "Portamento Exp" — two adjacent bytes right after Portamento Time.
+    // Decoded by byte-diffing VAZ-saved presets that differ ONLY by one button (Desktop\Ny mappe\
+    // porta_base vs porta_auto_on vs porta_exp_on): auto_on flips exactly portamento+4, exp_on flips
+    // exactly portamento+5. NOT the whitelisted e05f0/e0600 — that earlier guess was wrong; those two
+    // remain unidentified. Ungated: the trailing block exists from v106 through v203 (all-zero = off in
+    // old presets), so reading it is faithful to the stream for every version.
+    p.portaAuto = c.byte(); p.portaExp = c.byte();
     p.consumedEnd = c.pos;
     return p;
 }
@@ -567,6 +575,7 @@ static void serializeV2P (const V2PPatch& p, juce::uint8* d, int n, int prst)
     c.u32(p.uniDetune);
     if (v >= 200) c.u32(p.polyDetune);
     c.u32(p.portamento);
+    c.byte (p.portaAuto); c.byte (p.portaExp);      // mirror parseV2P: Porta Auto/Exp bytes
 }
 } // namespace
 
@@ -618,6 +627,8 @@ bool VAZCloneAudioProcessor::loadV2P (const juce::MemoryBlock& mb)
     S (ParameterIDs::mix3_src,  juce::jlimit (0, 5, p.mix3src) / 5.0f);   // 0=Osc3 1=RingMod 2=Noise — raw .v2p value maps 1:1 to the choice index (see layout)
     S (ParameterIDs::voice_mode,  juce::jlimit (0, 2, p.voiceMode) / 2.0f);
     S (ParameterIDs::portamento,  p.portamento / 255.0f);
+    S (ParameterIDs::porta_auto,  p.portaAuto > 0 ? 1.0f : 0.0f);   // byte @portamento+4 (VAZ-preset byte-diff)
+    S (ParameterIDs::porta_exp,   p.portaExp  > 0 ? 1.0f : 0.0f);   // byte @portamento+5
     S (ParameterIDs::uni_detune,  p.uniDetune / 255.0f);
     S (ParameterIDs::poly_detune, p.polyDetune / 255.0f);
     S (ParameterIDs::bend_range,  (juce::jlimit (1, 24, p.bendRange) - 1) / 23.0f);   // e0610: 1..24 st
@@ -727,6 +738,7 @@ juce::MemoryBlock VAZCloneAudioProcessor::buildV2P()
     p.mix1post = RB(ParameterIDs::mix1_post); p.mix2post = RB(ParameterIDs::mix2_post); p.mix3post = RB(ParameterIDs::mix3_post);
     p.mix1src = RN(ParameterIDs::mix1_src, 6); p.mix2src = RN(ParameterIDs::mix2_src, 6); p.mix3src = RN(ParameterIDs::mix3_src, 6);
     p.voiceMode = RN(ParameterIDs::voice_mode, 3); p.portamento = R255(ParameterIDs::portamento);
+    p.portaAuto = RB(ParameterIDs::porta_auto);    p.portaExp  = RB(ParameterIDs::porta_exp);
     p.uniDetune = R255(ParameterIDs::uni_detune); p.polyDetune = R255(ParameterIDs::poly_detune);
     p.bendRange = RN(ParameterIDs::bend_range, 24) + 1;
     if (v >= 200) p.uniVoices = RN(ParameterIDs::uni_voices, 32) + 1;

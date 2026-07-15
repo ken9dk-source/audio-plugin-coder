@@ -135,6 +135,8 @@ static AuditCursor auditParse (const juce::uint8* d, int n, int prst)
     c.u32 (PARAM, "uniDetune -> uni_detune");
     if (v >= 200) c.u32 (PARAM, "polyDetune -> poly_detune");
     c.u32 (PARAM, "portamento -> portamento");
+    c.byte (PARAM, "portaAuto -> porta_auto");   // byte @portamento+4 — decoded by VAZ-preset byte-diff
+    c.byte (PARAM, "portaExp  -> porta_exp");    // byte @portamento+5
     return c;
 }
 
@@ -213,6 +215,37 @@ int main (int argc, char** argv)
             if (! ok) { failures.push_back (std::string (e.id) + ": choice order != VAZ popup order"); ++nFail; }
         }
     }
+    // ── PORTAMENTO AUTO/EXP PRESET LOCK ──────────────────────────────────────────────────────────
+    // "Portamento Auto"/"Portamento Exp" (Performance section of the property descriptor table) are the
+    // two bytes right after Portamento Time. Decoded by byte-diffing VAZ-saved presets differing by ONE
+    // button each: porta_auto_on flips exactly portamento+4, porta_exp_on flips exactly portamento+5.
+    // (They are NOT the whitelisted e05f0/e0600 — that earlier guess was wrong.) The clone already had
+    // param+GUI+DSP for both but never read them from a preset; this locks the parsing.
+    std::cout << "--- PORTAMENTO AUTO/EXP PRESET LOCK (bytes @portamento+4 / +5) ---\n";
+    {
+        struct PFx { const char* file; bool wantAuto, wantExp; };
+        const PFx pfx[] = { { "vaz_porta_base.v2p",    false, false },
+                            { "vaz_porta_auto_on.v2p", true,  false },
+                            { "vaz_porta_exp_on.v2p",  false, true  } };
+        auto fdir = juce::File::getCurrentWorkingDirectory().getChildFile ("plugins/VAZClone/tests/fixtures");
+        if (! fdir.isDirectory()) fdir = juce::File (__FILE__).getParentDirectory().getSiblingFile ("tests").getChildFile ("fixtures");
+        for (auto& f : pfx)
+        {
+            juce::MemoryBlock mb;
+            auto file = fdir.getChildFile (f.file);
+            if (! file.existsAsFile() || ! file.loadFileAsData (mb) || ! proc.loadV2P (mb))
+            { std::cout << "  [FAIL] " << f.file << ": missing/unloadable\n"; failures.push_back (std::string (f.file) + ": missing/unloadable"); ++nFail; continue; }
+            auto* pa = dynamic_cast<juce::AudioParameterBool*> (proc.apvts.getParameter (ParameterIDs::porta_auto));
+            auto* pe = dynamic_cast<juce::AudioParameterBool*> (proc.apvts.getParameter (ParameterIDs::porta_exp));
+            const bool gotA = pa != nullptr && pa->get(), gotE = pe != nullptr && pe->get();
+            const bool ok = gotA == f.wantAuto && gotE == f.wantExp;
+            std::cout << (ok ? "  [PASS] " : "  [FAIL] ") << f.file << " -> auto=" << (gotA ? "on" : "off")
+                      << " exp=" << (gotE ? "on" : "off") << ", want auto=" << (f.wantAuto ? "on" : "off")
+                      << " exp=" << (f.wantExp ? "on" : "off") << "\n";
+            if (! ok) { failures.push_back (std::string (f.file) + ": porta auto/exp not parsed from the preset"); ++nFail; }
+        }
+    }
+
     // End-to-end: the two REAL VAZ presets must land on the right source (not silence/Noise).
     {
         struct Fx { const char* file; int wantIdx; const char* wantName; };
