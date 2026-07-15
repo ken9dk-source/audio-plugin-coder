@@ -136,13 +136,7 @@ denominator the earlier maps never had.
 > **Verdict: NOT a gap. NO CODE CHANGE.**
 >
 > **Two OPEN questions this raised (flagged, NOT claimed as bugs):**
-> 1. 🟠 **Exp-glide domain.** VAZ's exp step is ∝ distance in the domain of `+0xb8/+0xbc`. VAZ's note
->    table is `DAT_006dd0c0[note] = note*128` (**pitch-linear**), so *if* `+0xb8` is that pitch value,
->    VAZ's exp glide is an RC in the **cents** domain — whereas the clone (`SynthVoice.h`:215) does
->    `glidedHz += (noteHz-glidedHz)*(1-exp(...))` = an RC in the **Hz** domain. Those are different
->    curves. **Unconfirmed:** `+0xb8` is written in the note-on path (`vaz_big.c`:258/345/2949), not the
->    render — pinning its domain is a separate trace. The clone's **linear** case already matches
->    (constant cents/s). *Do not act on this without pinning `+0xb8`.*
+> 1. 🔴 **Exp-glide domain — RESOLVED 2026-07-15: CONFIRMED DEVIATION (a real bug, see below).**
 > 2. 🟡 **Preset wiring.** `e05f0`/`e0600` stay whitelisted, so **real VAZ patches do not carry Porta
 >    Auto/Exp into the clone** (they fall back to defaults). But their identity is **unconfirmed**: the
 >    Performance section leaves **four** unmapped properties (Note Priority, Last Note Priority, Porta
@@ -158,6 +152,35 @@ denominator the earlier maps never had.
 > descriptor table + stream position + *all* DSP branches decide.** The sweep's real value turned out to
 > be **identification** (naming the `.v2p` audit's orphan fields), not gap-discovery — plus one genuine
 > bug found by a different route entirely (the mix3 off-by-one, caught from user-made presets).
+
+> ### 🔴 Q1 RESOLVED — **exp-glide domain: the clone DEVIATES** (real correctness bug; NOT yet fixed)
+> **VAZ glides in the pitch-linear `note*128` domain, not in Hz.** Evidence (static, `vaz_big.c`):
+> 1. Init `:2949-2951`: `[iVar3+0xb8] = DAT_006dd1b0` (target) and `[iVar3+0xbc] = target * 0x10000`
+>    → `+0xbc` is `+0xb8` in **16.16 fixed point** — same quantity, same domain.
+> 2. `:2955`: `[iVar3+0x28] = (current >> 6) - 0x800000` = `value*1024 − 2²³` → **zero (centre) exactly
+>    at `value == 8192`**.
+> 3. The RPM-dumped note table is **`DAT_006dd0c0[note] = note*128`** → **note 64 → 8192**. Exact match
+>    ⇒ `+0xb8` holds the note-table value: **128 units per semitone (pitch-linear / cents)**.
+> 4. The glide's exp step `(distance>>0x10) * [voice+0x1b8] >> 9` makes `distance *= (1−k)` per sample =
+>    a geometric decay ⇒ **an RC in the CENTS domain**, over 4 branches (:547/:560/:791/:804).
+>
+> **Clone (`SynthVoice.h`:215):** `glidedHz += (noteHz − glidedHz) * (1 − exp(−n/(T·sr)))` = an RC in the
+> **Hz** domain. Both are RCs; **different domains ⇒ different curves.**
+>
+> **Magnitude — material and audible.** Octave glide C3→C4, at 50 % RC completion:
+> VAZ = 60+6 = 66 semi = **185.0 Hz**; clone = 130.81+65.4 = **196.2 Hz** → **≈102 cents (~1 semitone)**
+> deviation mid-glide. (Endpoints agree; the *path* differs.) The clone's **linear** case is already
+> correct (constant cents/s in a pitch-linear domain — matches VAZ's constant step).
+>
+> **⚠ Trap recorded:** a naive grep for `+0xb8` also matches **`param_1+0xb8`**, which is an **LCG PRNG
+> seed** (`x*0xbb38435 + 0x3619636b`, used for Sample&Hold) — a *different object* from the glide's
+> `iVar3+0xb8`. Conflating them yields nonsense; this is the second time object-identity mattered more
+> than offset arithmetic (cf. the class-aware harvest correction).
+>
+> **Proposed fix (NOT applied — report-before-change):** make the clone's exp glide an RC in cents, e.g.
+> track `glidedSemi` and do `glidedSemi += (targetSemi − glidedSemi)*α; glidedHz = 2^(glidedSemi/12)·ref`
+> — mirroring VAZ's `distance *= (1−k)` in the pitch domain. Needs an oracle comparing the glide
+> trajectory (not just endpoints) against the fixed-point recurrence.
 
 ## Method (reproducible)
 Borland/Delphi publishes RTTI tables we can enumerate exactly:
