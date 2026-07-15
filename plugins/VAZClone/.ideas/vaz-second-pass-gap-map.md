@@ -48,7 +48,7 @@ denominator the earlier maps never had.
 >
 > | P2 item | evidence | verdict |
 > |---|---|---|
-> | **`msAmpPMSource`** (`pmAmpPMSign@0x8d0` / `msAmpPMSource@0x8d4` / `sbAmpPMDepth@0x8d8`) | a **complete extra mod triplet** on the Amp panel beyond AM1/AM2; matches the whitelisted **`e04f4 extra mod-src slot` + `e0504 depth`** (`v>=0x65`, sits right after `overdrive`) | 🔴 **REAL GAP — persisted, unmodeled.** The clone models Amp **AM1/AM2 only**. Highest-confidence new DSP gap of this pass. |
+> | **`msAmpPMSource`** (`pmAmpPMSign@0x8d0` / `msAmpPMSource@0x8d4` / `sbAmpPMDepth@0x8d8`) | ~~a complete extra mod triplet beyond AM1/AM2; matched to whitelisted `e04f4`+`e0504`~~ | ✅ **RETRACTED 2026-07-15 — ALREADY COVERED. My "REAL GAP" call was WRONG (see Item 2 below).** |
 > | **`msLFO2RMSource`** (`pmLFO2RMSign@0x7cc`) | == whitelisted **`LFO2 trig-mod src` + `LFO2 trig-mod depth`** (`v>=200`), explicitly *"clone does not model LFO2 trig modulation"* | 🔴 **REAL GAP — confirmed.** The GUI name finally identifies it. |
 > | **`btPortaAuto`@0x734 / `btPortaExp`@0x738** (+`sbPortaTime@0x73c`) | == whitelisted **`e05f0 glide/legato flag`** + **`e0600 flag`**, positioned exactly after `voiceMode` and before `bendRange` | 🔴 **REAL GAP — high confidence.** Clone has porta *time* but neither Auto nor Exponential mode. |
 > | **`msLFOPeriod`@0x788 / `msLFO2Period`@0x78c / `msLFOMode`@0x760 / `msLFO2Mode`@0x794** (+`btLFOSync@0x850`) | the LFO1 block whitelists **three** unmodeled v2.0 fields: `+0x94` *("purpose unconfirmed")*, `+0xded84` flag, `+0xe0`. Handlers exist and are real: `msLFOPeriodChange@0x510e68`, `msLFO2PeriodChange@0x511168`, `btLFOSyncChange@0x511100`, `PeriodPopupItemClick@0x511098` | 🟠 **LIKELY REAL GAP** — the GUI gives the 3 orphan fields an identity (Period / Mode / Sync). **Which-is-which not yet pinned** → do not implement on this alone. NB `+0x94` is the same field the Osc3 measurement proved does **not** drive pitch. |
@@ -82,6 +82,39 @@ denominator the earlier maps never had.
 > 1. `msAmpPMSource` (clean, self-contained, whitelist-confirmed), 2. `btPortaAuto/Exp` (2 flags),
 > 3. `msLFO2RMSource`, 4. **verify the `msFilterModModSource` naming risk** (cheap, and it's a
 > *correctness* issue in shipped code rather than a missing feature), 5. LFO Period/Mode (needs pinning).
+
+> ### ✅ Item 2 RESOLVED — `msAmpPMSource`: **PM = Pan Modulation**, already covered. Claim RETRACTED.
+> **`PM` does not mean Phase Mod.** Evidence:
+> 1. **VAZ's full property vocabulary** lives in TWO complementary clusters — old `*Source` @0xd90d8-0xd9300,
+>    new `*Sign` @0xd3600-0xd3980. The new one is far richer and is the real map:
+>    - `Filter: Cutoff, Resonance, **Modifier 1**, **Modifier 2**, FM Sign 3, FM Depth 3, **MM Sign**, **MM Depth**`
+>    - `Amplifier: AM Sign 1, AM Depth 1, AM Sign 2, AM Depth 2, **PM Sign**, **PM Depth**, Overdrive`
+>    - `Mod Amplifier 1: **SQ Mode**, AM Sign, AM Depth` · `**Lag Processor**: Time`
+>    - `Performance: Play Mode, **Note Priority**, **Last Note Priority**, **Voice Detune**,
+>       **Portamento Auto**, **Portamento Exp**, **Portamento Time**, Unison Voices, Pitchbend Range`
+> 2. **The Amp's slot order is `AM1, AM2, PM, Overdrive`** — and the clone reads `am3s/am3d` (`v>=200`)
+>    at *exactly* that position (immediately before `overdrive`).
+> 3. **DFM caption @0x180903 = `"Pan Modulation"`** (a `TVTArial8Label` section header on the synth form).
+> 4. **There is no static Pan control** on `TMidSynthForm` (`/pan/i` → none) and **no `"Pan Source/Sign/
+>    Depth"` property** — i.e. VAZ's pan is **modulation-only**, which is exactly a "Pan Modulation"
+>    header + one mod triplet.
+> 5. The clone maps `am3s/am3d → pan_mod_src/pan_mod_amt` and applies real panning (`SynthVoice.h`:341).
+> **Verdict: `msAmpPMSource` == the clone's `pan_mod`. Correct as shipped. NO CODE CHANGE.**
+>
+> **⚠ Correction to Finding 2:** I equated `msAmpPMSource` with the whitelisted `e04f4`+`e0504` slot.
+> That was wrong — `e04f4/e0504` sit **after** `overdrive`, i.e. **outside** the Amplifier's vocabulary
+> (which ends at Overdrive). **`e04f4/e0504` remain a genuine, still-unidentified gap** (candidates from
+> the vocabulary order: `Mod Amplifier 1` / `Lag Processor`) — but they are NOT the Amp PM slot.
+>
+> **✅ Item 3 pre-confirmed by the same vocabulary:** `"Portamento Auto"` and `"Portamento Exp"` are real
+> named properties, and the clone whitelists `e05f0`/`e0600` at exactly the matching stream position
+> (after `voiceMode`=`Play Mode`, before `bendRange`=`Pitchbend Range`). **btPortaAuto/btPortaExp stay a
+> REAL GAP** — that part of Finding 2 holds.
+>
+> **Scoreboard so far — 2 of 2 "gaps" I flagged were false alarms.** Item 1 (`msFilterModMod`) and Item 2
+> (`msAmpPM`) were both already correctly modelled. The clone's earlier RE is better than the name-level
+> sweep implied; **GUI control names are unreliable evidence** (`ModMod`≠resonance-vs-modifier question,
+> `PM`≠phase-mod). Only the **named-property vocabulary + stream position + DSP branches** decide.
 
 ## Method (reproducible)
 Borland/Delphi publishes RTTI tables we can enumerate exactly:
