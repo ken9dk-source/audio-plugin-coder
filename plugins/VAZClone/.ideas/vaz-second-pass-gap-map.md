@@ -35,6 +35,31 @@
 diffed against everything the project has written down. Supersedes nothing — it *adds* the coverage
 denominator the earlier maps never had.
 
+> ## ✅ P2 VERDICTS (2026-07-15) — decided by joining the GUI harvest to the `.v2p` audit whitelist
+> **The key move:** `VazV2PAudit` already prints a **WHITELIST = bytes VAZ persists that the clone does
+> NOT map** (27 entries, several `[FLAGGED]`). It knew *"there are unmodeled fields here"* but not
+> *what they are*. The class-aware GUI harvest supplies the identity. **Joined, they decide P2.**
+>
+> **Structural discovery (not previously recorded):** every VAZ mod slot is a **triplet**
+> `[pm*Sign][ms*Source][sb*Depth]`. The clone models source+depth and folds Sign into its signed
+> `amt`/`inv` pair — so **Sign is NOT a gap**. Slot inventory on `TMidSynthForm`:
+> `Filter: FM1/FM2/FM3 + ModMod` · `Amp: AM1/AM2 + PM` · `Osc1/Osc2: FM1/FM2 + ModMod` ·
+> `ModAmp1/ModAmp2: Source + AMSource` · `LFO2: RM` · `Env2: Mod`.
+>
+> | P2 item | evidence | verdict |
+> |---|---|---|
+> | **`msAmpPMSource`** (`pmAmpPMSign@0x8d0` / `msAmpPMSource@0x8d4` / `sbAmpPMDepth@0x8d8`) | a **complete extra mod triplet** on the Amp panel beyond AM1/AM2; matches the whitelisted **`e04f4 extra mod-src slot` + `e0504 depth`** (`v>=0x65`, sits right after `overdrive`) | 🔴 **REAL GAP — persisted, unmodeled.** The clone models Amp **AM1/AM2 only**. Highest-confidence new DSP gap of this pass. |
+> | **`msLFO2RMSource`** (`pmLFO2RMSign@0x7cc`) | == whitelisted **`LFO2 trig-mod src` + `LFO2 trig-mod depth`** (`v>=200`), explicitly *"clone does not model LFO2 trig modulation"* | 🔴 **REAL GAP — confirmed.** The GUI name finally identifies it. |
+> | **`btPortaAuto`@0x734 / `btPortaExp`@0x738** (+`sbPortaTime@0x73c`) | == whitelisted **`e05f0 glide/legato flag`** + **`e0600 flag`**, positioned exactly after `voiceMode` and before `bendRange` | 🔴 **REAL GAP — high confidence.** Clone has porta *time* but neither Auto nor Exponential mode. |
+> | **`msLFOPeriod`@0x788 / `msLFO2Period`@0x78c / `msLFOMode`@0x760 / `msLFO2Mode`@0x794** (+`btLFOSync@0x850`) | the LFO1 block whitelists **three** unmodeled v2.0 fields: `+0x94` *("purpose unconfirmed")*, `+0xded84` flag, `+0xe0`. Handlers exist and are real: `msLFOPeriodChange@0x510e68`, `msLFO2PeriodChange@0x511168`, `btLFOSyncChange@0x511100`, `PeriodPopupItemClick@0x511098` | 🟠 **LIKELY REAL GAP** — the GUI gives the 3 orphan fields an identity (Period / Mode / Sync). **Which-is-which not yet pinned** → do not implement on this alone. NB `+0x94` is the same field the Osc3 measurement proved does **not** drive pitch. |
+> | **`msFilterModModSource`**@0x688 (`pmFilterModModSign@0x684`, `sbFilterModModDepth@0x68c`) | the filter's **4th** slot; `.v2p` has exactly 4 (`fcut1/2/3` + `fresS/fresD`) and **all are mapped** → this is the clone's `res_mod_src`/`res_mod_amt` | 🟡 **ALREADY COVERED — but ⚠ NAMING RISK.** VAZ calls it **"ModMod"** (it follows `lbFilterModulation`, and the filter's own res slider is `sbFilterRes@0x64c`), while the clone calls it *resonance* mod. It may actually modulate the filter **Modifier** (`sbFilterModifier@0x654` = clone `flt_aux`/bandwidth), not resonance. **Same bug class as the mix3 off-by-one — verify before trusting.** |
+> | **`Imp*` family** | on `TBasePreferencesDlg` → Import tab | ✅ **NOT DSP** (see Revision 2). |
+>
+> **Report-before-implement:** nothing above is implemented. Recommended order if we act:
+> 1. `msAmpPMSource` (clean, self-contained, whitelist-confirmed), 2. `btPortaAuto/Exp` (2 flags),
+> 3. `msLFO2RMSource`, 4. **verify the `msFilterModModSource` naming risk** (cheap, and it's a
+> *correctness* issue in shipped code rather than a missing feature), 5. LFO Period/Mode (needs pinning).
+
 ## Method (reproducible)
 Borland/Delphi publishes RTTI tables we can enumerate exactly:
 - `TMethodEntry = [u16 size][u32 addr][u8 len][chars]`, `size == 7+len` → **name → handler address**
