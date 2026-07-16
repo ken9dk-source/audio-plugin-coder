@@ -1,6 +1,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "ParameterIDs.hpp"
+#include "../../VAZClone/reference/vaz_phaser_rate_lut.h"   // VAZ free-LFO exp rate curve (flanger == phaser/chorus)
 
 VAZFlangerAudioProcessor::VAZFlangerAudioProcessor()
     : AudioProcessor (BusesProperties()
@@ -79,8 +80,11 @@ void VAZFlangerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     const double mix       = (double) fMix;
     const double gain      = (double) fGain;
     const double inGain    = 1.0;                                    // real [+0x294] (input into the delay line)
-    // Modulation rate: free (Rate² → 0..20 Hz, Rate fully DOWN = STATIC notch — the VAZ hardtrance signature)
-    // or tempo-synced (Sync on → host-BPM division from the 24-entry note table).
+    // Modulation rate: free = VAZ's EXP curve (0.010..9.76 Hz), IDENTICAL to the phaser/chorus LFO. Setter
+    // FUN_00520820 (disasm): inc = round(3891.3558638060376·e^(0.027·b)·11025/sr) — byte-identical constants to
+    // the chorus builder FUN_00518ffc. WAS a WRONG fRate²·20 square law (0..20 Hz, 2–23× too fast at speed; the
+    // same square-law mistake fixed earlier for phaser/chorus). NB Rate=0 → 0.01 Hz (~100 s), NOT frozen — the
+    // old "static notch" was a clone artifact. Or tempo-synced (Sync on → host-BPM division, 24-entry table).
     static constexpr double periodBeats[24] = { 1.0/12, 1.0/8, 1.0/6, 1.0/4, 1.0/3, 1.0/2, 2.0/3, 1.0,
         2.0, 3.0, 4.0, 5.0, 6.0, 8.0, 12.0, 16.0, 24.0, 32.0, 48.0, 64.0, 96.0, 128.0, 192.0, 256.0 };
     double rateHz;
@@ -94,7 +98,10 @@ void VAZFlangerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         rateHz = (bpm / 60.0) / periodBeats[p];               // tempo-synced Hz
     }
     else
-        rateHz = (double) fRate * (double) fRate * 20.0;      // free: 0..20 Hz
+    {   // free: VAZ exp curve via the shared rate LUT (proven bit-exact) — SR-independent Hz, like the chorus.
+        const int b = juce::jlimit (0, 255, (int) std::lround (fRate * 255.0f));
+        rateHz = (double) vazfx::kPhaserRateLUT[b] * 44100.0 / 4294967296.0;   // freq = inc·44100/2^32 (0.01..9.76 Hz)
+    }
     const double lfoInc   = rateHz / sr;
     if (lfoInc <= 0.0) lfoPhase = 0.0;            // static → freeze LFO so Delay Time alone sets a fixed metallic comb
     const double lrOffset = (double) fLrPh * 0.5;          // up to half-cycle between channels
