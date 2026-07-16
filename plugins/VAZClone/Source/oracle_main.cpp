@@ -985,13 +985,31 @@ int main()
              "clone VazChorusEngine vs independent transcription of FUN_00518ad8 (mono line + 3 combined taps + stereo), modes 1&2, impulse+noise");
     }
 
-    // ── FX 8. Phaser coef LUT — engine's sr=44100 LUT == the runtime dump (vaz_phaser_coef_lut.h) ──────────
+    // ── FX 8. Phaser coef LUT — INDEPENDENT closed-form recompute == the dump, all 512 entries ─────────────
     {
+        // From FUN_00521aa0 (direct disasm, x87): coef[i] = clamp≥0 round_even( float32( (1 − e^((i·5)·ln2/255)
+        //   · 440 / D) · 2^30 ) ). e^x = FUN_00402ba8 (fldl2e/f2xm1/fscale); float10→float32 via `fstp dword`;
+        //   fistp = round-to-nearest-even. D = *(*(synth+0x1c)) = 3,784,704 (0x39C000) — the exact runtime
+        //   divisor, empirically pinned (D±1 breaks 39 entries). NB: the header's LINEAR (1−i·k) form was
+        //   WRONG — the real builder applies e^x and narrows to float32. The clone ships the dump; this proves
+        //   the dump == the builder bit-for-bit, so the LUT is fully characterised (no longer just anchors).
+        const double ln2 = 0.6931471805599453, D = 3784704.0;
+        auto rEven = [] (double x) -> long { const double f = std::floor (x), r = x - f;
+            return (long) (r < 0.5 ? f : r > 0.5 ? f + 1.0 : (std::fmod (f, 2.0) == 0.0 ? f : f + 1.0)); };
+        long maxd = 0; int miss = 0;
+        for (int i = 0; i < 512; ++i)
+        {
+            const double v = (1.0 - std::exp ((double) (i * 5) * ln2 / 255.0) * 440.0 / D) * 1073741824.0;
+            const long r = ((float) v < 0.0f) ? 0 : rEven ((double) (float) v);
+            long d = r - (long) (uint32_t) vazfx::kPhaserCoefLUT[i]; if (d < 0) d = -d;
+            if (d > maxd) maxd = d; if (d) ++miss;
+        }
         VazPhaserEngine e; e.setSampleRate (44100.0);
-        bool ok = ((uint32_t) e.coefLut[0] == 0x3FFE1880u) && ((uint32_t) e.coefLut[511] == 0x3846D580u)
-               && ((uint32_t) e.coefLut[256] == vazfx::kPhaserCoefLUT[256]);
-        row ("fx_phaser_coef_lut", ok ? "VERIFIED (dumped LUT)" : "DEVIATION",
-             "512-entry allpass coef LUT (FUN_00521aa0 @0x521aa0): coef[0]=0x3FFE1880, coef[511]=0x3846D580 (runtime-dumped, replaces tan())");
+        const bool engOk = ((uint32_t) e.coefLut[0] == vazfx::kPhaserCoefLUT[0]);   // engine actually loads the dump
+        row ("fx_phaser_coef_lut", (maxd == 0 && engOk) ? "BIT-EXACT" : "DEVIATION (max=" + std::to_string (maxd) + ")",
+             "512-entry allpass coef LUT (FUN_00521aa0): coef[i]=clamp>=0 round_even(f32((1-e^(i*5*ln2/255)*440/D)*2^30)), "
+             "D=3784704 — INDEPENDENT recompute == dump for ALL 512 (" + std::to_string (miss) + " mismatch). "
+             "coef[0]=0x3FFE1880..coef[511]=0x3846D580; header's linear form corrected to the real e^x+float32 builder");
     }
 
     // ── FX 9. Phaser render — clone VazPhaserEngine vs independent transcription of FUN_005218d8 ──────────

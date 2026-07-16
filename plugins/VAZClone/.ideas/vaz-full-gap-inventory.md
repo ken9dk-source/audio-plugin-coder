@@ -235,7 +235,7 @@ Clone now ships `VazPhaserEngine` (fixed-point port; render bit-exact vs an inde
 | Part | Ghidra ref (VAZ) | Clone (VazPhaserEngine) | Status |
 |---|---|---|---|
 | Engine | N-stage 1st-order allpass (Q30), coef from 512-LUT, feedback, linear mix | now identical (fixed-point transcription) | ✅ FIXED — `fx_phaser_render` BIT-EXACT |
-| Allpass coef | 512-LUT `(1−i·5·ln2·440/255/sr)·2^30` (FUN_00521aa0) | **runtime-dumped LUT** (`vaz_phaser_coef_lut.h`), SR-adjusted `2^30−(2^30−c)·(44100/sr)` | ✅ FIXED (was tan()) — `fx_phaser_coef_lut` VERIFIED |
+| Allpass coef | 512-LUT `clamp≥0 round_even(f32((1−e^(i·5·ln2/255)·440/D)·2^30))`, D=3784704 (FUN_00521aa0, direct disasm — e^x via FUN_00402ba8; the old `(1−i·k)` linear form was WRONG) | **runtime-dumped LUT** (`vaz_phaser_coef_lut.h`), SR-adjusted `2^30−(2^30−c)·(44100/sr)` | ✅ **BIT-EXACT** (2026-07-15) — `fx_phaser_coef_lut`: INDEPENDENT closed-form recompute == dump for ALL 512 (was VERIFIED @3 anchors) |
 | LFO→coef idx | `((\|ph\|>>16)·depth[+0x280]+center[+0x264]·0x8000)>>15` | now identical | ✅ ported exactly | 
 | Stages | N = (stagesParam+1)·2 → 2..12 (FUN_00521b68 @0x521b68) | (round(f·5)+1)·2 | ✅ **VERIFICERET** (clone `2+2·round(f·5)` == VAZ) |
 | Feedback | fbGain = clamp(param,±100)<<23 → max **±0.78125** (FUN_00521bf4 @0x521bf4) | param(0..100)<<23, ±invert | ✅ **FIXED** (was 0.72 guess → 100/128=0.78125) |
