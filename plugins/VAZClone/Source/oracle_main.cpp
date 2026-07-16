@@ -1082,16 +1082,26 @@ int main()
              + std::to_string (miss) + " mismatch; b=255->0x40000000 0dB, b=225->0x2D413CCD -3dB, b=0->0x035D13F3 -25.6dB)");
     }
 
-    // ── FX. Phaser free-rate curve — engine rate LUT (FUN_00521c84) == dumped; quantify vs the old fRate²·20 ──
+    // ── FX. Phaser free-rate curve — INDEPENDENT closed-form recompute == the dump, all 256 entries ─────────
     {
-        const bool ok = (vazfx::kPhaserRateLUT[0] == 0x000003CDu) && (vazfx::kPhaserRateLUT[255] == 0x000E82A8u);
-        auto vf = [] (int b) { return (double) vazfx::kPhaserRateLUT[b] * 44100.0 / 4294967296.0; };   // VAZ Hz
-        auto of = [] (int b) { const double f = b / 255.0; return f * f * 20.0; };                       // old clone Hz
+        // FUN_00521c84 (disasm: fild b; ·0.027; e^x; ·3891.356; ·11025/sr): inc[b] = round_even(
+        //   3891.3558638060376 · e^(0.027·b) · 11025 / sr ) at sr=44100. Independent recompute == dump for ALL
+        //   256 bytes. 32-bit phase inc → freq = inc·sr/2^32 = EXPONENTIAL 0.010..9.76 Hz (was a wrong fRate²·20).
+        auto rEven = [] (double x) -> long { const double f = std::floor (x), r = x - f;
+            return (long) (r < 0.5 ? f : r > 0.5 ? f + 1.0 : (std::fmod (f, 2.0) == 0.0 ? f : f + 1.0)); };
+        long maxd = 0; int miss = 0;
+        for (int b = 0; b < 256; ++b)
+        {
+            const long r = rEven (3891.3558638060376 * std::exp (0.027 * (double) b) * 11025.0 / 44100.0);
+            long d = r - (long) (uint32_t) vazfx::kPhaserRateLUT[b]; if (d < 0) d = -d;
+            if (d > maxd) maxd = d; if (d) ++miss;
+        }
+        auto vf = [] (int b) { return (double) vazfx::kPhaserRateLUT[b] * 44100.0 / 4294967296.0; };
         auto s = [] (double x) { return std::to_string (x).substr (0, 5); };
-        row ("fx_phaser_rate_curve", ok ? "VERIFIED (dumped LUT)" : "DEVIATION",
-             "VAZ free rate EXPONENTIAL 0.010..9.76 Hz (was fRate²·20). b{64,128,192}: VAZ " + s (vf (64)) + "/" + s (vf (128))
-             + "/" + s (vf (192)) + " vs old " + s (of (64)) + "/" + s (of (128)) + "/" + s (of (192)) + " Hz ("
-             + s (of (64) / vf (64)) + "/" + s (of (128) / vf (128)) + "/" + s (of (192) / vf (192)) + "x too fast)");
+        row ("fx_phaser_rate_curve", maxd == 0 ? "BIT-EXACT" : "DEVIATION (max=" + std::to_string (maxd) + ")",
+             "free rate FUN_00521c84: inc=round_even(3891.356*e^(0.027*b)*11025/sr) — INDEPENDENT recompute == dump "
+             "for ALL 256 (" + std::to_string (miss) + " mismatch). EXPONENTIAL " + s (vf (0)) + ".." + s (vf (255))
+             + " Hz (was fRate^2*20, 2-23x too fast)");
     }
 
     // ── FX. Chorus LFO rate — reuses the phaser rate LUT (chorus dump == phaser dump); quantify vs old fRate²·6 ──
