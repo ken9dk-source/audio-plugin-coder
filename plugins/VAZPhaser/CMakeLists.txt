@@ -52,6 +52,17 @@ target_link_libraries(VAZPhaser
 target_compile_definitions(VAZPhaser
     PUBLIC JUCE_WEB_BROWSER=1 JUCE_VST3_CAN_REPLACE_VST2=0 _USE_MATH_DEFINES=1)
 
+# Headless regression guard for the Stages discrete-snap fix (f2ec5a5). Links the REAL processor with
+# VAZPHASER_HEADLESS=1 (no WebView editor), asserts the shipped 'stages' param snaps to 2/4/6/8/10/12.
+juce_add_console_app(VazPhaserParamTest PRODUCT_NAME "VazPhaserParamTest")
+target_sources(VazPhaserParamTest PRIVATE Source/vazphaser_param_test.cpp Source/PluginProcessor.cpp)
+target_include_directories(VazPhaserParamTest PRIVATE Source)
+target_compile_definitions(VazPhaserParamTest PRIVATE
+    VAZPHASER_HEADLESS=1 JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_MODAL_LOOPS_PERMITTED=0 _USE_MATH_DEFINES=1)
+target_link_libraries(VazPhaserParamTest PRIVATE
+    juce::juce_audio_basics juce::juce_audio_processors juce::juce_audio_utils
+    juce::juce_core juce::juce_data_structures juce::juce_dsp juce::juce_events)
+
 if(WIN32)
     target_compile_definitions(VAZPhaser PUBLIC JUCE_USE_WIN_WEBVIEW2_WITH_STATIC_LINKING=1)
 endif()

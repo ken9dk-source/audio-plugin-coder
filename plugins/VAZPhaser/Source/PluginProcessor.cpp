@@ -1,5 +1,10 @@
 #include "PluginProcessor.h"
-#include "PluginEditor.h"
+#ifndef VAZPHASER_HEADLESS
+ #define VAZPHASER_HEADLESS 0            // 1 in the headless param-regression test target (no WebView editor)
+#endif
+#if ! VAZPHASER_HEADLESS
+ #include "PluginEditor.h"
+#endif
 #include "ParameterIDs.hpp"
 
 VAZPhaserAudioProcessor::VAZPhaserAudioProcessor()
@@ -146,7 +151,11 @@ void VAZPhaserAudioProcessor::setStateInformation (const void* data, int size)
 
 juce::AudioProcessorEditor* VAZPhaserAudioProcessor::createEditor()
 {
+   #if VAZPHASER_HEADLESS
+    return nullptr;                                      // headless test build — no WebView editor linked
+   #else
     return new VAZPhaserAudioProcessorEditor (*this);
+   #endif
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
