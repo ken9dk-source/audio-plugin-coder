@@ -387,5 +387,12 @@ effectively continuous (≈0.4 %/step) and fine. Checked EVERY param in all 7 FX
 | Autopan | left/right/rate → continuous; waveform/sync → Bool | ✅ fine |
 
 Only two params had dead zones (Stages, Bit Depth) — both now discrete stepped params. All other small selectors were
-already `AudioParameterChoice`/`Bool`; all knobs map to ≥256 steps or continuous fields. Oracle: `fx_phaser_stages_diag`
-(guards Stages), `fx_decimator_render` (Bit Depth unchanged in DSP). — EQ + TFXComp remain for a later pass.
+already `AudioParameterChoice`/`Bool`; all knobs map to ≥256 steps or continuous fields. Oracle: `fx_phaser_stages`
+(now a real BIT-EXACT primitive — engine == RefPhaser at all 6 counts N=2/4/6/8/10/12, was an RMS-only diag),
+`fx_decimator_render` (Bit Depth unchanged in DSP). — EQ + TFXComp remain for a later pass.
+
+**Phaser oracle primitives — ALL BIT-EXACT (2026-07-15):** `fx_phaser_render`, `fx_phaser_param_sweep`,
+`fx_phaser_coef_lut` (512), `fx_phaser_gain_curve` (256), `fx_phaser_rate_curve` (256), `fx_phaser_stages` (N=2..12).
+The three LUTs went VERIFIED→BIT-EXACT by an INDEPENDENT closed-form recompute matching the runtime dump entry-for-entry
+(coef needed the real e^x+float32 builder from direct disasm, D=3784704; header's linear form was wrong). `fx_chorus_rate_curve`
+stays VERIFIED (routing note: chorus reuses the now-bit-exact phaser rate LUT).

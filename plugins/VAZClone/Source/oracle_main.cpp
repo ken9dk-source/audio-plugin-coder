@@ -1034,31 +1034,43 @@ int main()
              "clone VazPhaserEngine vs independent transcription of FUN_005218d8 (N allpass + fb + linear mix + stereo), LFO moving, impulse+noise");
     }
 
-    // ── DIAG. Phaser stages — RMS audibility of a 2↔12 stages change at DEFAULT vs STRONG settings ─────────
+    // ── FX. Phaser STAGES — engine == independent reference at EVERY discrete stage count (real primitive) ──
     {
-        auto runStages = [] (int stagesParam, int depthP, int centerP, int mixP, int fbP, std::vector<double>& out)
+        // N = (stagesParam+1)·2 = 2/4/6/8/10/12 (FUN_00521b68). fx_phaser_render covers only N=8; this drives
+        // the WHOLE discrete set through the same independent RefPhaser transcription and asserts bit-exact
+        // output at each — a real oracle primitive, not the old RMS-audibility diagnostic.
+        long maxd = 0; int worstN = 0;
+        for (int sp = 0; sp <= 5; ++sp)
         {
-            VazPhaserEngine e; e.clearBuffers(); e.setSampleRate (44100.0);
-            e.setParams (stagesParam, fbP, false, depthP, centerP, 64, mixP, 255, 175284u);   // rate≈1.8 Hz, gain 0 dB
-            uint32_t rng = 0x1357u; out.clear();
-            for (int i = 0; i < 40000; ++i)
+            const int N = (sp + 1) * 2;
+            VazPhaserEngine eng; RefPhaser ref; eng.clearBuffers(); eng.setSampleRate (44100.0); ref.loadLut();
+            eng.inc = ref.inc = 0x00280000u; eng.depth = ref.depth = 200; eng.center = ref.center = 96;
+            eng.numStages = ref.numStages = N; eng.fbGain = ref.fbGain = 80 << 23; eng.inGain = ref.inGain = 0x40000000;
+            eng.mix = ref.mix = 200; eng.lrPhase = ref.lrPhase = 40;
+            uint32_t rng = 0xC0FFEEu;
+            for (int i = 0; i < 60000; ++i)
             {
-                int32_t s = (int32_t) ((rng = rng * 1664525u + 1013904223u) >> 9) - (1 << 21);   // steady noise (no impulse)
-                int32_t L = s, R = s; e.processFrame (L, R);
-                if (i >= 2000) out.push_back ((double) L / 8388608.0);   // skip settling
+                const int32_t s = (i == 0) ? (1 << 21) : (int32_t) ((rng = rng * 1664525u + 1013904223u) >> 9) - (1 << 21);
+                int32_t eL = s, eR = s ^ 0x55, rL = s, rR = s ^ 0x55;
+                eng.processFrame (eL, eR); ref.frame (rL, rR);
+                const long d1 = std::labs ((long) eL - (long) rL), d2 = std::labs ((long) eR - (long) rR);
+                if (d1 > maxd) { maxd = d1; worstN = N; } if (d2 > maxd) { maxd = d2; worstN = N; }
             }
-        };
-        auto rmsRatio = [&] (int depthP, int centerP, int mixP, int fbP) -> double
-        {
-            std::vector<double> a, b; runStages (0, depthP, centerP, mixP, fbP, a); runStages (5, depthP, centerP, mixP, fbP, b);
+        }
+        // secondary audibility check (informative): a 2↔12 stage change is audible at the plugin defaults.
+        auto rms2v12 = [] () -> double {
+            auto run = [] (int sp, std::vector<double>& out) {
+                VazPhaserEngine e; e.clearBuffers(); e.setSampleRate (44100.0);
+                e.setParams (sp, 50, false, 153, 128, 64, 128, 255, 175284u); uint32_t rng = 0x1357u; out.clear();
+                for (int i = 0; i < 40000; ++i) { int32_t s = (int32_t) ((rng = rng * 1664525u + 1013904223u) >> 9) - (1 << 21);
+                    int32_t L = s, R = s; e.processFrame (L, R); if (i >= 2000) out.push_back ((double) L / 8388608.0); } };
+            std::vector<double> a, b; run (0, a); run (5, b);
             double sd = 0, ss = 0; for (size_t i = 0; i < a.size(); ++i) { const double d = a[i] - b[i]; sd += d * d; ss += b[i] * b[i]; }
-            return ss > 0 ? std::sqrt (sd / ss) : 0.0;   // RMS(out2−out12) / RMS(out12)
-        };
-        const double def = rmsRatio (153, 128, 128, 50);   // plugin defaults: freq 0.5, depth 0.6, mix 0.5, fb 0.5
-        const double str = rmsRatio (255, 220, 200, 80);   // strong: high freq/depth/mix/fb
-        row ("fx_phaser_stages_diag", (def > 0.02) ? "OK (audible at default)" : "WEAK at default (VAZ coef≈1 → narrow low-freq notches)",
-             "RMS(st2−st12)/RMS: default=" + std::to_string (def) + "  strong=" + std::to_string (str)
-             + "  (engine responds; low default = coef-LUT is 0.88..0.9999 = low-freq allpass)");
+            return ss > 0 ? std::sqrt (sd / ss) : 0.0; };
+        const double def = rms2v12();
+        row ("fx_phaser_stages", maxd == 0 ? "BIT-EXACT" : "DEVIATION (max=" + std::to_string (maxd) + " @N=" + std::to_string (worstN) + ")",
+             "engine == RefPhaser at ALL 6 stage counts N=2/4/6/8/10/12 (maxd=" + std::to_string (maxd)
+             + "); audible: RMS(st2-st12)/RMS at default = " + std::to_string (def).substr (0, 5));
     }
 
     // ── FX. Phaser gain curve — INDEPENDENT closed-form recompute == the dump, all 256 entries ──────────────
