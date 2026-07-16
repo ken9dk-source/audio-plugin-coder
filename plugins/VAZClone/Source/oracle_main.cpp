@@ -1061,15 +1061,25 @@ int main()
              + "  (engine responds; low default = coef-LUT is 0.88..0.9999 = low-freq allpass)");
     }
 
-    // ── FX. Phaser gain curve — engine gain LUT (FUN_00521d44) == the runtime-dumped anchors ─────────────────
+    // ── FX. Phaser gain curve — INDEPENDENT closed-form recompute == the dump, all 256 entries ──────────────
     {
-        VazPhaserEngine e;
-        e.setParams (1, 0, false, 200, 90, 64, 200, 255, 0u); const uint32_t g255 = (uint32_t) e.inGain;
-        e.setParams (1, 0, false, 200, 90, 64, 200, 225, 0u); const uint32_t g225 = (uint32_t) e.inGain;
-        e.setParams (1, 0, false, 200, 90, 64, 200,   0, 0u); const uint32_t g0   = (uint32_t) e.inGain;
-        const bool ok = (g255 == 0x40000000u) && (g225 == 0x2D413CCDu) && (g0 == 0x035D13F3u);
-        row ("fx_phaser_gain_curve", ok ? "VERIFIED (dumped LUT)" : "DEVIATION",
-             "gain FUN_00521d44: inGain=2^((b−255)/60)·2^30 — b=255→0dB(0x40000000), b=225→−3dB(0x2D413CCD), b=0→−25.6dB(0x035D13F3)");
+        // FUN_00521d44 (disasm fldln2/fyl2x→2^x): inGain[b] = round_even( 2^((b−255)/60)·2^30 ). The
+        // independent closed form reproduces the runtime dump for ALL 256 bytes (x87-vs-double stays below the
+        // integer round here; this builder does NOT narrow to float32, unlike the coef builder).
+        auto rEven = [] (double x) -> long { const double f = std::floor (x), r = x - f;
+            return (long) (r < 0.5 ? f : r > 0.5 ? f + 1.0 : (std::fmod (f, 2.0) == 0.0 ? f : f + 1.0)); };
+        long maxd = 0; int miss = 0;
+        for (int b = 0; b < 256; ++b)
+        {
+            const long r = rEven (std::exp2 ((double) (b - 255) / 60.0) * 1073741824.0);
+            long d = r - (long) (uint32_t) vazfx::kPhaserGainLUT[b]; if (d < 0) d = -d;
+            if (d > maxd) maxd = d; if (d) ++miss;
+        }
+        VazPhaserEngine e; e.setParams (1, 0, false, 200, 90, 64, 200, 225, 0u);
+        const bool engOk = ((uint32_t) e.inGain == vazfx::kPhaserGainLUT[225]);   // engine actually loads the dump
+        row ("fx_phaser_gain_curve", (maxd == 0 && engOk) ? "BIT-EXACT" : "DEVIATION (max=" + std::to_string (maxd) + ")",
+             "gain FUN_00521d44: inGain=round_even(2^((b-255)/60)*2^30) — INDEPENDENT recompute == dump for ALL 256 ("
+             + std::to_string (miss) + " mismatch; b=255->0x40000000 0dB, b=225->0x2D413CCD -3dB, b=0->0x035D13F3 -25.6dB)");
     }
 
     // ── FX. Phaser free-rate curve — engine rate LUT (FUN_00521c84) == dumped; quantify vs the old fRate²·20 ──
