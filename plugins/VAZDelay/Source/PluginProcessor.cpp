@@ -1,5 +1,10 @@
 #include "PluginProcessor.h"
-#include "PluginEditor.h"
+#ifndef VAZDELAY_HEADLESS
+ #define VAZDELAY_HEADLESS 0             // 1 in the headless render-test target (no WebView editor linked)
+#endif
+#if ! VAZDELAY_HEADLESS
+ #include "PluginEditor.h"
+#endif
 #include "ParameterIDs.hpp"
 
 VAZDelayAudioProcessor::VAZDelayAudioProcessor()
@@ -165,7 +170,11 @@ void VAZDelayAudioProcessor::setStateInformation (const void* data, int size)
 
 juce::AudioProcessorEditor* VAZDelayAudioProcessor::createEditor()
 {
+   #if VAZDELAY_HEADLESS
+    return nullptr;                                      // headless test build — no WebView editor linked
+   #else
     return new VAZDelayAudioProcessorEditor (*this);
+   #endif
 }
 
 //==============================================================================

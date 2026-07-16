@@ -35,12 +35,23 @@ struct VazDelayEngine
         buf.assign ((size_t) n * 2, 0);
         mask = n - 1; wpos = 0; stateL = stateR = 0;
         samplesPerMs = (int) sr / 1000;       // integer, exactly as VAZ
-        const double adj = 44100.0 / sr;      // k_sr = 2^28·(k_44k/2^28)^(44100/sr)
+        // Tone → one-pole LP coef (VAZ setter FUN_0051c298 @0x51c298): fc = exp((tone+256)/50) Hz (167 Hz..27 kHz),
+        // b = (2−cos w) − sqrt((2−cos w)²−1), w = 2π·min(fc/sr, 0.49). At 44100 this reproduces the dumped 80-bit LUT
+        // bit-exactly; at other rates it RECOMPUTES b at the real SR (fc is in Hz). The old k^(44100/sr) power law
+        // was for a wrong exp(−C/sr) retention model — and that whole LUT was garbage from a bad SR dump anyway.
         for (int i = 0; i < 256; ++i)
         {
-            const double k44 = (double) vazfx::kDelayDampLUT[i] / (double) 0x10000000;
-            const double k   = (sr == 44100.0) ? k44 : std::pow (k44, adj);
-            dampLut[i] = (int32_t) std::llround (k * (double) 0x10000000);
+            if (sr == 44100.0)
+                dampLut[i] = (int32_t) vazfx::kDelayDampLUT[i];   // bit-exact dumped value
+            else
+            {
+                const double fc = std::exp (((double) i + 256.0) / 50.0);
+                double v = fc / sr; if (v > 0.49) v = 0.49;
+                const double w = 6.283185307179586 * v;
+                const double p = 2.0 - std::cos (w);
+                const double b = p - std::sqrt (p * p - 1.0);
+                dampLut[i] = (int32_t) std::llround (b * (double) 0x10000000);
+            }
         }
     }
     // Delay-time (FREE): VAZ delayL = ms·(SR/1000) + ((SR/1000)>>4)  (LINEAR in ms; FUN_0051c1cc @0x51c1cc).

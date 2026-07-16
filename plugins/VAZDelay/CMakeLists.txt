@@ -73,3 +73,16 @@ endif()
 if(UNIX AND NOT APPLE)
     target_compile_definitions(VAZDelay PUBLIC JUCE_USE_CURL=0)
 endif()
+
+# Headless end-to-end render test. Links the REAL processor with VAZDELAY_HEADLESS=1 (no WebView editor),
+# feeds an impulse and asserts an audible delay tail leaves processBlock on the shipped defaults. The oracle
+# tests the ENGINE directly; this covers the processor's param->engine mapping (the "oracle green, plugin
+# silent" gap). Run: VazDelayRenderTest.exe
+juce_add_console_app(VazDelayRenderTest PRODUCT_NAME "VazDelayRenderTest")
+target_sources(VazDelayRenderTest PRIVATE Source/vazdelay_render_test.cpp Source/PluginProcessor.cpp)
+target_include_directories(VazDelayRenderTest PRIVATE Source)
+target_compile_definitions(VazDelayRenderTest PRIVATE
+    VAZDELAY_HEADLESS=1 JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_MODAL_LOOPS_PERMITTED=0 _USE_MATH_DEFINES=1)
+target_link_libraries(VazDelayRenderTest PRIVATE
+    juce::juce_audio_basics juce::juce_audio_processors juce::juce_audio_utils
+    juce::juce_core juce::juce_data_structures juce::juce_dsp juce::juce_events)

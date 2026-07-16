@@ -1351,18 +1351,29 @@ int main()
              "== clone over ALL 0..2550 ms (maxd=" + std::to_string (maxd) + ")");
     }
 
-    // ── FX 10c. Delay tone→damp LUT — engine loads the FULL dump (was 2 anchors); formula exp-based 80-bit ────
+    // ── FX 10c. Delay tone→damp coef — INDEPENDENT formula recompute, full table → BIT-EXACT ────────────────
     {
-        // FUN_0051c298 (disasm): damp = clamp(e^((tone+256)*K/…)/sr) — exp-based in x87 80-bit, same helper +
-        // structure as the reverb damp builder (FUN_00523194), so NOT double-reproducible (x87 boundary). The
-        // clone SHIPS the runtime dump; verify it loads ALL 256 entries exactly at sr=44100.
+        // FUN_0051c298 (direct disasm @0x51c298): a stable one-pole LP coef. fc = exp((tone+256)/50) Hz
+        // (const 10.24/512 @0x51c38c/0x51c398), w = 2π·min(fc/sr, 0.49) (Nyquist clamp @0x51c39c, 2π @0x51c3a8),
+        // b = (2−cos w) − sqrt((2−cos w)²−1) (2 @0x51c3b4, 1 @0x51c3b8), damp = round(b·2^28) (2^28 @0x51c3bc).
+        // Independent double recompute == dumped LUT == engine over ALL 256 (the float64 result narrows into the
+        // int32 exactly matching the 80-bit x87 dump). tone 0=darkest (167 Hz) .. 255=brightest (27 kHz).
+        // NB the prior LUT shipped ~0x0FFFxxxx everywhere (a dead 8–77 Hz LP) — a bad-SR dump = the silent-delay bug.
         VazDelayEngine e; e.prepare (44100.0);
-        long maxd = 0;
+        long maxd = 0, maxdEng = 0;
         for (int i = 0; i < 256; ++i)
-        { long d = (long) (uint32_t) e.dampLut[i] - (long) (uint32_t) vazfx::kDelayDampLUT[i]; if (d < 0) d = -d; if (d > maxd) maxd = d; }
-        row ("fx_delay_damp", maxd == 0 ? "VERIFIED (full-table dump)" : "DEVIATION (max=" + std::to_string (maxd) + ")",
-             "tone->damp runtime-dumped k[0]=0x0FFFBA21 k[255]=0x0FD37981 (FUN_0051c298, exp-based 80-bit -> x87 "
-             "boundary, not double-reproducible); engine loads ALL 256 == dump (maxd=" + std::to_string (maxd) + ")");
+        {
+            const double fc = std::exp (((double) i + 256.0) / 50.0);
+            double v = fc / 44100.0; if (v > 0.49) v = 0.49;
+            const double w = 6.283185307179586 * v;
+            const double p = 2.0 - std::cos (w);
+            const int32_t ref = (int32_t) std::llround ((p - std::sqrt (p * p - 1.0)) * (double) 0x10000000);
+            long d  = (long) (uint32_t) ref        - (long) (uint32_t) vazfx::kDelayDampLUT[i]; if (d  < 0) d  = -d;  if (d  > maxd)    maxd    = d;
+            long de = (long) (uint32_t) e.dampLut[i] - (long) (uint32_t) vazfx::kDelayDampLUT[i]; if (de < 0) de = -de; if (de > maxdEng) maxdEng = de;
+        }
+        row ("fx_delay_damp", (maxd == 0 && maxdEng == 0) ? "BIT-EXACT" : "DEVIATION (max=" + std::to_string (maxd) + ")",
+             "tone->damp = round(((2-cos w)-sqrt((2-cos w)^2-1))*2^28), w=2pi*min(exp((tone+256)/50)/sr,0.49) "
+             "(FUN_0051c298): INDEPENDENT recompute == dump == engine over ALL 256 (maxd=" + std::to_string (maxd) + ")");
     }
 
     // ── FX 11. Autopan pan-law — verified LINEAR from VAZ's code (NOT the assumed equal-power) ──────────────

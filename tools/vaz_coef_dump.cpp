@@ -211,7 +211,12 @@ int main ()
     for (int t = 0; t <= 255; ++t)
     {
         memset (obj, 0, 0x40000);
-        *(void**) (obj + 0x1c) = &g_srPtr;   // ** double indirection (delay uses it)
+        // SINGLE indirection: the setter does mov eax,[obj+0x1c]; mov eax,[eax] → SR = M[M[obj+0x1c]].
+        // So obj+0x1c must hold &g_sr (a DIRECT pointer to the SR int). The earlier &g_srPtr added an extra
+        // level → the setter read SR = &g_sr (a multi-million pointer value) → fc/SR≈0 → every coef collapsed
+        // to ≈2^28 (0x0FFFxxxx, a dead 8–77 Hz LP). THAT was the "VAZDelay is silent/dry" bug. Disasm 0x51c298:
+        // fc=exp((tone+256)/50); b=(2−cos(2π·min(fc/SR,0.49)))−√((2−cos)²−1); [+0x2a8]=round(b·2^28).
+        *(void**) (obj + 0x1c) = &g_sr;      // direct ptr to SR (44100) — NOT &g_srPtr
         *(int*) (obj + 0x264) = 0;           // skip the recursive host-notify branch
         delayToneDamp (obj, t);
         printf ("T,%d,%08X\n", t, *(uint32_t*) (obj + 0x2a8));
