@@ -838,6 +838,22 @@ int main()
              "VAZ inc=BPM·48·(2^31-1)/(SR·60·period) [·48 @0x5204a9-ae, ·60 @0x520493]; clone (bpm/60)/periodBeats == it (periodBeats=period/48)");
     }
 
+    // ── FX 1d. Flanger FREE-rate — AUDIT FLAG: unverified, confirmed NON-exp (not the phaser bug), unpinned ──
+    {
+        // AUDIT FINDING (2026-07-15): the clone's flanger free-rate is Rate^2*20 (0..20 Hz square law) — the same
+        // SHAPE the phaser/chorus had before they were corrected to the exp curve. Checked directly: there is NO
+        // e^x (call 0x402ba8) anywhere in the flanger region 0x51fe00..0x520700, so VAZ's flanger LFO is NOT the
+        // shared exp rate curve -> the clone did NOT repeat the phaser mistake. BUT VAZ's exact free-rate formula
+        // is not yet pinned: the free inc (+0x290) is written by a separate Rate-param setter (not the render/sync
+        // fn), which a reasonable static search did not locate. Honest status: UNVERIFIED (do not claim BIT-EXACT
+        // or force it). Flagged so the gap is visible, not hidden. Sync IS verified (fx_flanger_sync above);
+        // delaytime + feedback are BIT-EXACT.
+        row ("fx_flanger_rate", "NOT TESTED (free-rate formula unpinned)",
+             "clone free-rate = Rate^2*20; VAZ flanger LFO confirmed NON-exp (no e^x @0x402ba8 in region) so NOT "
+             "the phaser bug, but the exact formula is not located statically (Rate setter, separate fn) - needs "
+             "deeper RE. sync verified; delaytime+feedback BIT-EXACT.");
+    }
+
     // ── FX 2. Chorus base-delay — clone now uses VAZ's exact integer formula (FUN_00518fbc @0x518fbc) ──
     {
         const int srI = 44100; long maxd = 0;
