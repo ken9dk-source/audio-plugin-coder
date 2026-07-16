@@ -1150,16 +1150,27 @@ int main()
              + " Hz (was fRate^2*20, 2-23x too fast)");
     }
 
-    // ── FX. Chorus LFO rate — reuses the phaser rate LUT (chorus dump == phaser dump); quantify vs old fRate²·6 ──
+    // ── FX. Chorus LFO rate — chorus builder == phaser rate formula (disasm-confirmed) → INDEPENDENT BIT-EXACT ──
     {
-        const bool ok = (vazfx::kPhaserRateLUT[0] == 0x000003CDu) && (vazfx::kPhaserRateLUT[255] == 0x000E82A8u);
+        // Disassembled the CHORUS rate builder FUN_00518ffc/FUN_00518f98 (+0x288/+0x290): it uses the IDENTICAL
+        // formula as the phaser rate builder FUN_00521c84 — same constants 0.027 (@0x519054), 3891.355864
+        // (@0x519060), ·11025/sr. So the "chorus == phaser rate curve" claim is now proven by disasm (not
+        // assumed), and the phaser's independent recompute applies: inc[b] = round_even(3891.356·e^(0.027·b)·
+        // 11025/sr) == the shared kPhaserRateLUT for ALL 256. The clone reuses that LUT (PluginProcessor.cpp:94/99).
+        auto rEven = [] (double x) -> long { const double f = std::floor (x), r = x - f;
+            return (long) (r < 0.5 ? f : r > 0.5 ? f + 1.0 : (std::fmod (f, 2.0) == 0.0 ? f : f + 1.0)); };
+        long maxd = 0;
+        for (int b = 0; b < 256; ++b)
+        {
+            const long r = rEven (3891.3558638060376 * std::exp (0.027 * (double) b) * 11025.0 / 44100.0);
+            long d = r - (long) (uint32_t) vazfx::kPhaserRateLUT[b]; if (d < 0) d = -d; if (d > maxd) maxd = d;
+        }
         auto vf = [] (int b) { return (double) vazfx::kPhaserRateLUT[b] * 44100.0 / 4294967296.0; };
-        auto of = [] (int b) { const double f = b / 255.0; return f * f * 6.0; };   // old chorus approx (0..6 Hz)
         auto s = [] (double x) { return std::to_string (x).substr (0, 5); };
-        row ("fx_chorus_rate_curve", ok ? "VERIFIED (shared dumped LUT)" : "DEVIATION",
-             "VAZ chorus LFO1/2 (FUN_00518ffc/98 → +0x288/+0x290) == phaser rate curve EXP 0.010..9.76 Hz (was fRate²·6). "
-             "b{64,128,192}: VAZ " + s (vf (64)) + "/" + s (vf (128)) + "/" + s (vf (192)) + " vs old "
-             + s (of (64)) + "/" + s (of (128)) + "/" + s (of (192)) + " Hz");
+        row ("fx_chorus_rate_curve", maxd == 0 ? "BIT-EXACT" : "DEVIATION (max=" + std::to_string (maxd) + ")",
+             "chorus rate FUN_00518ffc == phaser rate formula (disasm: 0.027/3891.356/11025 match): inc=round_even("
+             "3891.356*e^(0.027*b)*11025/sr) INDEPENDENT recompute == shared LUT for ALL 256 (maxd=" + std::to_string (maxd)
+             + "). EXP " + s (vf (0)) + ".." + s (vf (255)) + " Hz (was a wrong fRate^2*6)");
     }
 
     // ── FX. Autopan LFO rate — engine rate LUT (FUN_00517ee0) == dumped; quantify vs old 0.1+fRate²·19.9 ──
