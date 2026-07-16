@@ -1267,13 +1267,35 @@ int main()
              "clone VazDelayEngine vs independent transcription of FUN_0051bba8 (stereo/ping-pong/serial-double + damped fb), 3 modes, impulse+noise");
     }
 
-    // ── FX 10b. Delay tone→damp LUT (dumped) + linear-ms delay-time (both extracted, replace approximations) ──
+    // ── FX 10b. Delay time (ms→samples) — INDEPENDENT integer recompute, full range → BIT-EXACT ─────────────
     {
+        // FUN_0051c1cc (direct disasm — PURE INTEGER, no FPU): delaySamples = ms·(sr/1000) + ((sr/1000)>>4).
+        // Exactly reproducible. Independent reference vs the clone's delaySamplesFromMs over the whole 0..2550 ms.
         VazDelayEngine e; e.prepare (44100.0);
-        const bool okD = ((uint32_t) e.dampLut[0] == 0x0FFFBA21u) && ((uint32_t) e.dampLut[255] == 0x0FD37981u);
-        const bool okT = (e.delaySamplesFromMs (100.0) == 4402) && (e.delaySamplesFromMs (500.0) == 22002);   // ms·44+2
-        row ("fx_delay_maps", (okD && okT) ? "VERIFIED (dumped damp + linear ms)" : "DEVIATION",
-             "tone→damp runtime-dumped k[0]=0x0FFFBA21 k[255]=0x0FD37981 (FUN_0051c298); delay-time LINEAR ms·(sr/1000)+((sr/1000)>>4) (FUN_0051c1cc)");
+        const int spm = 44100 / 1000;                 // sr/1000 = 44 (VAZ integer, [+0x2d4])
+        long maxd = 0;
+        for (int ms = 0; ms <= 2550; ++ms)
+        {
+            const long ref = (long) ms * spm + (spm >> 4);
+            long d = (long) e.delaySamplesFromMs ((double) ms) - ref; if (d < 0) d = -d; if (d > maxd) maxd = d;
+        }
+        row ("fx_delay_time", maxd == 0 ? "BIT-EXACT" : "DEVIATION (max=" + std::to_string (maxd) + ")",
+             "delay-time ms->samples = ms*(sr/1000)+((sr/1000)>>4) (FUN_0051c1cc, pure integer): INDEPENDENT recompute "
+             "== clone over ALL 0..2550 ms (maxd=" + std::to_string (maxd) + ")");
+    }
+
+    // ── FX 10c. Delay tone→damp LUT — engine loads the FULL dump (was 2 anchors); formula exp-based 80-bit ────
+    {
+        // FUN_0051c298 (disasm): damp = clamp(e^((tone+256)*K/…)/sr) — exp-based in x87 80-bit, same helper +
+        // structure as the reverb damp builder (FUN_00523194), so NOT double-reproducible (x87 boundary). The
+        // clone SHIPS the runtime dump; verify it loads ALL 256 entries exactly at sr=44100.
+        VazDelayEngine e; e.prepare (44100.0);
+        long maxd = 0;
+        for (int i = 0; i < 256; ++i)
+        { long d = (long) (uint32_t) e.dampLut[i] - (long) (uint32_t) vazfx::kDelayDampLUT[i]; if (d < 0) d = -d; if (d > maxd) maxd = d; }
+        row ("fx_delay_damp", maxd == 0 ? "VERIFIED (full-table dump)" : "DEVIATION (max=" + std::to_string (maxd) + ")",
+             "tone->damp runtime-dumped k[0]=0x0FFFBA21 k[255]=0x0FD37981 (FUN_0051c298, exp-based 80-bit -> x87 "
+             "boundary, not double-reproducible); engine loads ALL 256 == dump (maxd=" + std::to_string (maxd) + ")");
     }
 
     // ── FX 11. Autopan pan-law — verified LINEAR from VAZ's code (NOT the assumed equal-power) ──────────────
