@@ -922,15 +922,49 @@ int main()
              + " peak=" + std::to_string (peakMax) + " (EXACT runtime-dumped coefs)");
     }
 
-    // ── FX 5b. Reverb coefs — setParams uses the EXACT runtime-dumped LUT (was RT60 approximation) ────────
+    // ── FX 5b. Reverb comb coef — FULL-TABLE formula recompute (was 2 anchors) + full engine-dump check ────
     {
-        VazReverbEngine e;
-        e.setParams (44100.0, 255, 0, 255);
-        bool ok = ((uint32_t) e.combCoef[0] == 0x7B34E281u) && ((uint32_t) e.damp2 == 0x0F9F8172u);
-        e.setParams (44100.0, 0, 255, 128);
-        ok = ok && ((uint32_t) e.combCoef[0] == 0x5A3C109Du) && ((uint32_t) e.damp2 == 0x02BF40CEu);
-        row ("fx_reverb_coef_exact", ok ? "VERIFIED (dumped LUT)" : "DEVIATION",
-             "setParams(44100) == runtime dump: size255 coef0=0x7B34E281 damp0 damp2=0x0F9F8172; size0 coef0=0x5A3C109D (vaz_coef_dump.exe)");
+        // Formula PINNED by direct disasm of FUN_00522fcc (RT60 comb decay, exp-based):
+        //   coef[size][i] = round_even( e^( C · combLen[i] / ((size·16+500)·sr) ) · 2^31 )
+        //   C = -6907.755279 (= -1000·ln1000; xword @0x52314c), combLen = {1116,1187,1277,1356,1422,1491,
+        //   1557,1617,1203,1527} (float32 consts @0x523158+), scale 2^31 (@0x52315c). e^x = FUN_00402ba8.
+        // The recompute reproduces the WHOLE 2560-entry dump to <=1 ULP (systematic +1 on ~89%). NOT bit-exact
+        // in double: unlike the phaser coef, this keeps 80-bit through e^x·2^31 (no float32 narrowing), so VAZ's
+        // x87 f2xm1-exp is not MSVC-reproducible — VERIFIED honestly (same class as the entangled LFO shapes).
+        static const int combLen[10] = { 1116, 1187, 1277, 1356, 1422, 1491, 1557, 1617, 1203, 1527 };
+        const double C = -6907.755279, sr = 44100.0;
+        auto rEven = [] (double x) -> long { const double f = std::floor (x), r = x - f;
+            return (long) (r < 0.5 ? f : r > 0.5 ? f + 1.0 : (std::fmod (f, 2.0) == 0.0 ? f : f + 1.0)); };
+        long maxFormula = 0;
+        for (int size = 0; size < 256; ++size)
+        {
+            const double be = C / (((double) size * 16.0 + 500.0) * sr);
+            for (int i = 0; i < 10; ++i)
+            {
+                const long r = rEven (std::exp (be * (double) combLen[i]) * 2147483648.0);
+                long d = r - (long) (uint32_t) vazfx::kReverbCombCoefLUT[size][i]; if (d < 0) d = -d;
+                if (d > maxFormula) maxFormula = d;
+            }
+        }
+        // engine must load the FULL dumped LUTs (all 256 sizes/damps) at sr=44100, not just anchors:
+        long maxEng = 0, maxDamp = 0;
+        for (int size = 0; size < 256; ++size)
+        {
+            VazReverbEngine e; e.setParams (44100.0, size, 0, 255);
+            long d = (long) (uint32_t) e.combCoef[0] - (long) (uint32_t) vazfx::kReverbCombCoefLUT[size][0];
+            if (d < 0) d = -d; if (d > maxEng) maxEng = d;
+        }
+        for (int damp = 0; damp < 256; ++damp)   // damp LUT (FUN_00523194, also exp-based 80-bit → same boundary)
+        {
+            VazReverbEngine e; e.setParams (44100.0, 128, damp, 255);
+            long d = (long) (uint32_t) e.damp2 - (long) (uint32_t) vazfx::kReverbDamp2LUT[damp];
+            if (d < 0) d = -d; if (d > maxDamp) maxDamp = d;
+        }
+        row ("fx_reverb_coef_exact", (maxFormula <= 1 && maxEng == 0 && maxDamp == 0) ? "VERIFIED (full-table, formula pinned)" : "DEVIATION",
+             "comb coef = round(e^(-6907.755*len/((size*16+500)*sr))*2^31) (FUN_00522fcc, disasm): INDEPENDENT recompute "
+             "== dump to <=" + std::to_string (maxFormula) + " ULP over ALL 2560 (systematic 80-bit f2xm1 boundary, not "
+             "double-reproducible -> not BIT-EXACT); engine loads full comb+damp dump exact (maxEng=" + std::to_string (maxEng)
+             + " maxDamp=" + std::to_string (maxDamp) + "). damp LUT (FUN_00523194) also exp-based 80-bit.");
     }
 
     // ── FX 6. Decimator render — clone VazDecimatorEngine vs independent transcription of FUN_0051dbcc ──
