@@ -991,6 +991,35 @@ int main()
              "clone VazDecimatorEngine vs independent transcription of FUN_0051dbcc; in&mask+bias + DC-block, 120k-smp noise");
     }
 
+    // ── FX 6b. Decimator param maps — INTEGER (mask/bias/rate), full range → BIT-EXACT (were untested) ───────
+    {
+        // The render oracle sets mask/bias/rate DIRECTLY, so the param->field maps were unverified. Both are pure
+        // integer (direct disasm): FUN_0051dd44 shift=24-bits, mask=(~0>>shift)<<shift, bias=((1<<shift)-1)>>1;
+        // FUN_0051dd14 rate=(srParam+1)*192000/sr (min 1). Independent recompute vs engine over the FULL range.
+        // (The DC-block coef FUN_0051dc7c is exp-based 80-bit → x87 boundary; the clone computes it in double,
+        //  a <=1 ULP pole diff on a ~20 Hz DC-blocker — inaudible, not covered here.)
+        long maxM = 0, maxB = 0, maxR = 0;
+        for (int bits = 1; bits <= 24; ++bits)
+        {
+            const int shift = 24 - bits;
+            const int32_t refMask = (int32_t) ((0xFFFFFFFFu >> (shift & 31)) << (shift & 31));
+            const int32_t refBias = (int32_t) (((1u << (shift & 31)) - 1u) >> 1);
+            VazDecimatorEngine e; e.setParams (44100.0, 128, bits);
+            long dm = (long) e.mask - refMask; if (dm < 0) dm = -dm; if (dm > maxM) maxM = dm;
+            long db = (long) e.bias - refBias; if (db < 0) db = -db; if (db > maxB) maxB = db;
+        }
+        for (int sp = 0; sp <= 255; ++sp)
+        {
+            long refRate = ((long) (sp + 1) * 192000) / 44100; if (refRate < 1) refRate = 1;
+            VazDecimatorEngine e; e.setParams (44100.0, sp, 16);
+            long dr = (long) e.rate - refRate; if (dr < 0) dr = -dr; if (dr > maxR) maxR = dr;
+        }
+        row ("fx_decimator_maps", (maxM == 0 && maxB == 0 && maxR == 0) ? "BIT-EXACT" : "DEVIATION",
+             "mask/bias (FUN_0051dd44) + rate=(srParam+1)*192000/sr (FUN_0051dd14), pure integer: INDEPENDENT recompute "
+             "== engine over FULL range (bits 1..24, srParam 0..255; maxMask=" + std::to_string (maxM) + " maxBias="
+             + std::to_string (maxB) + " maxRate=" + std::to_string (maxR) + "). coef=exp-80bit (x87), not covered.");
+    }
+
     // ── FX 7. Chorus render — clone VazChorusEngine vs independent transcription of FUN_00518ad8 (modes 1&2) ──
     {
         long maxd = 0;
