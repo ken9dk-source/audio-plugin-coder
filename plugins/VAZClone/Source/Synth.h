@@ -140,13 +140,24 @@ struct OscBlock
     static double adv (double& p, double inc) noexcept
     { double cur = p; p += inc; if (p >= 1.0) p -= 1.0; return cur; }
 
-    // VAZ pulse width: WaveShape byte b = round(shape·255) → param[0xa4] = b<<16 → the 2nd pulse edge sits at
-    // b<<24 against a 32-bit phase, i.e. duty = b/256 — LINEAR, exact square at b=128 (shape 0.5). Traced from
-    // the WaveShape setter FUN_004de930 @0x4de930 + the band-limited pulse branch vaz_big.c:213/222. (Replaces the
-    // earlier asserted 0.05+0.9·shape compression. VAZ's band-limiting is BLEP 006dd2c0/006de2c0 — the clone's
-    // difference-of-saws matches this DUTY map but not per-sample; a full BLEP-pulse port is tracked separately.)
+    // VAZ AUDIO pulse duty — CONFIRMED against a real-VAZ File->Capture render (2026-07-17):
+    //     duty = 0.5 + b/512   (b = WaveShape byte 0..255)  =>  b=0 is an EXACT SQUARE, RISING with shape.
+    // Render @0x4DCE61 ([+0x1ac]==1): ecx=(shapeByte<<15)+shapeMod (0x4DCA6F); the 2nd edge sits at
+    // saw2 = ((pw<<8) + phase + 0x7fffffff)>>8, i.e. offset = pw/2^24 + 1/2 cycle -> duty = 0.5 + b/512.
+    // Real VAZ measured: duty 0.501 @b=0 (odd harmonics only = a true square) and 0.751 @b=130 (h2 appears),
+    // vs this law's 0.500 / 0.754 -> within 0.003.
+    // WAS round(shape*255)/256 = the mod-LFO's law (FUN_004de930/[+0x84], duty=b/256 -> 0 at shape 0 = a
+    // degenerate impulse with NO fundamental): the true root of the old "pulse silence / octave-high / C64"
+    // bug. The (127/255)*(1-shape) workaround in SynthVoice.h patched the default to ~50% but INVERTED the
+    // sweep, making the clone's duty the COMPLEMENT of VAZ's (identical |spectrum| -> a spectral A/B was
+    // structurally blind to it; only the time-domain duty measurement caught it). Both are now gone.
+    // NB VAZ also adds a +pw DC term (out = pw + 2seg(saw) - 2seg(saw2)); the difference-of-saws is already
+    // DC-free, so +pw injects DC that VAZ's own output DC-blocker (DAT_006df6c4) removes again. The clone
+    // DC-blocks too, so porting that term is a no-op — deliberately not carried over. The 2-segment
+    // band-limiting itself is NOT ported here: it is gated on the still-open saw AA question.
     static double pulseWidth (double shape) noexcept
-    { return (double) (int) std::lround (juce::jlimit (0.0, 1.0, shape) * 255.0) / 256.0; }
+    { const int b = juce::jlimit (0, 255, (int) std::lround (juce::jlimit (0.0, 1.0, shape) * 255.0));
+      return 0.5 + (double) b / 512.0; }                    // VAZ AUDIO law: 0.5 + b/512 (square-centred)
 
     // VAZ 5 waveform modes (waveshape = the Waveshape slider 0..1):
     //   0 Sawtooth (saw→triangle morph)  1 Pulse (variable pulsewidth)

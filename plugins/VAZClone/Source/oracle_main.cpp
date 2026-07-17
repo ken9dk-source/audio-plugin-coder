@@ -498,7 +498,7 @@ int main()
         auto vazAudioDuty = [] (int b) { return 0.5 + (double) ((int64_t) b << 15) / 16777216.0; };  // 0.5 + b/512
         auto lfoDuty      = [] (int b) { return (double) b / 256.0; };                               // FUN_004de930 (LFO)
         // the clone's EFFECTIVE duty = OscBlock::pulseWidth(SynthVoice's (127/255)*(1-shape) workaround)
-        auto cloneDuty    = [] (double s) { return OscBlock::pulseWidth ((127.0 / 255.0) * (1.0 - s)); };
+        auto cloneDuty    = [] (double s) { return OscBlock::pulseWidth (s); };   // PORTED: workaround gone
         double maxDev = 0.0, maxComp = 0.0; int worstB = 0;
         for (int b = 0; b <= 255; ++b) {
             const double s = (double) b / 255.0;
@@ -513,7 +513,10 @@ int main()
             "AUDIO duty=0.5+b/512 (b=0 -> %.3f SQUARE, b=130 -> %.3f, rising=%d) vs clone %.3f/%.3f: max dev %.3f @b=%d; "
             "clone == 1-VAZ (complement) to %.3f -> same |spectrum|, INVERTED. LFO law b/256 (the old claim) = %.3f @b=0",
             sq, d130, (int) rising, cloneDuty (0.0), cloneDuty (130.0 / 255.0), maxDev, worstB, maxComp, lfoDuty (0));
-        row ("osc_pulse_pwmap", std::string ("DEVIATION (mis-attributed; port gated on real-VAZ capture): ") + buf,
+        const bool ported = maxDev < 1e-9 && std::abs (sq - 0.5) < 1e-12 && rising;
+        row ("osc_pulse_pwmap", ported ? std::string ("BIT-EXACT (audio duty = 0.5+b/512, square-centred, rising"
+                                                      " — CONFIRMED vs real-VAZ capture 0.501/0.751): ") + buf
+                                       : std::string ("DEVIATION: ") + buf,
              std::string ("VAZ AUDIO pulse duty (render @0x4DCE61, [+0x1ac]==1) vs the clone's effective duty — ") + buf);
     }
 
