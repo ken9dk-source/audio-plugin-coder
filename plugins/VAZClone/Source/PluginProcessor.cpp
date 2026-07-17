@@ -656,9 +656,17 @@ bool VAZCloneAudioProcessor::loadV2P (const juce::MemoryBlock& mb)
     // it straight as the 0..1 param (was inverse-mapped through the old 0.05+r²·20 law). Wave byte +0x10c: 0=Tri else Sine.
     S (ParameterIDs::lfo3_rate,   juce::jlimit (0, 255, p.lfo3sel) / 255.0f);
     S (ParameterIDs::lfo3_wave,   p.lfo3wav != 0 ? 1.0f : 0.0f);             // 0=Tri, 1=Sine
-    S (ParameterIDs::o1_wave,     juce::jlimit (0, 4, p.o1wave) / 4.0f);
+    // Osc waveform: the .v2p BYTE encoding has a HOLE at 2 — it stores {0,1,3,4,5} while the GUI/engine
+    // use {0,1,2,3,4} = Saw/Pulse/Multi-Saw/Wavetable("Sample")/Ext. Ground truth: real-VAZ presets (byte
+    // @0xD3 → Saw=0 Pulse=1 Multi-Saw=3 Wavetable=4 Ext=5) + VAZ's own FL hint bar ("Oscillator 1:Waveform:
+    // 0..4", labels Waveshape/Pulsewidth/Detune/Wavetable Position/Position) + the render branches
+    // ([+0x1ac]: <2 saw/pulse, ==2 multi-saw 4-phase loop @0x4DCAA5, >2 wavetable cubic @0x4DCC75, ==4 ext).
+    // WAS a direct byte→index map, so REAL VAZ PRESETS MIS-LOADED: Multi-Saw(3)→"Sample"→sine fallback
+    // (the detune never sounded), and Wavetable(4)→"Ext". Ext(5) was only right by luck of the clamp.
+    // Byte 2 is unreachable from VAZ's GUI (legacy); fold it onto Multi-Saw.
+    S (ParameterIDs::o1_wave,     juce::jlimit (0, 4, p.o1wave >= 3 ? p.o1wave - 1 : p.o1wave) / 4.0f);
     S (ParameterIDs::o1_shape,    juce::jlimit (0, 255, p.o1shape) / 255.0f);
-    S (ParameterIDs::o2_wave,     juce::jlimit (0, 4, p.o2wave) / 4.0f);
+    S (ParameterIDs::o2_wave,     juce::jlimit (0, 4, p.o2wave >= 3 ? p.o2wave - 1 : p.o2wave) / 4.0f);
     S (ParameterIDs::o2_shape,    juce::jlimit (0, 255, p.o2shape) / 255.0f);   // osc2 waveshape ("Modifier" df918/+0x1f0) — was never loaded
     S (ParameterIDs::osc2_sync,   p.o1sync != 0 ? 1.0f : 0.0f);                 // osc-sync target (df908) — independent of o2_wave
     setTune (p.o1tune + 2400, ParameterIDs::o1_octave, ParameterIDs::o1_coarse, ParameterIDs::o1_fine);
@@ -748,8 +756,11 @@ juce::MemoryBlock VAZCloneAudioProcessor::buildV2P()
     p.lfo1wave = RN(ParameterIDs::lfo_wave, 8); p.lfo1shape = R255(ParameterIDs::lfo_shape); p.lfo1trig = RB(ParameterIDs::lfo_trig);
     p.lfo2mode = RN(ParameterIDs::lfo2_wave, 8); p.lfo2trig = RB(ParameterIDs::lfo2_trig); p.lfo2delay = R255(ParameterIDs::lfo2_delay);
     p.lfo3sel = R255(ParameterIDs::lfo3_rate); p.lfo3wav = RB(ParameterIDs::lfo3_wave);
-    p.o1wave = RN(ParameterIDs::o1_wave, 5); p.o1shape = R255(ParameterIDs::o1_shape);
-    p.o2wave = RN(ParameterIDs::o2_wave, 5); p.o2shape = R255(ParameterIDs::o2_shape); p.o1sync = RB(ParameterIDs::osc2_sync);
+    // Inverse of the load remap: GUI/engine index {0,1,2,3,4} → .v2p byte {0,1,3,4,5} (byte 2 unused). See loader.
+    { const int w = RN(ParameterIDs::o1_wave, 5); p.o1wave = w >= 2 ? w + 1 : w; }
+    p.o1shape = R255(ParameterIDs::o1_shape);
+    { const int w = RN(ParameterIDs::o2_wave, 5); p.o2wave = w >= 2 ? w + 1 : w; }
+    p.o2shape = R255(ParameterIDs::o2_shape); p.o1sync = RB(ParameterIDs::osc2_sync);
     p.o1tune = RT(ParameterIDs::o1_octave, ParameterIDs::o1_coarse, ParameterIDs::o1_fine);
     p.o2tune = RT(ParameterIDs::o2_octave, ParameterIDs::o2_coarse, ParameterIDs::o2_fine);
     p.fcut1s = RC(ParameterIDs::cut_mod1_src); p.fcut1d = RD(ParameterIDs::filt_env_amt, ParameterIDs::filt_env_amt_inv);

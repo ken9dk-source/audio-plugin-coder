@@ -188,6 +188,66 @@ int main (int argc, char** argv)
     for (auto& w : whitelist) std::cout << "  * " << w << "\n";
     std::cout << "  (" << whitelist.size() << " distinct reasons; entries tagged [FLAGGED] are candidates for the parity matrix)\n\n";
 
+    // ── OSC WAVEFORM ENCODING LOCK ───────────────────────────────────────────────────────────────
+    // VAZ's .v2p wave BYTE has a HOLE at 2: it encodes {0,1,3,4,5} while the GUI/engine use {0,1,2,3,4}
+    //     byte 0→Saw, 1→Pulse, 3→Multi-Saw, 4→Wavetable("Sample"), 5→Ext     (byte 2 unreachable/legacy)
+    // Ground truth (three independent sources, all agreeing):
+    //   · REAL VAZ-saved presets, byte @0xD3 — checked in as the fixtures used below
+    //   · VAZ's own FL hint bar: "Oscillator 1:Waveform: 0..4" with the shape label changing
+    //     Waveshape / Pulsewidth / Detune / Wavetable Position / Position
+    //   · the render dispatch on [+0x1ac]: <2 saw/pulse (0x4DCDDA, ==1 → pulse), ==2 multi-saw 4-phase
+    //     detune loop (0x4DCAA5), >2 wavetable 4-pt Catmull-Rom (0x4DCC75), ==4 ext (vaz_big.c:574)
+    // The loader previously mapped the byte STRAIGHT to the GUI index, so real presets mis-loaded:
+    // Multi-Saw(3) → "Sample" → sine fallback (its detune could never sound), Wavetable(4) → "Ext";
+    // Ext(5) was correct only by luck of the jlimit clamp. This lock exists so that cannot return.
+    std::cout << "--- OSC WAVEFORM ENCODING LOCK (.v2p byte {0,1,3,4,5} -> index {0,1,2,3,4}) ---\n";
+    {
+        for (auto* id : { ParameterIDs::o1_wave, ParameterIDs::o2_wave })
+        {
+            auto* pc = dynamic_cast<juce::AudioParameterChoice*> (proc.apvts.getParameter (id));
+            if (pc == nullptr) { failures.push_back (std::string (id) + ": not an AudioParameterChoice"); ++nFail; continue; }
+            const bool ok = pc->choices.size() == 5
+                         && pc->choices[0] == "Sawtooth" && pc->choices[1] == "Pulse" && pc->choices[2] == "Multi-Saw"
+                         && pc->choices[3] == "Sample"
+                         && (pc->choices[4] == "Ext" || pc->choices[4] == "Sync");   // OSC2 has Sync where OSC1 has Ext
+            std::cout << (ok ? "  [PASS] " : "  [FAIL] ") << id << " = " << pc->choices.joinIntoString ("/") << "\n";
+            if (! ok) { failures.push_back (std::string (id) + ": waveform list != VAZ order"); ++nFail; }
+        }
+        // End-to-end: each REAL VAZ preset must land on the waveform VAZ actually shows — not sine/Ext.
+        struct Fx { const char* file; int wantIdx; const char* wantName; int byte; };
+        const Fx fx[] = { { "vaz_osc1_saw.v2p",       0, "Sawtooth",  0 },
+                          { "vaz_osc1_pulse.v2p",     1, "Pulse",     1 },
+                          { "vaz_osc1_multisaw.v2p",  2, "Multi-Saw", 3 },   // WAS loading as "Sample" -> sine
+                          { "vaz_osc1_wavetable.v2p", 3, "Sample",    4 },   // WAS loading as "Ext"
+                          { "vaz_osc1_ext.v2p",       4, "Ext",       5 } };
+        auto wDir = juce::File::getCurrentWorkingDirectory().getChildFile ("plugins/VAZClone/tests/fixtures");
+        if (! wDir.isDirectory()) wDir = juce::File (__FILE__).getParentDirectory().getSiblingFile ("tests").getChildFile ("fixtures");
+        for (auto& f : fx)
+        {
+            auto file = wDir.getChildFile (f.file);
+            juce::MemoryBlock mb;
+            if (! file.existsAsFile() || ! file.loadFileAsData (mb))
+            { std::cout << "  [FAIL] fixture missing: " << file.getFullPathName() << "\n";
+              failures.push_back (std::string (f.file) + ": fixture missing"); ++nFail; continue; }
+            // the fixture must really carry the byte we claim (guards a silently re-saved/wrong preset)
+            const bool byteOk = mb.getSize() > 0xD3 && (int) ((const uint8_t*) mb.getData())[0xD3] == f.byte;
+            if (! byteOk)
+            { std::cout << "  [FAIL] " << f.file << ": byte@0xD3 = "
+                        << (mb.getSize() > 0xD3 ? (int) ((const uint8_t*) mb.getData())[0xD3] : -1)
+                        << ", expected " << f.byte << "\n";
+              failures.push_back (std::string (f.file) + ": wave byte changed"); ++nFail; continue; }
+            if (! proc.loadV2P (mb))
+            { std::cout << "  [FAIL] loadV2P failed: " << f.file << "\n"; failures.push_back (std::string (f.file) + ": loadV2P failed"); ++nFail; continue; }
+            auto* pc = dynamic_cast<juce::AudioParameterChoice*> (proc.apvts.getParameter (ParameterIDs::o1_wave));
+            const int got = pc != nullptr ? pc->getIndex() : -1;
+            const bool ok = got == f.wantIdx;
+            std::cout << (ok ? "  [PASS] " : "  [FAIL] ") << f.file << " (byte " << f.byte << ") -> o1_wave=" << got
+                      << " (" << (pc != nullptr ? pc->getCurrentValueAsText() : juce::String ("?")) << "), want "
+                      << f.wantIdx << " (" << f.wantName << ")\n";
+            if (! ok) { failures.push_back (std::string (f.file) + ": wrong waveform after load"); ++nFail; }
+        }
+    }
+
     // ── MIXER-SOURCE ENCODING LOCK ───────────────────────────────────────────────────────────────
     // VAZ uses ONE mixer-source popup whose item 0 is relabelled per channel (Osc1/Osc2/Osc3), so all
     // three channels share the SAME encoding:
