@@ -146,14 +146,18 @@ float QuadraFuzzAudioProcessor::waveshape (float x, int shape) noexcept
 // waveshape via the table, then post-gain by the band-GAIN knob. (Global In is
 // applied to the input before the crossover, Out to the sum afterwards — both
 // linear, so equivalent to the original's per-sample In·…·Out.)
-// Per-shape output normalisation (engine+0x3c in the DLL — x87 FUN_10014d90, not
-// statically readable). Measured by a per-stage null test: a -40 dBFS log sweep
-// (linear regime) through BOTH the real DLL and the clone at each shape; the
-// broadband gain ratio orig/clone IS the norm. Re-measured against the EXACT
-// x1.15 low-edge filter (an earlier pass used a C/D-fudge filter and read these
-// ~0.08-0.43 dB low). With the exact filter + these norms the whole chain nulls
-// against the DLL at ~-89 dB (float32 floor) across sweep / noise / tones.
-static const float SHAPE_NORM[5] = { 0.7943f, 0.4955f, 0.4266f, 0.4519f, 0.3090f };
+// Per-shape post-shaper normalisation (engine+0x3c). GROUND TRUTH from the Ghidra
+// decompile (FUN_1000a540 @ 0x1000a540): shapeNorm = pow(10.0, -tbl[256]*0.05) =
+// 10^(-headroom/20), where headroom = the shape table's [256] entry {2, 6.1, 7.4,
+// 6.9, 10.2} (const_A=10 @0x10021470, const_B=0.05 @0x10021990). So it is NOT a
+// free constant — it is derived from the tables, exactly as the DLL does it. The
+// earlier 4-dp MEASURED values {0.7943,...} were right to ~1e-4, which left a fixed
+// per-shape null residual of -80..-86 dB (constant across the whole In-drive sweep
+// = a fixed post-shaper scalar error). Computing the literal removes it.
+static float qfShapeNorm (int s) noexcept
+{ return (float) std::pow (10.0, -(double) QFShapes::SHAPE_TABLE[s][256] / 20.0); }
+static const float SHAPE_NORM[5] =
+    { qfShapeNorm (0), qfShapeNorm (1), qfShapeNorm (2), qfShapeNorm (3), qfShapeNorm (4) };
 
 void QuadraFuzzAudioProcessor::applyBandFuzz (juce::AudioBuffer<float>& buf,
                                               float gainDb, float levelDb, int shape)
