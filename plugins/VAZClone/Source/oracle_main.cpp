@@ -478,31 +478,50 @@ int main()
     //    (@0x4de930: param[0xa4] = b<<16) + the band-limited pulse edge (vaz_big.c:213/222: edge = (param[0xa4]>>1)
     //    ·0x200 = b<<24 vs a 32-bit phase → duty = b/256) vs the clone's OscBlock::pulseWidth. Proves the duty MAP,
     //    not the band-limiting (VAZ = BLEP 006dd2c0/006de2c0; the clone's difference-of-saws matches this map only). ──
+    // ⚠ CORRECTED 2026-07-17 — the previous form of this primitive was a FALSE POSITIVE. It reported
+    // BIT-EXACT against duty = b/256, citing FUN_004de930 (param[0xa4]) + vaz_big.c:213/222 — but ALL of
+    // those belong to the mod-LFO: FUN_004de930 reads the selector via FUN_004de898 = [+0x84] = the LFO,
+    // and the b/256 edge is the LFO's pulse branch. The AUDIO oscillator ([+0x1ac]==1, render @0x4DCE61)
+    // uses a DIFFERENT law — it is CENTRED ON A SQUARE:
+    //     ecx = (shapeByte<<15) + shapeMod          (0x4DCA6F)
+    //     pw  = min(ecx, 0x800000 - 2*(idx+1)*0x2000)      (edge-width clamp, 0x4DCE5B)
+    //     saw2 = ((pw<<8) + phase + 0x7fffffff) >> 8       => offset = pw/2^24 + 1/2 cycle
+    //     out  = pw + 2seg(saw1) - 2seg(saw2)              (pw = the DC-compensation term)
+    //   => duty = 0.5 + (b<<15)/2^24 = 0.5 + b/512  :  b=0 -> EXACT SQUARE, rising with shape.
+    // This mis-attribution is the true root of the old "pulse silence / octave-high / C64" bug: the clone
+    // applied the LFO's b/256 law to the AUDIO osc, so shape=0 gave duty~0 = a degenerate impulse with no
+    // fundamental. The (127/255)*(1-shape) workaround in SynthVoice.h patched the DEFAULT to land near 50%
+    // but INVERTED the sweep -> the clone's duty is the COMPLEMENT of VAZ's (identical magnitude spectrum,
+    // which is exactly why a spectral A/B never caught it). Reported, NOT yet fixed: the port is gated on a
+    // real-VAZ render capture (the one route that has ever held — see the reverted BLEP port).
     {
-        double maxNew = 0.0, maxOld = 0.0, centerNew = 0.0;
+        auto vazAudioDuty = [] (int b) { return 0.5 + (double) ((int64_t) b << 15) / 16777216.0; };  // 0.5 + b/512
+        auto lfoDuty      = [] (int b) { return (double) b / 256.0; };                               // FUN_004de930 (LFO)
+        // the clone's EFFECTIVE duty = OscBlock::pulseWidth(SynthVoice's (127/255)*(1-shape) workaround)
+        auto cloneDuty    = [] (double s) { return OscBlock::pulseWidth ((127.0 / 255.0) * (1.0 - s)); };
+        double maxDev = 0.0, maxComp = 0.0; int worstB = 0;
         for (int b = 0; b <= 255; ++b) {
-            const int32_t  pa4  = (int32_t) ((uint32_t) b << 16);       // FUN_004de930: param[0xa4] = b<<16
-            const uint32_t edge = (uint32_t) (pa4 >> 1) << 9;           // (param[0xa4]>>1)·0x200 = b<<24
-            const double vazDuty  = (double) edge / 4294967296.0;       // /2^32 = b/256
-            const double shape    = (double) b / 255.0;
-            const double newDuty  = OscBlock::pulseWidth (shape);       // the FIXED clone map = round(shape·255)/256
-            const double oldDuty  = 0.05 + 0.9 * shape;                 // the OLD asserted compression (pre-2b65208)
-            maxNew = std::max (maxNew, std::abs (vazDuty - newDuty));
-            maxOld = std::max (maxOld, std::abs (vazDuty - oldDuty));
-            if (b == 128) centerNew = std::abs (vazDuty - newDuty);     // center must be exactly 0
+            const double s = (double) b / 255.0;
+            const double dev = std::abs (vazAudioDuty (b) - cloneDuty (s));
+            if (dev > maxDev) { maxDev = dev; worstB = b; }
+            maxComp = std::max (maxComp, std::abs ((1.0 - vazAudioDuty (b)) - cloneDuty (s)));  // complement test
         }
-        char buf[112]; std::snprintf (buf, sizeof buf,
-            "fixed map vs VAZ b/256: max=%.5f, center(b=128)=%.5f; OLD 0.05+0.9x deviated max=%.5f (at extremes)",
-            maxNew, centerNew, maxOld);
-        const bool ok = (maxNew < 1e-9) && (centerNew < 1e-12) && (maxOld > 0.04);   // fix nulls; old was ~0.05
-        row ("osc_pulse_pwmap", ok ? "BIT-EXACT (duty = WaveShape/256; center=0; old ~5-pt extreme gone)"
-                                   : std::string ("DEVIATION (") + buf + ")",
-             std::string ("VAZ pulse duty (FUN_004de930 param[0xa4]=b<<16 → b/256 LINEAR) vs OscBlock::pulseWidth — ") + buf);
+        const double sq   = vazAudioDuty (0);                       // must be exactly 0.500
+        const double d130 = vazAudioDuty (130);                     // VAZ's own "50%" preset byte -> 0.754
+        const bool rising = vazAudioDuty (200) > vazAudioDuty (50); // duty must RISE with shape
+        char buf[224]; std::snprintf (buf, sizeof buf,
+            "AUDIO duty=0.5+b/512 (b=0 -> %.3f SQUARE, b=130 -> %.3f, rising=%d) vs clone %.3f/%.3f: max dev %.3f @b=%d; "
+            "clone == 1-VAZ (complement) to %.3f -> same |spectrum|, INVERTED. LFO law b/256 (the old claim) = %.3f @b=0",
+            sq, d130, (int) rising, cloneDuty (0.0), cloneDuty (130.0 / 255.0), maxDev, worstB, maxComp, lfoDuty (0));
+        row ("osc_pulse_pwmap", std::string ("DEVIATION (mis-attributed; port gated on real-VAZ capture): ") + buf,
+             std::string ("VAZ AUDIO pulse duty (render @0x4DCE61, [+0x1ac]==1) vs the clone's effective duty — ") + buf);
     }
 
     // ── OSC PULSE band-limited (BLEP) — independent transcription of vaz_big.c:206-241 (difference of two
     //    band-limited ramps via the dumped step tables dd2c0/de2c0) vs the clone's CURRENT pulse (OscBlock — a
-    //    naive difference-of-saw-wavetables). Reports the HARMONIC-content deviation the user hears. Post-port → 0. ──
+    //    naive difference-of-saw-wavetables). Reports the HARMONIC-content deviation the user hears. Post-port → 0.
+    //    ⚠ SUPERSEDED 2026-07-17: dd2c0/de2c0 are NOT BLEP step tables (see osc_saw_morph above). Kept only as the
+    //    historical record of the reverted port; osc_saw_morph/osc_pulse_2seg are the correct primitives. ──
     {
         struct RefBLEP {
             uint32_t phase = 0;
