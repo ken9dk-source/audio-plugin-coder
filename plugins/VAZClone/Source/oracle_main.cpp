@@ -517,6 +517,102 @@ int main()
              std::string ("VAZ AUDIO pulse duty (render @0x4DCE61, [+0x1ac]==1) vs the clone's effective duty — ") + buf);
     }
 
+    // ── OSC SAW/PULSE 2-segment model — INDEPENDENT transcription of the AUDIO osc (0x4DCEF5 / 0x4DCE61)
+    //    vs the clone's mip-mapped wavetables. Quantifies the WAVESHAPE deviation BEFORE any port.
+    //    NOT a pass/fail: the port is gated on a real-VAZ render capture, not on this diff. ────────────
+    // The tables are NOT BLEP step tables (that false premise produced the reverted VAZPulseOsc.h port).
+    // They are RECIPROCAL SLOPE tables built by plain C INTEGER DIVISION (truncating, NOT round/fistp —
+    // 2^30/2046 = 524800.5005 but the dump has 524800). Verified against the runtime dump:
+    //     dd2c0[i] = -2^30/(i+1)      de2c0[i] = 2^30/(2047-i)
+    // giving a 2-segment piecewise-linear wave whose FALLING-EDGE WIDTH is idx:
+    //     thr = (idx+1)*0x2000 - 0x800000 ;  out = (saw -/+ 0x800000) * TBL[idx] >> 19 + 0x800000
+    // Saw  (0x4DCEF5): idx = max(freqIdx, min(|shape|,0x7fffff)) >> 13  -> 0 = sharp saw, 1020 ~= triangle
+    // Pulse(0x4DCE61): idx = freqIdx >> 13 ; out = pw + 2seg(saw) - 2seg(saw + pw + 1/2 cycle)
+    // freqIdx = max((inc>>8)+(inc>>11)-0xe000, 0) -> VAZ's ENTIRE anti-aliasing (no BLEP, no mip-maps).
+    //
+    // METRIC: min over circular SHIFT and POLARITY of max|clone - ref|, i.e. pure SHAPE.
+    // Phase-origin and polarity are deliberately factored OUT: the clone's saw is additive (sum sin(k.ph)/k,
+    // zero-crossing at phase 0) while the ref ramps from 0, and VAZ's real phase runs DOWNWARD (sub eax,inc)
+    // — so a raw sample-by-sample diff measures those conventions, not the waveshape (an earlier version of
+    // this primitive reported 1.15 FS at b=0 where BOTH are a sharp saw: that number was the test's own bug).
+    // Phase direction / polarity are real questions, but they belong to the real-VAZ capture, not here.
+    {
+        struct RefOsc
+        {
+            int32_t A[1024], B[1024];
+            RefOsc() { for (int i = 0; i < 1024; ++i) {
+                A[i] = (int32_t) (-1073741824 / (i + 1));          // INTEGER division (truncates)
+                B[i] = (int32_t) ( 1073741824 / (2047 - i)); } }
+            static int fIdx (uint32_t inc) { const int32_t i = (int32_t) inc;
+                const int v = (i >> 8) + (i >> 11) - 0xe000; return v < 0 ? 0 : v; }
+            int32_t seg (int32_t saw, int idx) const {
+                const int32_t thr = (int32_t) (((int64_t) (idx + 1) << 13) - 0x800000);
+                const int64_t p = saw > thr ? (int64_t) (saw - 0x800000) * B[idx]
+                                            : (int64_t) (saw + 0x800000) * A[idx];
+                return (int32_t) (p >> 19) + 0x800000; }
+            int32_t saw (uint32_t ph, uint32_t inc, int32_t shape) const {
+                int32_t a = shape < 0 ? -shape : shape; if (a > 0x7fffff) a = 0x7fffff;
+                int e = fIdx (inc); if (a > e) e = a;
+                return seg ((int32_t) ph >> 8, e >> 13); }
+            int32_t pulse (uint32_t ph, uint32_t inc, int32_t shape) const {
+                const int idx = fIdx (inc) >> 13;
+                int32_t pw = shape; const int32_t lim = 0x800000 - 2 * (int32_t) ((idx + 1) << 13);
+                if (pw > lim) pw = lim;
+                const int32_t s2 = (int32_t) (((uint32_t) pw << 8) + ph + 0x7fffffffu) >> 8;
+                return pw + seg ((int32_t) ph >> 8, idx) - seg (s2, idx); }
+        };
+        const RefOsc ref;
+        // the formula must reproduce the runtime dump exactly (guards a bad regeneration / wrong rounding)
+        const bool tblOk = ref.A[0] == -1073741824 && ref.A[1] == -536870912 && ref.A[2] == -357913941
+                        && ref.B[0] == 524544 && ref.B[1] == 524800 && ref.B[2] == 525057;
+        const double sr = 44100.0, hz = 130.8127827;                       // C3
+        const uint32_t inc = (uint32_t) std::llround (hz / sr * 4294967296.0);
+        const int N = (int) std::llround (sr / hz);                        // one cycle
+        auto shapeDev = [&] (int wave, int b) {
+            std::vector<double> c (N), r (N);
+            OscBlock osc; osc.sampleRate = sr;
+            const int32_t shp = (int32_t) ((int64_t) b << 15);
+            const double  cs  = wave == 0 ? (double) b / 255.0
+                                          : (127.0 / 255.0) * (1.0 - (double) b / 255.0);  // clone + workaround
+            uint32_t ph = 0;
+            for (int n = 0; n < 4 * N; ++n) osc.next (hz, wave, cs);       // settle
+            for (int n = 0; n < N; ++n) { c[(size_t) n] = osc.next (hz, wave, cs);
+                r[(size_t) n] = (double) (wave == 0 ? ref.saw (ph, inc, shp) : ref.pulse (ph, inc, shp)) / 8388608.0;
+                ph += inc; }
+            double best = 1e9;                                             // min over shift AND polarity
+            for (int sgn = 0; sgn < 2; ++sgn)
+                for (int sh = 0; sh < N; ++sh) {
+                    double mx = 0.0;
+                    for (int n = 0; n < N; ++n) {
+                        const double rv = (sgn ? -1.0 : 1.0) * r[(size_t) ((n + sh) % N)];
+                        mx = std::max (mx, std::abs (c[(size_t) n] - rv)); }
+                    best = std::min (best, mx); }
+            return best; };
+        char sb[256];
+        {
+            double d0 = shapeDev (0, 0), d130 = shapeDev (0, 130), d255 = shapeDev (0, 255);
+            std::snprintf (sb, sizeof sb,
+                "SHAPE dev (min over shift+polarity) @C3: b=0 %.3f | b=130 %.3f | b=255 %.3f FS. VAZ = 2-seg "
+                "edge-width morph (b=0 sharp saw, b=130 -> idx=520 = 25.4%% edge, b=255 -> idx=1020 ~= triangle); "
+                "clone = saw/tri CROSSFADE -> mid-shape it yields 3t-1/1-t (DC offset + reduced amplitude).",
+                d0, d130, d255);
+            row ("osc_saw_morph", tblOk ? std::string ("DEVIATION (reported; port gated on real-VAZ capture): ") + sb
+                                        : std::string ("TABLE MISMATCH — reciprocal formula != dump"),
+                 std::string ("independent 2-seg transcription (0x4DCEF5) vs OscBlock case 0 — ") + sb);
+        }
+        {
+            double d0 = shapeDev (1, 0), d130 = shapeDev (1, 130), d255 = shapeDev (1, 255);
+            std::snprintf (sb, sizeof sb,
+                "SHAPE dev (min over shift+polarity) @C3: b=0 %.3f | b=130 %.3f | b=255 %.3f FS. VAZ duty = "
+                "0.5+b/512 (b=0 EXACT SQUARE, RISING to 0.754 @b=130); the clone's duty is the COMPLEMENT "
+                "(same |spectrum| -> a spectral A/B is blind to it). Clone also omits VAZ's +pw DC term.",
+                d0, d130, d255);
+            row ("osc_pulse_2seg", tblOk ? std::string ("DEVIATION (reported; port gated on real-VAZ capture): ") + sb
+                                         : std::string ("TABLE MISMATCH — reciprocal formula != dump"),
+                 std::string ("independent 2-seg transcription (0x4DCE61) vs OscBlock case 1 — ") + sb);
+        }
+    }
+
     // ── OSC PULSE band-limited (BLEP) — independent transcription of vaz_big.c:206-241 (difference of two
     //    band-limited ramps via the dumped step tables dd2c0/de2c0) vs the clone's CURRENT pulse (OscBlock — a
     //    naive difference-of-saw-wavetables). Reports the HARMONIC-content deviation the user hears. Post-port → 0.
