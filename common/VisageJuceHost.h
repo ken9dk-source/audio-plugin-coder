@@ -76,6 +76,34 @@ public:
         dispatchMouse(e, MouseDispatch::Move);
     }
 
+    void mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override {
+        if (!event_root_)
+            return;
+        const visage::Point window_pos = { e.position.x, e.position.y };
+        visage::Frame* target = event_root_->frameAtPoint(window_pos);
+        if (!target)
+            return;
+        visage::MouseEvent me;
+        me.window_position = window_pos;
+        me.position = window_pos - target->positionInWindow();
+        me.event_frame = target;
+        me.wheel_delta_x = wheel.deltaX;
+        me.wheel_delta_y = wheel.deltaY;
+        me.precise_wheel_delta_x = wheel.deltaX;
+        me.precise_wheel_delta_y = wheel.deltaY;
+        me.wheel_momentum = wheel.isInertial;
+        me.button_state = visage::kMouseButtonNone;
+        me.button_id = last_button_id_;
+        // Bubble up through parents until someone handles it
+        while (target) {
+            if (!target->ignoresMouseEvents()) {
+                target->processMouseWheel(me);
+                break;
+            }
+            target = target->parent();
+        }
+    }
+
     void resized() override { 
         onResize(getWidth(), getHeight()); 
         if (canvas_) {
@@ -97,6 +125,14 @@ public:
             return;
 
         onRender();
+
+        // In windowless (software) mode the canvas framebuffer is cleared every frame,
+        // so we must mark every frame dirty before drawing or anything not in the
+        // stale-list will vanish from the screenshot.  (Non-windowless HW mode uses
+        // persistent per-region textures and does NOT need this.)
+        if (windowless_ && event_root_)
+            event_root_->redrawAll();
+
         drawStaleFrames();
         canvas_->submit();
 
@@ -199,39 +235,90 @@ private:
         if (!event_root_)
             return;
 
-        visage::MouseEvent me;
-        me.event_frame = event_root_;
-        me.position = { static_cast<float>(e.position.x), static_cast<float>(e.position.y) };
-        me.relative_position = me.position;
-        me.window_position = { static_cast<float>(e.getScreenX()), static_cast<float>(e.getScreenY()) };
+        // Component-local coords == Visage logical window coords
+        // (mainView fills the entire editor at logical origin (0,0))
+        const visage::Point window_pos = {
+            static_cast<float>(e.position.x),
+            static_cast<float>(e.position.y)
+        };
 
+        // Build common modifier / button state
         int mods = visage::kModifierNone;
-        if (e.mods.isShiftDown()) mods |= visage::kModifierShift;
-        if (e.mods.isCtrlDown())  mods |= visage::kModifierRegCtrl;
-        if (e.mods.isAltDown())   mods |= visage::kModifierAlt;
+        if (e.mods.isShiftDown())   mods |= visage::kModifierShift;
+        if (e.mods.isCtrlDown())    mods |= visage::kModifierRegCtrl;
+        if (e.mods.isAltDown())     mods |= visage::kModifierAlt;
         if (e.mods.isCommandDown()) mods |= visage::kModifierCmd;
-        me.modifiers = mods;
 
         int buttons = visage::kMouseButtonNone;
         if (e.mods.isLeftButtonDown())   buttons |= visage::kMouseButtonLeft;
         if (e.mods.isMiddleButtonDown()) buttons |= visage::kMouseButtonMiddle;
         if (e.mods.isRightButtonDown())  buttons |= visage::kMouseButtonRight;
-        me.button_state = buttons;
 
         if (type == MouseDispatch::Down) {
-            last_button_id_ = e.mods.isLeftButtonDown() ? visage::kMouseButtonLeft :
-                              e.mods.isRightButtonDown() ? visage::kMouseButtonRight :
+            last_button_id_ = e.mods.isRightButtonDown()  ? visage::kMouseButtonRight :
                               e.mods.isMiddleButtonDown() ? visage::kMouseButtonMiddle :
-                              visage::kMouseButtonLeft;
+                                                            visage::kMouseButtonLeft;
         }
-        me.button_id = last_button_id_;
-        me.is_down = (type != MouseDispatch::Up);
 
-        switch (type) {
-            case MouseDispatch::Down: event_root_->processMouseDown(me); break;
-            case MouseDispatch::Drag: event_root_->processMouseDrag(me); break;
-            case MouseDispatch::Up:   event_root_->processMouseUp(me); break;
-            case MouseDispatch::Move: event_root_->processMouseMove(me); break;
+        auto makeEvent = [&](visage::Frame* target) {
+            visage::MouseEvent me;
+            me.window_position = window_pos;
+            me.position        = window_pos - target->positionInWindow();
+            me.relative_position = me.position;   // Visage's relativePosition() reads this field
+            me.event_frame     = target;
+            me.modifiers       = mods;
+            me.button_state    = buttons;
+            me.button_id       = last_button_id_;
+            me.is_down         = (type != MouseDispatch::Up);
+            return me;
+        };
+
+        if (type == MouseDispatch::Down) {
+            // Hit-test: find the deepest child under the cursor
+            mouse_down_frame_ = event_root_->frameAtPoint(window_pos);
+            if (mouse_down_frame_) {
+                auto me = makeEvent(mouse_down_frame_);
+                mouse_down_frame_->processMouseDown(me);
+            }
+        }
+        else if (type == MouseDispatch::Drag) {
+            // Always deliver drag to the frame that got the Down event
+            if (mouse_down_frame_) {
+                auto me = makeEvent(mouse_down_frame_);
+                mouse_down_frame_->processMouseDrag(me);
+            }
+        }
+        else if (type == MouseDispatch::Up) {
+            visage::Frame* up_target = mouse_down_frame_;
+            mouse_down_frame_ = nullptr;
+            if (up_target) {
+                auto me = makeEvent(up_target);
+                up_target->processMouseUp(me);
+            }
+        }
+        else if (type == MouseDispatch::Move) {
+            if (mouse_down_frame_) {
+                // Button held but JUCE sent Move instead of Drag — treat as drag
+                auto me = makeEvent(mouse_down_frame_);
+                mouse_down_frame_->processMouseDrag(me);
+            } else {
+                // Update hover state
+                visage::Frame* hovered = event_root_->frameAtPoint(window_pos);
+                if (hovered != mouse_hovered_frame_) {
+                    if (mouse_hovered_frame_) {
+                        auto me = makeEvent(mouse_hovered_frame_);
+                        mouse_hovered_frame_->processMouseExit(me);
+                    }
+                    if (hovered) {
+                        auto me = makeEvent(hovered);
+                        hovered->processMouseEnter(me);
+                    }
+                    mouse_hovered_frame_ = hovered;
+                } else if (mouse_hovered_frame_) {
+                    auto me = makeEvent(mouse_hovered_frame_);
+                    mouse_hovered_frame_->processMouseMove(me);
+                }
+            }
         }
     }
 
@@ -319,6 +406,8 @@ private:
     bool rendererInitialized_ = false;
     bool windowless_ = false;
     juce::Image backbuffer_;
-    visage::Frame* event_root_ = nullptr;
+    visage::Frame* event_root_       = nullptr;
+    visage::Frame* mouse_down_frame_ = nullptr;   // Frame that received the last MouseDown
+    visage::Frame* mouse_hovered_frame_ = nullptr; // Frame currently under the cursor
     visage::MouseButton last_button_id_ = visage::kMouseButtonLeft;
 };
