@@ -1,30 +1,37 @@
 # PeakLFO — User Manual
 
-**Version 1.0.0** · Tempo-synced volume LFO (tremolo)
+**Version 1.1.0** · FL Fruity Peak Controller LFO (self-modulating volume)
 
-PeakLFO is a modulation effect that rhythmically shapes the volume of whatever runs
-through it, using a tempo-locked LFO. Its LFO shape and tension curve are a faithful
-reconstruction of FL Studio's Fruity Peak Controller.
+PeakLFO reproduces the **LFO section** of FL Studio's Fruity Peak Controller and applies it
+directly to the volume of whatever runs through it. Its shape, tension warp and volume taper
+are a faithful reconstruction of the original.
+
+## Output model
+```
+out = Base + shape(phase, tension) * Volume
+```
+The result is the gain applied to the audio (a self-modulating insert).
 
 ## Controls
 | Control | What it does |
 |---------|--------------|
-| **VOLUME** | Overall output level — the level the LFO swings around. |
-| **DEPTH**  | How much the LFO swings the volume up and down (0 = no effect). |
-| **TENSION**| Skews the LFO shape (concave ↔ convex). Centre = neutral. |
-| **SPEED**  | LFO period, locked to host tempo: 1/2, 1, 2, 3, 4, 8, 16, 32, 64, 128 steps (4 steps = 1 beat). |
-| **PHASE**  | Cycle start offset, locked to 0 / 25 / 50 / 75 %. |
-| **SHAPE**  | LFO waveform: Sine, Triangle, Square, Random. |
+| **BASE**    | Output floor/offset — the level when the LFO is at its low point. |
+| **VOLUME**  | How far the LFO swings from Base. **Bipolar**: turn negative to **invert** the wave. The knob has a logarithmic taper (fine control near the centre). |
+| **TENSION** | Warps the LFO shape (the signature FPC curve). Centre = unwarped; more tension = more peaked/asymmetric. |
+| **SPEED**   | LFO rate. See **MODE**. |
+| **MODE**    | **SYNC** (default) = tempo-locked steps (1/2, 1, 2, 3, 4, 8, 16, 32, 64, 128; 4 steps = 1 beat). **FREE** = free-running rate in Hz (faithful to the original FPC, which is not tempo-synced). |
+| **PHASE**   | Cycle start offset, full **0–100 %**. |
+| **SHAPE**   | Sine, Triangle, Square, **Saw**, Random. |
 
-The LFO is **locked to your DAW's transport** — it follows the song position and BPM,
-so the tremolo stays in time. When the transport is stopped it free-runs at the host tempo.
+In **SYNC** mode the LFO follows your DAW's transport (position + BPM); when stopped it
+free-runs at the host tempo. **FREE** mode ignores tempo and runs at the Hz you dial in.
 
 ## Installation
 - **Windows:** copy `PeakLFO.vst3` to `C:\Program Files\Common Files\VST3\`.
-- **macOS:** copy `PeakLFO.vst3` to `/Library/Audio/Plug-Ins/VST3/` and/or
-  `PeakLFO.component` to `/Library/Audio/Plug-Ins/Components/` (AU).
-- A **Standalone** app is also included for quick testing.
+- **macOS:** copy `PeakLFO.vst3` to `/Library/Audio/Plug-Ins/VST3/` and/or the AU
+  `PeakLFO.component` to `/Library/Audio/Plug-Ins/Components/` (built via CI).
+- A **Standalone** app is included for quick testing.
 
 ## Credits
-Built with Audio Plugin Coder (APC). DSP reverse-engineered from FL's Fruity Peak Controller.
-© 2026
+Built with Audio Plugin Coder (APC). DSP reverse-engineered from FL's Fruity Peak Controller
+(LFO section). © 2026

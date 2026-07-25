@@ -19,6 +19,8 @@ public:
 
 private:
     static const char* paramIdFor (VisageMainView::ParamId id);
+    const char* speedParamId() const;
+    void pushStateToView();
 
     PeakLFOAudioProcessor& audioProcessor;
     std::unique_ptr<VisageMainView> mainView;

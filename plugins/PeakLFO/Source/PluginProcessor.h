@@ -6,10 +6,12 @@
 #include "FPCEngine.h"
 
 //==============================================================================
-// PeakLFO — tempo-synced volume LFO (tremolo).
-// LFO shape/tension = reverse-engineered FL Fruity Peak Controller (FPCEngine.h).
-// Base = overall volume, Depth = how much the LFO swings, Speed = tempo steps,
-// Phase = locked to 0/25/50/75 %, Shape = Sine/Triangle/Square/Random.
+// PeakLFO — FL Fruity Peak Controller LFO (LFO-only), self-modulating volume insert.
+// Output model (matches FPC):  out = Base + shape(phase, tension) * Volume
+//   Base   = output floor/offset (0..1)
+//   Volume = bipolar, log-tapered, sign-flips the wave on negative
+//   shape  = tension-warped LFO (FPCEngine, decompiled curve)
+// Speed: tempo-synced steps (default, trance) OR free-run Hz (faithful FPC).
 //==============================================================================
 class PeakLFOAudioProcessor : public juce::AudioProcessor
 {
@@ -43,27 +45,26 @@ public:
 
     juce::AudioProcessorValueTreeState parameters;
 
-    // GUI meter snapshot (0..1)
-    std::atomic<float> meterLfo  { 0.5f };   // current LFO shape value
-    std::atomic<float> meterGain { 1.0f };   // current applied volume
+    std::atomic<float> meterLfo  { 0.5f };
+    std::atomic<float> meterGain { 1.0f };
 
-    // Speed step table (LFO period length in FL "steps"; 4 steps = 1 beat)
+    // Speed step table (LFO period in FL "steps"; 4 steps = 1 beat)
     static constexpr int   kNumSpeedSteps = 10;
     static constexpr float kSpeedSteps[kNumSpeedSteps] = { 0.5f, 1, 2, 3, 4, 8, 16, 32, 64, 128 };
     static const juce::StringArray& speedStepNames();
-    static const juce::StringArray& phaseNames();
+    static const juce::StringArray& shapeNames();
+
+    // Knob->raw span for tension: |raw| = TENSION_FULL * |knob|. Set to the decompiled
+    // divisor (128) so knob |1| spans the FPC tension formula's natural range (|raw|/128 = |knob|).
+    static constexpr int TENSION_FULL = 128;
 
 private:
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
     FPCEngine engine;
     double currentSampleRate = 44100.0;
-    double freeRunPhase = 0.0;                 // used when transport is not playing
-
-    juce::SmoothedValue<float> smBase, smDepth;
-
-    // tension curve calibration (exact FL shape; scale documented in spec §7)
-    static constexpr int TENSION_FULL = 64;
+    double freeRunPhase = 0.0;
+    juce::SmoothedValue<float> smBase, smVol;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PeakLFOAudioProcessor)
 };
