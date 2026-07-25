@@ -121,3 +121,11 @@ endif()
 if(UNIX AND NOT APPLE)
     target_compile_definitions(PeakLFO PUBLIC JUCE_USE_CURL=0 JUCE_JACK=1)
 endif()
+
+# ============================================
+# TESTS (Catch2) — enable with -DAPC_BUILD_TESTS=ON
+# ============================================
+option(APC_BUILD_TESTS "Build the plugin Catch2 test suites" OFF)
+if(APC_BUILD_TESTS)
+    add_subdirectory(Tests)
+endif()

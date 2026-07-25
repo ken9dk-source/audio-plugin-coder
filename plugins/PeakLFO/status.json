@@ -2,7 +2,7 @@
   "plugin_name": "PeakLFO",
   "version": "v0.0.0",
   "current_phase": "ship_complete",
-  "version": "v1.0.0",
+  "version": "v1.1.0",
   "ui_framework": "visage",
   "complexity_score": 3,
   "created_at": "2026-07-24T00:00:00Z",
@@ -33,6 +33,11 @@
       "phase": "code_v2",
       "completed_at": "2026-07-24T03:00:00Z",
       "notes": "User pivot: LFO-only tempo-synced volume tremolo (Base=volume, Depth=swing, Speed=steps 1/2..128, Phase=0/25/50/75%). Dropped peak follower + CV. Fixed non-draggable wheels via defensive ensureLayout(). Rebuild PASSED, PluginVal PASSED."
+    },
+    {
+      "phase": "fpc_match_v1.1",
+      "completed_at": "2026-07-24T06:00:00Z",
+      "notes": "3-phase FPC LFO match. P1: out=Base+shape*Volume (bipolar log-taper sign-flip), Saw shape, full phase, Sync/Free. P2: normalised tension warp (endpoints fixed, fixes amplitude-shrink). P3: locked to decompiled FL literals (taper 6/256/0.2; tension 1001/128/0.1+warp), residual ~float-eps (8.5e-8 / 3.4e-8). Catch2 14 cases/9473 assertions + PluginVal strictness 10 PASS. Drag bug: windowPosition() fix intact; VisageJuceHost.h untouched here."
     }
   ],
   "validation": {

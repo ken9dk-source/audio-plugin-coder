@@ -2,6 +2,7 @@
 // Derived from Fruity Peak Controller_x64.dll (see FPC_LFO_SPEC.md for provenance).
 // Single-file, dependency-free. Output range matches FL: 0 .. 2^30, plus a 0..1 helper.
 #pragma once
+#include <algorithm>
 #include <cstdint>
 #include <cmath>
 #include <cstdlib>
@@ -17,7 +18,23 @@ public:
     static constexpr int    kTableSize = 16384;      // phase>>18 → 14-bit index
     static constexpr double kFullScale = 1073741824.0; // 0x40000000 (2^30)
 
-    enum Shape { Sine = 0, Triangle = 1, Square = 2, Random = 3 };
+    enum Shape { Sine = 0, Triangle = 1, Square = 2, Saw = 3, Random = 4, kNumShapes = 5 };
+
+    // ---- output model (matches FPC): out = Base + shape * Volume ----
+    // Volume knob: bipolar, exponential taper (FPC 6^ family); sign-flips the wave.
+    static constexpr double kVolTaperBase = 6.0;
+    static float volumeTaper (float knobBipolar)   // -1..1 -> -1..1 tapered
+    {
+        const float sgn = (knobBipolar < 0.0f) ? -1.0f : 1.0f;
+        const float a   = std::abs (knobBipolar);
+        const double t  = (std::pow (kVolTaperBase, (double) a) - 1.0) / (kVolTaperBase - 1.0);
+        return sgn * (float) t;
+    }
+    static float outputGain (float base, float shape01, float volTapered)
+    {
+        const float g = base + shape01 * volTapered;
+        return g < 0.0f ? 0.0f : (g > 1.0f ? 1.0f : g);
+    }
 
     void prepare(double sampleRate)
     {
@@ -39,7 +56,7 @@ public:
     void setLfoAmount(int v){ pLfoAmt = v; recalcAmountTension(false); }
     void setLfoTension(int v){ pLfoTens = v; recalcAmountTension(false); }
     void setLfoSpeed (int v){ pLfoSpeed = v; recalcSpeed(); }
-    void setShape    (int s){ pShape = s; table = tables[(s>=0&&s<4)?s:0].data(); recalcSpeed(); }
+    void setShape    (int s){ pShape = s; table = tables[(s>=0&&s<kNumShapes)?s:0].data(); recalcSpeed(); }
     void setLfoPhase (int v){ pLfoPhase = v; }
 
     // ---- audio: call per input buffer (instant attack) ----
@@ -83,7 +100,7 @@ public:
     static double toUnipolar(int32_t v){ return (double)v * 9.313225746154785e-10; } // *2^-30
 
     // --- debug/inspection accessors (safe to keep; not part of DSP path) ---
-    float    dbgTable(int shape,int i) const { return tables[(shape&3)][i & (kTableSize-1)]; }
+    float    dbgTable(int shape,int i) const { return tables[std::clamp(shape,0,kNumShapes-1)][i & (kTableSize-1)]; }
     uint32_t dbgInc() const { return inc; }
     double   dbgFreeRunHz() const { return inc ? (double)inc / 4294967296.0 * (double)sr : 0.0; }
 
@@ -99,12 +116,28 @@ public:
     }
 
 private:
-    // ---------- exact curve helpers ----------
+    // ---------- tension warp ----------
+    // NORMALISED FL tension curve: maps s in [0,1] -> [0,1], endpoints fixed, so the warp
+    // reshapes the LFO WITHOUT changing its amplitude (FL achieves this by dividing amount
+    // by T; we bake the /T into the warp instead). sign flips the curvature; T=0 -> identity.
+    //   positive: (T - ((T+1)^(1-s) - 1)) / T      (convex / peaked)
+    //   negative: ((T+1)^s - 1) / T                (concave)
     static float shapeTension(float s, float T, int sign)
     {
-        if (sign > 0) return (float)((double)T - (std::pow((double)T + 1.0, 1.0 - (double)s) - 1.0));
-        if (sign < 0) return (float)(std::pow((double)T + 1.0, (double)s) - 1.0);
-        return s;
+        if (sign == 0 || T <= 0.0f) return s;
+        const double Td = (double) T;
+        if (sign > 0) return (float)((Td - (std::pow(Td + 1.0, 1.0 - (double) s) - 1.0)) / Td);
+        return          (float)((std::pow(Td + 1.0, (double) s) - 1.0) / Td);
+    }
+
+    // Tension magnitude mapping (raw tension int -> T). Coefficients are TUNABLE — set to the
+    // FL-decompiled literals; Phase 3 confirms/locks them and reports residual.
+    static constexpr double kTensBase = 1001.0;   // curve base
+    static constexpr double kTensDiv  = 128.0;    // raw divisor
+    static constexpr double kTensAmt  = 0.1;      // magnitude scale
+    static float tensionMag(int rawTens)
+    {
+        return (float)((std::pow(kTensBase, std::abs((double) rawTens) / kTensDiv) - 1.0) * kTensAmt);
     }
 
     void recalcSpeed()
@@ -113,7 +146,6 @@ private:
         double r = std::pow(1001.0, x);
         double period = std::floor(((r - 1.0) * (double)(sr >> 2) / 48.0 * 24576.0 / 1000.0) + 0.5);
         int64_t p = (int64_t)period;
-        if (pShape == 4) p <<= 14;
         if (p < 4) p = 3;
         inc = (uint32_t)(0x100000000ULL / (uint64_t)p);
     }
@@ -138,8 +170,8 @@ private:
         float Tmag = 0.0f;
         if (sign != 0)
         {
-            Tmag = (float)((std::pow(1001.0, std::abs((double)tensRaw) / 128.0) - 1.0) * 0.1);
-            amount /= (double)Tmag;
+            Tmag = tensionMag(tensRaw);                 // tunable T-mapping (see tensionMag)
+            if (Tmag > 0.0f) amount /= (double) Tmag;   // legacy peak-path amount coupling (unused by LFO path)
         }
         if (peak){ peakAmount=(float)amount; peakTensMag=Tmag; peakTensSign=sign; }
         else     { lfoAmount =(float)amount; lfoTensMag =Tmag; lfoTensSign =sign; }
@@ -154,6 +186,7 @@ private:
             tables[Sine][i]     = (float)std::sin(2.0*M_PI*ph);
             tables[Triangle][i] = (float)(ph<0.25? 4*ph : ph<0.75? 2-4*ph : 4*ph-4); // -1..1
             tables[Square][i]   = ph < 0.5f ? 1.0f : -1.0f;
+            tables[Saw][i]      = (float)(2.0*ph - 1.0);        // rising ramp -1..1
         }
         // Random = fixed sample&hold noise table (regenerate once, deterministic)
         uint32_t rng = 0x12345678;
@@ -170,6 +203,6 @@ private:
     float peakAmount=0,lfoAmount=0, peakTensMag=0,lfoTensMag=0; int peakTensSign=0,lfoTensSign=0;
     float decayCoef=0, peakLevel=0;
     uint32_t phase=0, inc=0;
-    std::vector<float> tables[4];
+    std::vector<float> tables[kNumShapes];
     const float* table=nullptr;
 };
