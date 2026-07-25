@@ -20,10 +20,10 @@ transport (`ppq / (steps/4)`), free-runs at host BPM when stopped.
 
 ---
 
-## v1 (reference) — full Peak Controller model
+## v1 (reference) — full peak-controller model
 
-Derived 1:1 from the reverse-engineered Fruity Peak Controller (`tools/fpc/FPC_LFO_SPEC.md`).
-FL stores 10 params at `obj+0x120 + idx*4`. User-facing ranges below; the internal raw→formula
+Derived 1:1 from the reverse-engineered peak controller (`tools/fpc/FPC_LFO_SPEC.md`).
+The original stores 10 params at `obj+0x120 + idx*4`. User-facing ranges below; the internal raw→formula
 scaling (exponential curve inputs) is applied in `/impl` per the spec's curve constants.
 
 ## PEAK panel (envelope follower)
@@ -55,6 +55,6 @@ All outputs full-scale `0x40000000` (2³⁰), exposed to host normalized 0..1 (`
 Host-output transport strategy decided in `/plan` (modulation params + optional CV out).
 
 ## Calibration notes (bit-exact upgrade path)
-- User ranges above are the perceptual model. Exact FL wheel→raw mapping, host wavetable
-  values (esp. Random), and control-tick cadence require a runtime FL capture (spec §7).
+- User ranges above are the perceptual model. Exact reference wheel→raw mapping, host wavetable
+  values (esp. Random), and control-tick cadence require a runtime reference capture (spec §7).
 - Engine already implemented + validated: `tools/fpc/FPCLfo.h`.

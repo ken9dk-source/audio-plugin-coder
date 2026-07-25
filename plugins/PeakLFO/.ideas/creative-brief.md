@@ -1,7 +1,7 @@
 # PeakLFO — Creative Brief
 
 ## Hook
-A bit-faithful reconstruction of FL Studio's **Fruity Peak Controller** — a dual-source
+A bit-faithful reconstruction of the DAW's **peak controller** — a dual-source
 modulation generator that turns audio dynamics and a precision LFO into clean, host-usable
 control signals. Reverse-engineered to the formula, not just the vibe.
 
@@ -25,7 +25,7 @@ and an **LFO** panel of round vector wheels, with a live meter/scope visualiser.
 technical, functional — a modulation tool, not a toy.
 
 ## Key design question for /plan (host-output strategy)
-The original emits FL-internal controllers. In a generic VST3 host there is no equivalent
+The original emits host-internal controllers. In a generic VST3 host there is no equivalent
 "internal controller" bus, so /plan must choose how PeakLFO exposes its output:
 1. **Modulation parameters** — expose Peak+LFO / Peak / LFO as read-only automatable params
    the host can map (works in most DAWs).
@@ -35,5 +35,5 @@ Recommended default: **(1) + (2)** — modulation params for mapping, plus an op
 
 ## Scope
 - v1: full 10-parameter model, all 4 shapes, three outputs, Visage GUI matching the DFM layout.
-- Deferred to bit-exact pass (needs runtime FL capture): exact host wavetables, exact param
+- Deferred to bit-exact pass (needs runtime reference capture): exact host wavetables, exact param
   raw-value scaling, exact control-tick cadence. See spec §7.

@@ -1,4 +1,4 @@
-// PeakLFO — Phase 3 tests (Catch2 v3): residual vs the FL-decompiled literals.
+// PeakLFO — Phase 3 tests (Catch2 v3): residual vs the reverse-engineered literals.
 // Independent double-precision reference of the decompiled formulas; asserts the shipping
 // engine matches to float precision (< 1e-6). Locks the calibration against future drift.
 #define _USE_MATH_DEFINES
@@ -21,7 +21,7 @@ static double warpRef (double s, double t) {
     return          (std::pow (T + 1.0, s) - 1.0) / T;
 }
 
-TEST_CASE ("VOL taper matches the decompiled FL literal (6^ /256 x0.2)", "[calibrate]") {
+TEST_CASE ("VOL taper matches the decompiled reference literal (6^ /256 x0.2)", "[calibrate]") {
     double maxRes = 0.0;
     for (int i = -1000; i <= 1000; ++i) {
         double k = i / 1000.0;
@@ -30,7 +30,7 @@ TEST_CASE ("VOL taper matches the decompiled FL literal (6^ /256 x0.2)", "[calib
     REQUIRE (maxRes < 1e-6);
 }
 
-TEST_CASE ("tension warp matches the decompiled FL literal (1001 /128 x0.1 + warp)", "[calibrate]") {
+TEST_CASE ("tension warp matches the decompiled reference literal (1001 /128 x0.1 + warp)", "[calibrate]") {
     double maxRes = 0.0;
     for (int ti = -128; ti <= 128; ti += 2) {
         double t = ti / 128.0;

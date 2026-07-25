@@ -1,6 +1,6 @@
-// FPCLfo.h — 1:1 reconstruction of the Fruity Peak Controller LFO + peak follower.
-// Derived from Fruity Peak Controller_x64.dll (see FPC_LFO_SPEC.md for provenance).
-// Single-file, dependency-free. Output range matches FL: 0 .. 2^30, plus a 0..1 helper.
+// FPCLfo.h — 1:1 reconstruction of the peak controller LFO + peak follower.
+// Derived from the reference plugin binary (see FPC_LFO_SPEC.md for provenance).
+// Single-file, dependency-free. Output range matches the reference: 0 .. 2^30, plus a 0..1 helper.
 #pragma once
 #include <algorithm>
 #include <cstdint>
@@ -20,8 +20,8 @@ public:
 
     enum Shape { Sine = 0, Triangle = 1, Square = 2, Saw = 3, Random = 4, kNumShapes = 5 };
 
-    // ---- output model (matches FPC): out = Base + shape * Volume ----
-    // Volume knob: bipolar, exponential taper (FPC 6^ family); sign-flips the wave.
+    // ---- output model (matches the reference): out = Base + shape * Volume ----
+    // Volume knob: bipolar, exponential taper (the reference 6^ family); sign-flips the wave.
     static constexpr double kVolTaperBase = 6.0;
     static float volumeTaper (float knobBipolar)   // -1..1 -> -1..1 tapered
     {
@@ -47,7 +47,7 @@ public:
         recalcAmountTension(/*peak*/ false);
     }
 
-    // ---- raw parameters (match FL param indices; ints as FL stores them) ----
+    // ---- raw parameters (match reference param indices; ints as the reference stores them) ----
     void setPeakBase (int v){ pPeakBase = v; }
     void setPeakAmount(int v){ pPeakAmt = v; recalcAmountTension(true); }
     void setPeakTension(int v){ pPeakTens = v; recalcAmountTension(true); }
@@ -105,7 +105,7 @@ public:
     double   dbgFreeRunHz() const { return inc ? (double)inc / 4294967296.0 * (double)sr : 0.0; }
 
     // Phase-driven LFO evaluation (for tempo-synced use): phase01 in [0,1) →
-    // unipolar [0,1] sample of the current shape with the exact FL tension curve applied.
+    // unipolar [0,1] sample of the current shape with the exact reference tension curve applied.
     float evalLfoUnipolar(double phase01) const
     {
         if (table == nullptr) return 0.5f;
@@ -117,8 +117,8 @@ public:
 
 private:
     // ---------- tension warp ----------
-    // NORMALISED FL tension curve: maps s in [0,1] -> [0,1], endpoints fixed, so the warp
-    // reshapes the LFO WITHOUT changing its amplitude (FL achieves this by dividing amount
+    // NORMALISED reference tension curve: maps s in [0,1] -> [0,1], endpoints fixed, so the warp
+    // reshapes the LFO WITHOUT changing its amplitude (the reference achieves this by dividing amount
     // by T; we bake the /T into the warp instead). sign flips the curvature; T=0 -> identity.
     //   positive: (T - ((T+1)^(1-s) - 1)) / T      (convex / peaked)
     //   negative: ((T+1)^s - 1) / T                (concave)
@@ -131,7 +131,7 @@ private:
     }
 
     // Tension magnitude mapping (raw tension int -> T). Coefficients are TUNABLE — set to the
-    // FL-decompiled literals; Phase 3 confirms/locks them and reports residual.
+    // reverse-engineered literals; Phase 3 confirms/locks them and reports residual.
     static constexpr double kTensBase = 1001.0;   // curve base
     static constexpr double kTensDiv  = 128.0;    // raw divisor
     static constexpr double kTensAmt  = 0.1;      // magnitude scale

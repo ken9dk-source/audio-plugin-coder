@@ -1,6 +1,6 @@
 #pragma once
 
-// PeakLFO — Visage UI: FL Fruity Peak Controller LFO (self-modulating volume).
+// PeakLFO — Visage UI: classic peak controller LFO (self-modulating volume).
 // out = Base + shape(phase,tension) * Volume.  Volume bipolar (sign-flips).
 // Speed: Sync (tempo steps) or Free (Hz). Shapes: Sine/Triangle/Square/Saw/Random.
 
@@ -113,7 +113,7 @@ private:
     void drawTitle(visage::Canvas& c) {
         if (!fonts_ready_) return;
         c.setColor(kText); c.text("PEAK LFO", title_font_, visage::Font::kCenter, 12, 5, 180, 18);
-        c.setColor(kDim);  c.text("fruity peak controller lfo", label_font_, visage::Font::kCenter, (float)width()-220, 8, 208, 14);
+        c.setColor(kDim);  c.text("volume lfo", label_font_, visage::Font::kCenter, (float)width()-220, 8, 208, 14);
     }
     void panelBox(visage::Canvas& c, const Rect& p) {
         c.setColor(kPanel);  c.rectangle(p.x,p.y,p.w,p.h); c.fill(p.x,p.y,p.w,p.h);

@@ -1,5 +1,5 @@
 # PeakLFO Plugin (Visage)
-# Faithful clone of FL's Fruity Peak Controller LFO + peak follower.
+# Faithful clone of the classic peak controller LFO + peak follower.
 # Cross-platform: Windows (VST3), macOS (VST3/AU), Linux (VST3/LV2)
 
 # ============================================

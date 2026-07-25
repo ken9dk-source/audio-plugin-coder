@@ -6,12 +6,12 @@
 #include "FPCEngine.h"
 
 //==============================================================================
-// PeakLFO — FL Fruity Peak Controller LFO (LFO-only), self-modulating volume insert.
-// Output model (matches FPC):  out = Base + shape(phase, tension) * Volume
+// PeakLFO — classic peak controller LFO (LFO-only), self-modulating volume insert.
+// Output model (matches the reference):  out = Base + shape(phase, tension) * Volume
 //   Base   = output floor/offset (0..1)
 //   Volume = bipolar, log-tapered, sign-flips the wave on negative
 //   shape  = tension-warped LFO (FPCEngine, decompiled curve)
-// Speed: tempo-synced steps (default, trance) OR free-run Hz (faithful FPC).
+// Speed: tempo-synced steps (default, trance) OR free-run Hz (faithful the reference).
 //==============================================================================
 class PeakLFOAudioProcessor : public juce::AudioProcessor
 {
@@ -48,14 +48,14 @@ public:
     std::atomic<float> meterLfo  { 0.5f };
     std::atomic<float> meterGain { 1.0f };
 
-    // Speed step table (LFO period in FL "steps"; 4 steps = 1 beat)
+    // Speed step table (LFO period in "steps"; 4 steps = 1 beat)
     static constexpr int   kNumSpeedSteps = 10;
     static constexpr float kSpeedSteps[kNumSpeedSteps] = { 0.5f, 1, 2, 3, 4, 8, 16, 32, 64, 128 };
     static const juce::StringArray& speedStepNames();
     static const juce::StringArray& shapeNames();
 
     // Knob->raw span for tension: |raw| = TENSION_FULL * |knob|. Set to the decompiled
-    // divisor (128) so knob |1| spans the FPC tension formula's natural range (|raw|/128 = |knob|).
+    // divisor (128) so knob |1| spans the the reference tension formula's natural range (|raw|/128 = |knob|).
     static constexpr int TENSION_FULL = 128;
 
 private:

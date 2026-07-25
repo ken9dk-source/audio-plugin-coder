@@ -1,7 +1,7 @@
 # UI Specification v1 — PeakLFO
 
 ## Design Source
-Faithful to FL Studio's Fruity Peak Controller (dark "meter-box"), layout taken from the
+Faithful to the classic peak controller (dark "meter-box"), layout taken from the
 reverse-engineered DFM (`tools/fpc/FPC_RE_NOTES.md`). Framework: **Visage (pure C++)**.
 
 ## Layout
@@ -60,7 +60,7 @@ Wheel interaction: vertical drag (Shift = fine), matches project convention
 - Text dim:    `#7A828A`
 
 ## Style Notes
-- Recessed dark panels with 1px lighter border (FL meter-box feel).
+- Recessed dark panels with 1px lighter border (the reference meter-box feel).
 - Vector wheels: dark body `#1C1F22`, outer ring `#4A5058`, green value arc + pointer.
 - Meter strip is the visual centerpiece (like the original) — animated at ~30fps from
   the processor's latest peak/LFO/output values.

@@ -1,7 +1,7 @@
 # Style Guide v1 — PeakLFO
 
 ## Theme
-Faithful FL "meter-box": dark, technical, functional. Green/yellow signal accent.
+Classic "meter-box": dark, technical, functional. Green/yellow signal accent.
 
 ## Color Palette (0xAARRGGBB for Visage `canvas.setColor`)
 | Role | Hex | Visage |
@@ -37,7 +37,7 @@ Faithful FL "meter-box": dark, technical, functional. Green/yellow signal accent
 - Refresh ~30fps from processor snapshot (atomic floats).
 
 ## Spacing / layout rules
-- Outer padding: 12px. Panel gap: 10px. Panel corner: square (FL style), 1px border.
+- Outer padding: 12px. Panel gap: 10px. Panel corner: square (the reference style), 1px border.
 - Title bar 28px; meter strip 78px; output row 24px; panels fill the rest.
 
 ## States

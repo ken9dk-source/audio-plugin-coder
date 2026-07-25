@@ -38,7 +38,7 @@ The engine is already written & validated, so phasing is about integration, outp
 
 ## Risk Assessment
 **High Risk**
-- **Absolute FL calibration** (exact wheel→raw scaling, host wavetables, tick cadence). Mitigated:
+- **Absolute reference calibration** (exact wheel→raw scaling, host wavetables, tick cadence). Mitigated:
   perceptual-100 is the agreed v1 target; bit-exact deferred to a runtime-capture pass (spec §7).
 - **Modulation output in arbitrary DAWs** — no universal "controller" bus; mod-params + CV is the
   portable compromise; behavior varies per host.

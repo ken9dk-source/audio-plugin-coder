@@ -4,7 +4,7 @@
 The DSP core is already implemented and validated (`tools/fpc/FPCLfo.h` → will be vendored as
 `Source/FPCEngine.h`). Architecture wraps it for a generic VST3 host.
 
-1. **Audio tap / peak extractor** — per block, compute `max(|L|)`, `max(|R|)` (matches FL's
+1. **Audio tap / peak extractor** — per block, compute `max(|L|)`, `max(|R|)` (matches the reference's
    IPP max-abs `FUN_005efbc0`); feed `FPCEngine::pushAudioPeak`.
 2. **FPCEngine** (the ported engine) — peak follower (instant attack, linear decay) + LFO
    (uint32 phase acc, 16384 wavetable, 4 shapes) + tension/amount/base shaping + output combine.
@@ -21,7 +21,7 @@ The DSP core is already implemented and validated (`tools/fpc/FPCLfo.h` → will
    to output unchanged unless `cv_out` replaces the bus with CV.
 6. **Parameter binding** — APVTS (10 params) → `FPCEngine` setters; smoothed where needed.
 7. **Transport sync** (optional) — `FPCEngine::syncPhase(ppqPos)` from `AudioPlayHead` for
-   tempo-anchored LFO phase (mirrors FL `FUN_007062a0`).
+   tempo-anchored LFO phase (mirrors the reference `FUN_007062a0`).
 
 ## Processing Chain
 ```
