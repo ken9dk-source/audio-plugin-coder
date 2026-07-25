@@ -140,6 +140,8 @@ jobs:
           cmake -S . -B build -G Xcode \
             -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=10.15 \
+            -DCMAKE_CXX_STANDARD=20 \
+            -DCMAKE_CXX_STANDARD_REQUIRED=ON \
             -DAPC_ENABLE_VISAGE=ON
 
       - name: Build VST3
