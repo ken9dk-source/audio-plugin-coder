@@ -11,7 +11,7 @@
     {
       "phase": "ideation",
       "completed_at": "2026-07-24T00:00:00Z",
-      "notes": "Concept + params derived 1:1 from reverse-engineered Fruity Peak Controller (tools/fpc/). Engine already built + validated in tools/fpc/FPCLfo.h."
+      "notes": "Concept + params derived 1:1 from the reverse-engineered reference peak controller (tools/fpc/). Engine already built + validated in tools/fpc/FPCLfo.h."
     },
     {
       "phase": "plan_complete",
@@ -22,7 +22,7 @@
     {
       "phase": "design_complete",
       "completed_at": "2026-07-24T01:30:00Z",
-      "notes": "Visage v1: two-panel FL meter-box, 9 wheels + shape select + CV toggle + meter strip. Design/v1-*.md + Source/VisageControls.h."
+      "notes": "Visage v1: two-panel reference meter-box, 9 wheels + shape select + CV toggle + meter strip. Design/v1-*.md + Source/VisageControls.h."
     },
     {
       "phase": "code_complete",
@@ -37,7 +37,7 @@
     {
       "phase": "fpc_match_v1.1",
       "completed_at": "2026-07-24T06:00:00Z",
-      "notes": "3-phase FPC LFO match. P1: out=Base+shape*Volume (bipolar log-taper sign-flip), Saw shape, full phase, Sync/Free. P2: normalised tension warp (endpoints fixed, fixes amplitude-shrink). P3: locked to decompiled FL literals (taper 6/256/0.2; tension 1001/128/0.1+warp), residual ~float-eps (8.5e-8 / 3.4e-8). Catch2 14 cases/9473 assertions + PluginVal strictness 10 PASS. Drag bug: windowPosition() fix intact; VisageJuceHost.h untouched here."
+      "notes": "3-phase FPC LFO match. P1: out=Base+shape*Volume (bipolar log-taper sign-flip), Saw shape, full phase, Sync/Free. P2: normalised tension warp (endpoints fixed, fixes amplitude-shrink). P3: locked to decompiled reference literals (taper 6/256/0.2; tension 1001/128/0.1+warp), residual ~float-eps (8.5e-8 / 3.4e-8). Catch2 14 cases/9473 assertions + PluginVal strictness 10 PASS. Drag bug: windowPosition() fix intact; VisageJuceHost.h untouched here."
     }
   ],
   "validation": {
@@ -59,7 +59,7 @@
     "spec": "tools/fpc/FPC_LFO_SPEC.md",
     "engine": "tools/fpc/FPCLfo.h",
     "notes": "tools/fpc/FPC_RE_NOTES.md",
-    "precision_target": "perceptual-100 (bit-exact deferred; needs runtime FL capture of wavetables + param scaling + tick cadence)"
+    "precision_target": "perceptual-100 (bit-exact deferred; needs runtime capture of wavetables + param scaling + tick cadence)"
   },
   "error_recovery": {
     "last_backup": null,
